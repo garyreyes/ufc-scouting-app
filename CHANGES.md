@@ -60,3 +60,44 @@ user since auth isn't wired up yet.
 
 **Next:** pick the external fighter-data source, then build fighter
 search/profile (read-only, no auth needed) as the first end-to-end feature.
+
+## Phase 3 — External data source decision (2026-08-09)
+
+**Changed:**
+- ARCHITECTURE.md's "Open questions" resolved: external data source is
+  **API-Sports MMA API** (api-sports.io), chosen over scraping
+  UFCStats.com (unlicensed/fragile) and Wikidata (too thin on fight
+  stats). Free tier is 100 requests/day, judged sufficient for a
+  daily/weekly batch sync if done via paginated pulls.
+
+**Status:** decision only — `src/lib/ufc-data-sync/` is still empty
+placeholder files. Depth of available stats (strikes, takedowns, etc.) not
+yet confirmed against the live API.
+
+**Next:** get an API-Sports account + key, confirm actual endpoint/stat
+coverage, then implement `fetchFighter.ts` / `fetchFightHistory.ts` /
+`syncJob.ts`.
+
+## Phase 4 — API-Sports key wired up + verified (2026-08-09)
+
+**Changed:**
+- API-Sports account created, MMA API key added to `.env.local` as
+  `UFC_API_SPORTS_KEY` (server-only, no `NEXT_PUBLIC_` prefix)
+- `.env.local.example` updated with a placeholder for it
+- Verified live: `/fighters?search=` returns name/height/weight/reach/
+  stance; `/fights?date=` returns date, weight class, both fighters, and a
+  `slug` naming the event card (e.g. `"UFC Fight Night: Gamrot vs
+  Salkilld"`). No dedicated promotion/org filter endpoint exists —
+  `/leagues`, `/promotions`, `/events` all 404. UFC-scoping will need to
+  match on `slug` containing `"UFC"`.
+- ARCHITECTURE.md's data source section updated with these confirmed
+  fields/constraints
+
+**Status:** API key confirmed working end-to-end (real 200 responses with
+real fighter/fight data). Depth of granular per-fight stats (strikes
+landed, takedown %) still unconfirmed — not needed until scouting reports
+reference specific fight stats.
+
+**Next:** implement `src/lib/ufc-data-sync/` (`fetchFighter.ts`,
+`fetchFightHistory.ts`, `syncJob.ts`), then build the fighter search/
+profile feature as the first end-to-end vertical slice.

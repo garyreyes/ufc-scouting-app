@@ -90,6 +90,19 @@ Rule of thumb: if a feature's code needs something from another feature,
 that's a signal it either belongs in `shared/`, or the feature boundary is
 drawn wrong — revisit before adding to it.
 
+## External data source
+
+**API-Sports MMA API** (api-sports.io), chosen over scraping UFCStats.com
+(deeper stats, but fragile and unlicensed for reuse) and Wikidata (too thin
+on fight-level stats). Free tier: 100 requests/day, resets 00:00 UTC, same
+endpoints as paid. A daily/weekly batch sync should stay well under that if
+done via paginated event/fight pulls rather than one request per fighter.
+Verified against the live API: `/fighters` returns name/height/weight/
+reach/stance; `/fights` returns date, weight class, both fighters, and a
+`slug` naming the event card (e.g. `"UFC Fight Night: Gamrot vs
+Salkilld"`) — there's no dedicated promotion/org filter param, so the sync
+job scopes to UFC by matching `slug` against `"UFC"`. Depth of
+granular per-fight stats (strikes landed, takedown %) not yet confirmed.
+
 ## Open questions (not yet decided)
 - Sync frequency for external fighter data (proposed: daily)
-- Exact external data source to pull from
