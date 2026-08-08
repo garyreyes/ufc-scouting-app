@@ -101,3 +101,54 @@ reference specific fight stats.
 **Next:** implement `src/lib/ufc-data-sync/` (`fetchFighter.ts`,
 `fetchFightHistory.ts`, `syncJob.ts`), then build the fighter search/
 profile feature as the first end-to-end vertical slice.
+
+## Phase 5 — Sync job implemented, free-tier limits discovered (2026-08-09)
+
+**Changed:**
+- `src/lib/ufc-data-sync/client.ts` — shared fetch wrapper for API-Sports,
+  now with built-in request throttling (see below)
+- `fetchFighter.ts` — fetches one fighter, converts height/reach strings
+  (`"6' 0'"`, `"66'"`) to cm
+- `fetchFightHistory.ts` — fetches fights for a date, filters to UFC by
+  matching the event `slug` against `"UFC"` (no promotion filter exists)
+- `syncJob.ts` — walks a rolling window of dates, upserts events → fighters
+  → fights in that order (fights need the other two's generated ids)
+- `npm run sync` script (`dotenv-cli` + `tsx`) to run it standalone
+- `supabase/migrations/0003_service_role_grants.sql` — `service_role`
+  needed explicit table GRANTs too, same root cause as 0002 (raw SQL
+  migrations skip Supabase's dashboard-triggered default grants; RLS
+  bypass and table-level GRANTs are independent things)
+
+**Discovered the hard way (undocumented, found by triggering the errors):**
+- The free plan's `date` param isn't just "no ranges" — it only accepts a
+  narrow rolling window (~3 days) ending near today. Older AND future
+  dates are both rejected. There is no way to reach upcoming fight cards
+  or deep history on the free plan.
+- That window's exact boundary doesn't line up cleanly with UTC "today"
+  (likely a timezone difference on the API's side) — so `syncJob.ts`
+  doesn't try to compute the exact valid range; it just tries a slightly
+  wider window and skips + warns on any date the API rejects.
+- Free plan also caps at **10 requests/minute** (separate from the 100/day
+  cap). `client.ts` now serializes every call through a shared queue with
+  a 6.5s minimum gap between requests.
+- No `method`/`round` fields exist anywhere in the API's fight data, even
+  for finished fights — only a winner boolean per fighter. Those two
+  columns on `fights` will stay null until/unless a richer source is
+  added.
+
+**Status:** ran successfully end-to-end against the live project: 1 event,
+22 fighters, 11 fights written and confirmed readable back via the public
+anon key, including PostgREST FK-embedding (`fighter1:fighter1_id(name)`).
+Some fighters have null height/reach/stance — the API itself doesn't have
+that data for them, not a parsing bug.
+
+**Important open problem:** because the free plan can't reach future
+dates, the sync job **cannot populate upcoming/announced fights** — only
+whatever falls in the last ~2-3 days. This directly limits the "scouting
+report on an upcoming fight" use case. Not yet resolved — options are:
+upgrade the API plan, find a secondary source just for the schedule, or
+scope the MVP to already-happened fights only. Needs a decision before
+building the scouting-reports feature.
+
+**Next:** decide how to handle the upcoming-fights gap above, then build
+fighter search/profile (read-only) as the first end-to-end UI feature.
