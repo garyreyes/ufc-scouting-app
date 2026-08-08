@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "sync": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncJob.ts"
+    "sync:recent": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncJob.ts",
+    "sync:schedule": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncSchedule.ts",
+    "sync": "npm run sync:recent && npm run sync:schedule"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",

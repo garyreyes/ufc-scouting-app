@@ -1,6 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
 import { fetchFightHistory, type FightHistoryEntry } from "./fetchFightHistory";
 import { fetchFighter } from "./fetchFighter";
+import { getSupabaseAdmin } from "./supabaseAdmin";
+import { upsertFighter } from "./upsertFighter";
+import { upsertEvent } from "./upsertEvent";
 
 // The API only supports per-date lookups, not date ranges or bulk history.
 // The free plan additionally only allows a rolling ~3-day window whose
@@ -8,19 +10,10 @@ import { fetchFighter } from "./fetchFighter";
 // on the API's side) -- so dates outside it are skipped per-date below
 // rather than relied on to fall inside a computed range. See CHANGES.md
 // Phase 5: on the free plan there's no way to reach upcoming or older
-// fights at all, only this narrow near-today window.
+// fights at all, only this narrow near-today window. syncSchedule.ts
+// covers upcoming fights instead, via Wikipedia.
 const WINDOW_DAYS_PAST = 3;
 const WINDOW_DAYS_FUTURE = 1;
-
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-  }
-  // service role bypasses RLS -- this must only ever run server-side.
-  return createClient(url, serviceRoleKey);
-}
 
 function dateRange(pastDays: number, futureDays: number): string[] {
   const dates: string[] = [];
@@ -51,39 +44,42 @@ export async function runSyncJob() {
     return;
   }
 
-  const eventsBySlug = new Map<string, { external_id: string; name: string; event_date: string }>();
+  const uniqueEvents = new Map<string, { external_id: string; name: string; event_date: string }>();
   for (const entry of entries) {
-    if (!eventsBySlug.has(entry.eventSlug)) {
-      eventsBySlug.set(entry.eventSlug, {
+    if (!uniqueEvents.has(entry.eventSlug)) {
+      uniqueEvents.set(entry.eventSlug, {
         external_id: entry.eventSlug,
         name: entry.eventSlug,
         event_date: entry.eventDate,
       });
     }
   }
-  const { data: upsertedEvents, error: eventsError } = await supabase
-    .from("events")
-    .upsert(Array.from(eventsBySlug.values()), { onConflict: "external_id" })
-    .select("id, external_id");
-  if (eventsError) throw eventsError;
-  const eventIdBySlug = new Map(upsertedEvents.map((e) => [e.external_id, e.id]));
+  const eventIdBySlug = new Map<string, string>();
+  for (const [slug, event] of uniqueEvents) {
+    // upsertEvent falls back to a punctuation-insensitive name match, so
+    // this merges into an event syncSchedule.ts already created from
+    // Wikipedia instead of creating a near-duplicate row.
+    eventIdBySlug.set(slug, await upsertEvent(supabase, event));
+  }
 
   const fighterExternalIds = new Set<string>();
   for (const entry of entries) {
     fighterExternalIds.add(entry.fighter1ExternalId);
     fighterExternalIds.add(entry.fighter2ExternalId);
   }
-  const fighterRows = [];
+  const fighterIdByExternalId = new Map<string, string>();
+  let fighterCount = 0;
   for (const externalId of fighterExternalIds) {
     const fighter = await fetchFighter(Number(externalId));
-    if (fighter) fighterRows.push(fighter);
+    if (!fighter) continue;
+    // upsertFighter matches by external_id first, falling back to an
+    // exact name match -- so a fighter created earlier as a Wikipedia
+    // placeholder (no external_id) gets updated in place here instead
+    // of duplicated.
+    const id = await upsertFighter(supabase, fighter);
+    fighterIdByExternalId.set(externalId, id);
+    fighterCount++;
   }
-  const { data: upsertedFighters, error: fightersError } = await supabase
-    .from("fighters")
-    .upsert(fighterRows, { onConflict: "external_id" })
-    .select("id, external_id");
-  if (fightersError) throw fightersError;
-  const fighterIdByExternalId = new Map(upsertedFighters.map((f) => [f.external_id, f.id]));
 
   const fightRows = entries.map((entry) => ({
     external_id: entry.externalFightId,
@@ -101,7 +97,7 @@ export async function runSyncJob() {
   if (fightsError) throw fightsError;
 
   console.log(
-    `Synced ${eventsBySlug.size} events, ${fighterRows.length} fighters, ${fightRows.length} fights.`,
+    `Synced ${uniqueEvents.size} events, ${fighterCount} fighters, ${fightRows.length} fights.`,
   );
 }
 

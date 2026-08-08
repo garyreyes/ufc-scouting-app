@@ -2,32 +2,34 @@
 
 ## Status
 Next.js app scaffolded, feature-based folders in place, Supabase project
-created, full schema + RLS migrated and verified working, external data
-source picked (API-Sports MMA API) and sync job implemented + run
-successfully (1 event / 22 fighters / 11 fights live in the DB). No app
-UI/features built yet. Full history: see [CHANGES.md](CHANGES.md). Full
-architecture/decisions: see [ARCHITECTURE.md](ARCHITECTURE.md).
+created, full schema + RLS migrated and verified working. Two data
+sources feeding the DB: API-Sports (recent/confirmed results, `npm run
+sync:recent`) and Wikipedia (upcoming schedule up to ~2 months out, `npm
+run sync:schedule`); `npm run sync` runs both. 8 events / dozens of
+fighters / ~90 fights live in the DB, spanning already-happened through
+mid-October. No app UI/features built yet. Full history: see
+[CHANGES.md](CHANGES.md). Full architecture/decisions: see
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Known blocker, unresolved:** the API's free tier can't reach future
-dates at all (only a ~3-day window ending near today) — so the sync job
-can't populate upcoming/announced fights, only recent ones. This limits
-the "write a scouting report on an upcoming fight" use case. See CHANGES.md
-Phase 5, "Important open problem," for the options. Needs a decision
-before scouting-reports gets built.
+**Known limitation, unresolved:** events and fighters are deduplicated
+across the two sources, but individual fight rows are not — a card
+covered by both sources ends up with two rows per bout (one from each
+source, same fighters, unlinked). See CHANGES.md Phase 6, "Known
+limitation." Needs a decision before the fight-history/profile UI is
+built, or duplicates will show up on screen.
 
 ## What's NOT done yet (next steps, in order)
 
-1. **Decide how to handle the upcoming-fights gap** (see blocker above) —
-   upgrade the API plan, add a secondary schedule-only source, or scope
-   the MVP to already-happened fights only
+1. **De-duplicate fight rows across the two sources** (see limitation
+   above) — match on (event, fighter pair) instead of relying on
+   external_id, or filter duplicates at query time as a stopgap
 2. **Build one feature end-to-end first** — recommended: fighter search +
-   profile view (read-only, no auth needed — `fighters`/`events`/`fights`
-   are already publicly readable, and real data is already synced) — to
-   prove the UI layer works before building scouting reports/clans on top
+   profile view (read-only, no auth needed — real data is already synced)
+   — to prove the UI layer works before building scouting reports/clans
 3. **Wire up Supabase Auth** (Google + GitHub OAuth) once a feature needs a
    logged-in user (scouting reports, clans)
-4. **Schedule the sync job to run automatically** (daily/weekly, per
-   ARCHITECTURE.md) — currently only runs manually via `npm run sync`
+4. **Schedule both sync jobs to run automatically** (daily/weekly, per
+   ARCHITECTURE.md) — currently only run manually via `npm run sync`
 
 ## Working style for this project (context for Claude, not just the user)
 

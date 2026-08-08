@@ -32,11 +32,23 @@ sync layer fetches and writes into the app's own database on a schedule
 (daily/weekly — fighter stats don't change fast enough to need real-time).
 This keeps the app up even if the external source is down or changes.
 
+Two sources, because API-Sports' free tier has zero lookahead (can't
+reach even tomorrow — see below), which breaks scouting an upcoming
+fight. Wikipedia's event pages list fight cards weeks in advance, so it
+covers the schedule; API-Sports covers confirmed/recent results and
+fighter bios.
+
 ```
 lib/ufc-data-sync/
-  fetchFighter.ts
-  fetchFightHistory.ts
-  syncJob.ts
+  client.ts            -- throttled API-Sports fetch wrapper
+  fetchFighter.ts       -- API-Sports: one fighter's bio/measurements
+  fetchFightHistory.ts  -- API-Sports: fights on a given date
+  fetchSchedule.ts      -- Wikipedia: upcoming UFC event cards
+  supabaseAdmin.ts       -- shared service-role client (server-only)
+  upsertFighter.ts        -- merges fighters across both sources by name
+  upsertEvent.ts            -- merges events across both sources by name
+  syncJob.ts                 -- orchestrates the API-Sports sync
+  syncSchedule.ts              -- orchestrates the Wikipedia sync
 ```
 
 ## Scouting report visibility model

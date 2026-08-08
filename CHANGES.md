@@ -152,3 +152,52 @@ building the scouting-reports feature.
 
 **Next:** decide how to handle the upcoming-fights gap above, then build
 fighter search/profile (read-only) as the first end-to-end UI feature.
+
+## Phase 6 — Wikipedia schedule source, resolving the upcoming-fights gap (2026-08-09)
+
+**Changed:**
+- `src/lib/ufc-data-sync/fetchSchedule.ts` — lists upcoming UFC events via
+  Wikipedia's `Category:Scheduled mixed martial arts events` and parses
+  each event's `{{MMAevent bout}}` wikitext template (weight class, both
+  fighters, and — bonus — method/round/time when already finished, which
+  API-Sports never provides at all)
+- `src/lib/ufc-data-sync/syncSchedule.ts` — new sync entry point
+  (`npm run sync:schedule`) that writes Wikipedia's schedule into
+  events/fighters/fights
+- `src/lib/ufc-data-sync/supabaseAdmin.ts` — extracted the admin client
+  builder (now shared by `syncJob.ts` and `syncSchedule.ts`)
+- `src/lib/ufc-data-sync/upsertFighter.ts` / `upsertEvent.ts` — shared
+  find-or-create-or-update helpers so a fighter/event created by one
+  source (e.g. a Wikipedia placeholder with no `external_id`) gets updated
+  in place by the other source later instead of duplicated. `upsertEvent`
+  falls back to a punctuation/case-normalized name match (API-Sports says
+  `"...vs Salkilld"`, Wikipedia says `"...vs. Salkilld"` — same event,
+  different string). `syncJob.ts` refactored to use both.
+- `npm run sync` now runs `sync:recent` (API-Sports) then `sync:schedule`
+  (Wikipedia) in sequence.
+
+**Why:** Phase 5 found the API-Sports free tier has zero lookahead — not
+even tomorrow is reachable. That breaks the core "scout an upcoming fight"
+use case. Wikipedia's event pages are free, unauthenticated, and already
+list fight cards weeks in advance in a template structured enough to
+parse reliably.
+
+**Status:** verified live. `listUpcomingUfcEventTitles()` found 12 UFC
+events; `sync:schedule` wrote 8 events (4 filtered out for missing
+date/bouts) spanning `2026-08-08` to `2026-10-17` and 71 fights. The
+predicted event-name mismatch happened on the very first run — merged
+manually via a one-off cleanup (repoint fights, delete the duplicate row)
+after explicit user confirmation, since it was a destructive DB write.
+`upsertEvent` now prevents new instances of this going forward.
+
+**Known limitation, not solved:** events and fighters merge across the
+two sources; individual **fights do not**. The merged event above still
+has 23 fight rows for ~11-12 actual bouts (one set from API-Sports, one
+from Wikipedia, same fighters via name-matching but unlinked as fights).
+Matching fights across sources needs to key off "same event + same
+fighter pair," not attempted yet. Will need addressing before the fighter
+profile / fight history UI is built, or fight cards will show duplicates.
+
+**Next:** decide how to de-duplicate fight rows across sources (or filter
+in the query layer for now), then build fighter search/profile as the
+first end-to-end UI feature.
