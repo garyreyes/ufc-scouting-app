@@ -1,12 +1,27 @@
 import { notFound } from "next/navigation";
 import { getFighterById } from "@/features/fighters/api";
 import { FightHistoryRow } from "@/features/fighters/components/FightHistoryRow";
+import { getReportsForFighter } from "@/features/scouting-reports/api";
+import { getMyClans } from "@/features/clans/api";
+import { createClient } from "@/lib/supabase/server";
+import { FighterReportColumn } from "@/features/scouting-reports/components/FighterReportColumn";
 import styles from "./page.module.css";
 
 export default async function FighterProfilePage({ params }: PageProps<"/fighters/[id]">) {
   const { id } = await params;
   const result = await getFighterById(id);
   if (!result) notFound();
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Same reasoning as the fight detail page -- fighter_scouting_reports
+  // has no anon grant, so skip the query for logged-out visitors.
+  const [reports, clans] = user
+    ? await Promise.all([getReportsForFighter(id), getMyClans()])
+    : [[], []];
 
   const { fighter, fights } = result;
   const decided = fights.filter((f) => f.winner_id);
@@ -42,6 +57,21 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
             <FightHistoryRow key={fight.id} fight={fight} fighterId={fighter.id} />
           ))}
         </div>
+      )}
+
+      <h2 className={styles.reportsHeading}>Scouting Notes</h2>
+      {user ? (
+        <FighterReportColumn
+          fighterId={fighter.id}
+          fighterName={fighter.name}
+          redirectPath={`/fighters/${fighter.id}`}
+          reports={reports}
+          currentUserId={user.id}
+          clans={clans}
+          linkToProfile={false}
+        />
+      ) : (
+        <p className={styles.empty}>Sign in to read and write scouting notes.</p>
       )}
     </div>
   );

@@ -19,3 +19,20 @@
   color: var(--muted);
   margin-bottom: 24px;
 }
+
+.fighterColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.matchupHeading {
+  margin-top: 8px;
+}
+
+@media (max-width: 640px) {
+  .fighterColumns {
+    grid-template-columns: 1fr;
+  }
+}

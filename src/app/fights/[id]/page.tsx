@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getFightById } from "@/features/fights/api";
-import { getReportsForFight } from "@/features/scouting-reports/api";
+import { getReportsForFight, getReportsForFighter } from "@/features/scouting-reports/api";
 import { getMyClans } from "@/features/clans/api";
 import { createClient } from "@/lib/supabase/server";
 import { ReportForm } from "@/features/scouting-reports/components/ReportForm";
 import { ReportList } from "@/features/scouting-reports/components/ReportList";
+import { FighterReportColumn } from "@/features/scouting-reports/components/FighterReportColumn";
 import styles from "./page.module.css";
 
 export default async function FightDetailPage({ params }: PageProps<"/fights/[id]">) {
@@ -19,13 +20,20 @@ export default async function FightDetailPage({ params }: PageProps<"/fights/[id
   } = await supabase.auth.getUser();
 
   // No fully-public tier for scouting reports (see ARCHITECTURE.md) --
-  // scouting_reports isn't even granted to the anon role, so a logged-out
-  // visitor would always see zero reports anyway. Skip the query entirely
-  // rather than hitting a permission error for a result we already know.
-  const [reports, clans] = await Promise.all([
-    user ? getReportsForFight(id) : Promise.resolve([]),
-    user ? getMyClans() : Promise.resolve([]),
-  ]);
+  // scouting_reports/fighter_scouting_reports aren't even granted to the
+  // anon role, so a logged-out visitor would always see zero reports
+  // anyway. Skip the queries entirely rather than hitting a permission
+  // error for a result we already know.
+  const [matchupReports, fighter1Reports, fighter2Reports, clans] = user
+    ? await Promise.all([
+        getReportsForFight(id),
+        getReportsForFighter(fight.fighter1.id),
+        getReportsForFighter(fight.fighter2.id),
+        getMyClans(),
+      ])
+    : [[], [], [], []];
+
+  const redirectPath = `/fights/${id}`;
 
   return (
     <div>
@@ -40,14 +48,34 @@ export default async function FightDetailPage({ params }: PageProps<"/fights/[id
         {fight.method ? ` · ${fight.method}${fight.round ? ` · R${fight.round}` : ""}` : ""}
       </p>
 
-      <h2>Scouting Reports</h2>
-      {user ? (
+      {!user && <p className={styles.signInPrompt}>Sign in to read and write scouting reports.</p>}
+
+      {user && (
         <>
+          <h2>Individual Reports</h2>
+          <div className={styles.fighterColumns}>
+            <FighterReportColumn
+              fighterId={fight.fighter1.id}
+              fighterName={fight.fighter1.name}
+              redirectPath={redirectPath}
+              reports={fighter1Reports}
+              currentUserId={user.id}
+              clans={clans}
+            />
+            <FighterReportColumn
+              fighterId={fight.fighter2.id}
+              fighterName={fight.fighter2.name}
+              redirectPath={redirectPath}
+              reports={fighter2Reports}
+              currentUserId={user.id}
+              clans={clans}
+            />
+          </div>
+
+          <h2 className={styles.matchupHeading}>Matchup Report</h2>
           <ReportForm fightId={fight.id} clans={clans} />
-          <ReportList reports={reports} currentUserId={user.id} />
+          <ReportList reports={matchupReports} currentUserId={user.id} clans={clans} />
         </>
-      ) : (
-        <p className={styles.signInPrompt}>Sign in to read and write scouting reports.</p>
       )}
     </div>
   );

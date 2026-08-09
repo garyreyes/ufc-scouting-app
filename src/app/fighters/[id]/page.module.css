@@ -33,3 +33,7 @@
 .empty {
   color: var(--muted);
 }
+
+.reportsHeading {
+  margin-top: 32px;
+}

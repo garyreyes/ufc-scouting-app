@@ -1,0 +1,151 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.author {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.visibility {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+
+.body {
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.ownActions {
+  display: flex;
+  gap: 8px;
+}
+
+.action {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--surface-hover);
+}
+
+.editForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+}
+
+.textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.select {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.8rem;
+}
+
+.editActions {
+  display: flex;
+  gap: 8px;
+}
+
+.save {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.cancel {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.clanList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.clanOption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-hover);
+  font-size: 0.8rem;
+}
+
+.noClans {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.reshareNote {
+  font-size: 0.7rem;
+  color: var(--muted);
+}

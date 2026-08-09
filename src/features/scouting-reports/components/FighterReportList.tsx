@@ -1,19 +1,21 @@
-import type { ScoutingReport } from "../types";
-import { updateReport, deleteReport } from "../actions";
+import type { FighterScoutingReport } from "../types";
+import { updateFighterReport, deleteFighterReport } from "../actions";
 import { ReportCard } from "./ReportCard";
 import styles from "./ReportList.module.css";
 
-export function ReportList({
+export function FighterReportList({
   reports,
   currentUserId,
+  redirectPath,
   clans,
 }: {
-  reports: ScoutingReport[];
+  reports: FighterScoutingReport[];
   currentUserId: string | null;
+  redirectPath: string;
   clans: { id: string; name: string }[];
 }) {
   if (reports.length === 0) {
-    return <p className={styles.empty}>No scouting reports yet.</p>;
+    return <p className={styles.empty}>No notes yet.</p>;
   }
 
   return (
@@ -26,8 +28,8 @@ export function ReportList({
           visibility={report.visibility}
           isOwn={report.user_id === currentUserId}
           clans={clans}
-          updateAction={updateReport.bind(null, report.id, report.fight_id)}
-          deleteAction={deleteReport.bind(null, report.id, report.fight_id)}
+          updateAction={updateFighterReport.bind(null, report.id, redirectPath)}
+          deleteAction={deleteFighterReport.bind(null, report.id, redirectPath)}
         />
       ))}
     </div>

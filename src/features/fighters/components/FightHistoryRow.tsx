@@ -17,7 +17,7 @@ export function FightHistoryRow({
       : "Loss";
 
   return (
-    <Link href={`/events/${fight.event.id}`} className={styles.row}>
+    <Link href={`/fights/${fight.id}`} className={styles.row}>
       <span className={`${styles.outcome} ${styles[outcome.toLowerCase()]}`}>{outcome}</span>
       <div className={styles.details}>
         <span className={styles.opponent}>vs {opponent.name}</span>
