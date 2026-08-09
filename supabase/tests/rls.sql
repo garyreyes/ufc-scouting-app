@@ -25,11 +25,23 @@
 begin;
 
 create temporary table test_users (label text primary key, id uuid not null);
+-- Temp tables are owned by the connecting role (postgres in the SQL
+-- Editor) and don't auto-grant access to other roles -- without this,
+-- switching to `authenticated` below can't even read this lookup table,
+-- unrelated to any RLS policy being tested.
+grant select on test_users to authenticated, anon;
 insert into test_users (label, id) values
   ('a', '00000000-0000-0000-0000-000000000000'), -- REPLACE: user A's real id
   ('b', '11111111-1111-1111-1111-111111111111'); -- REPLACE: user B's real id, different from A
 
 -- ---- fixtures (created while still connected as postgres, which bypasses RLS) ----
+
+-- Neutralize any real-world clan membership these two accounts already
+-- have (e.g. from manual testing outside this script) so ALL_MY_CLANS
+-- checks below aren't skewed by clans they already share for reasons
+-- unrelated to this test's own fixture clans. Safe -- restored the
+-- instant the transaction rolls back at the end of this script.
+delete from clan_members where user_id in (select id from test_users);
 
 insert into fighters (id, name) values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'Test Fighter One'),
