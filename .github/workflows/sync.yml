@@ -2,10 +2,12 @@ name: Sync UFC data
 
 on:
   schedule:
-    # 00:00 UTC = 08:00 Philippine time. Runs daily -- cheap relative to
-    # API-Sports' free-tier 100 req/day cap, and catches new fight-week
-    # updates (results, next-card schedule) within a day.
-    - cron: "0 0 * * *"
+    # 00:00 UTC / 08:00 PHT and 12:00 UTC / 20:00 PHT. Picks get finalized
+    # Fri/Sat evening PHT depending on card day, so a single morning-only
+    # run could be ~12h stale by then (late replacements, schedule
+    # changes). Two runs/day is still cheap against API-Sports' 100
+    # req/day free-tier cap.
+    - cron: "0 0,12 * * *"
   workflow_dispatch: {}
 
 jobs:
