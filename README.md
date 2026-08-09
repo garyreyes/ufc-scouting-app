@@ -75,7 +75,10 @@ via a GitHub Actions cron workflow (`.github/workflows/sync.yml`). Hosted
 on Vercel, auto-deploying on every push to `main`.
 
 Full design, entity model, and the reasoning behind each major decision:
-[ARCHITECTURE.md](ARCHITECTURE.md). Phase-by-phase build history and every
-bug hit along the way: [CHANGES.md](CHANGES.md). Current status and what's
-left: [HANDOFF.md](HANDOFF.md). Lessons learned and what I'd do
-differently next time: [RETROSPECTIVE.md](RETROSPECTIVE.md).
+[ARCHITECTURE.md](ARCHITECTURE.md). A plain-English walkthrough of how the
+code actually solves specific problems (fetching fighters/events, merging
+two data sources, weight class fallbacks, permissions, etc.):
+[TECH.md](TECH.md). Phase-by-phase build history and every bug hit along
+the way: [CHANGES.md](CHANGES.md). Current status and what's left:
+[HANDOFF.md](HANDOFF.md). Lessons learned and what I'd do differently next
+time: [RETROSPECTIVE.md](RETROSPECTIVE.md).
