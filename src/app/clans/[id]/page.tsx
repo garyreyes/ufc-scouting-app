@@ -32,7 +32,12 @@ export default async function ClanDetailPage({ params }: PageProps<"/clans/[id]"
       <h1>{clan.name}</h1>
 
       <h2>Members</h2>
-      <MemberList members={clan.members} />
+      <MemberList
+        clanId={clan.id}
+        members={clan.members}
+        isOwner={clan.isOwner}
+        currentUserId={user.id}
+      />
 
       {clan.isOwner && (
         <>

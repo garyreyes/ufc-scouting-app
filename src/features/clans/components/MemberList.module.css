@@ -6,8 +6,26 @@
 }
 
 .item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 10px 14px;
   border-radius: 8px;
   background: var(--surface);
   font-size: 0.9rem;
+}
+
+.remove {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.remove:hover {
+  background: var(--surface-hover);
 }

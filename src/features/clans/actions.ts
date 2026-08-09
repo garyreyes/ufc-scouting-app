@@ -68,6 +68,22 @@ export async function leaveClan(clanId: string) {
   redirect("/clans");
 }
 
+export async function removeMember(clanId: string, memberUserId: string) {
+  const { supabase, user } = await requireUser();
+  if (memberUserId === user.id) {
+    throw new Error("Use \"Leave clan\" to remove yourself");
+  }
+  // RLS (0012_owner_removes_member.sql) is the real enforcement -- this
+  // only produces a clearer error for the wrong-action case above.
+  const { error } = await supabase
+    .from("clan_members")
+    .delete()
+    .eq("clan_id", clanId)
+    .eq("user_id", memberUserId);
+  if (error) throw error;
+  revalidatePath(`/clans/${clanId}`);
+}
+
 export async function acceptInvite(token: string) {
   const { supabase } = await requireUser();
   const { data: clanId, error } = await supabase.rpc("accept_clan_invite", { _token: token });
