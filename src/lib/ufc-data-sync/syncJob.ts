@@ -3,6 +3,7 @@ import { fetchFighter } from "./fetchFighter";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { upsertFighter } from "./upsertFighter";
 import { upsertEvent } from "./upsertEvent";
+import { upsertFight } from "./upsertFight";
 
 // The API only supports per-date lookups, not date ranges or bulk history.
 // The free plan additionally only allows a rolling ~3-day window whose
@@ -81,23 +82,31 @@ export async function runSyncJob() {
     fighterCount++;
   }
 
-  const fightRows = entries.map((entry) => ({
-    external_id: entry.externalFightId,
-    event_id: eventIdBySlug.get(entry.eventSlug),
-    fighter1_id: fighterIdByExternalId.get(entry.fighter1ExternalId),
-    fighter2_id: fighterIdByExternalId.get(entry.fighter2ExternalId),
-    winner_id: entry.winnerExternalId
-      ? fighterIdByExternalId.get(entry.winnerExternalId)
-      : null,
-    weight_class: entry.weightClass,
-  }));
-  const { error: fightsError } = await supabase
-    .from("fights")
-    .upsert(fightRows, { onConflict: "external_id" });
-  if (fightsError) throw fightsError;
+  let fightCount = 0;
+  for (const entry of entries) {
+    const eventId = eventIdBySlug.get(entry.eventSlug);
+    const fighter1Id = fighterIdByExternalId.get(entry.fighter1ExternalId);
+    const fighter2Id = fighterIdByExternalId.get(entry.fighter2ExternalId);
+    if (!eventId || !fighter1Id || !fighter2Id) continue;
+
+    // upsertFight falls back to matching on (event, unordered fighter
+    // pair), so this merges into a fight syncSchedule.ts already created
+    // from Wikipedia instead of leaving one bout as two rows.
+    await upsertFight(supabase, {
+      external_id: entry.externalFightId,
+      event_id: eventId,
+      fighter1_id: fighter1Id,
+      fighter2_id: fighter2Id,
+      winner_id: entry.winnerExternalId
+        ? fighterIdByExternalId.get(entry.winnerExternalId)
+        : null,
+      weight_class: entry.weightClass,
+    });
+    fightCount++;
+  }
 
   console.log(
-    `Synced ${uniqueEvents.size} events, ${fighterCount} fighters, ${fightRows.length} fights.`,
+    `Synced ${uniqueEvents.size} events, ${fighterCount} fighters, ${fightCount} fights.`,
   );
 }
 

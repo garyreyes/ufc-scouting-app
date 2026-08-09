@@ -11,24 +11,26 @@ mid-October. No app UI/features built yet. Full history: see
 [CHANGES.md](CHANGES.md). Full architecture/decisions: see
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Known limitation, unresolved:** events and fighters are deduplicated
-across the two sources, but individual fight rows are not — a card
-covered by both sources ends up with two rows per bout (one from each
-source, same fighters, unlinked). See CHANGES.md Phase 6, "Known
-limitation." Needs a decision before the fight-history/profile UI is
-built, or duplicates will show up on screen.
+Events, fighters, and fights are now deduplicated across the two sources
+(`upsertEvent`/`upsertFighter`/`upsertFight`, all in
+`src/lib/ufc-data-sync/`). One real edge case remains open, see below.
+
+**Known limitation, unresolved (not a bug, a real-world data conflict):**
+the two sources occasionally report a different opponent for the same
+fighter on the same card (found and documented in CHANGES.md Phase 7 —
+almost certainly a late replacement one source hasn't caught up on). These
+are deliberately left as separate rows rather than guessed at. No policy
+decided yet for how the UI should handle this if/when it shows up again
+(show both? prefer one source?).
 
 ## What's NOT done yet (next steps, in order)
 
-1. **De-duplicate fight rows across the two sources** (see limitation
-   above) — match on (event, fighter pair) instead of relying on
-   external_id, or filter duplicates at query time as a stopgap
-2. **Build one feature end-to-end first** — recommended: fighter search +
+1. **Build one feature end-to-end first** — recommended: fighter search +
    profile view (read-only, no auth needed — real data is already synced)
    — to prove the UI layer works before building scouting reports/clans
-3. **Wire up Supabase Auth** (Google + GitHub OAuth) once a feature needs a
+2. **Wire up Supabase Auth** (Google + GitHub OAuth) once a feature needs a
    logged-in user (scouting reports, clans)
-4. **Schedule both sync jobs to run automatically** (daily/weekly, per
+3. **Schedule both sync jobs to run automatically** (daily/weekly, per
    ARCHITECTURE.md) — currently only run manually via `npm run sync`
 
 ## Working style for this project (context for Claude, not just the user)

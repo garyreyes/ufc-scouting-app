@@ -201,3 +201,45 @@ profile / fight history UI is built, or fight cards will show duplicates.
 **Next:** decide how to de-duplicate fight rows across sources (or filter
 in the query layer for now), then build fighter search/profile as the
 first end-to-end UI feature.
+
+## Phase 7 — Fight-level dedup across sources (2026-08-09)
+
+**Changed:**
+- `src/lib/ufc-data-sync/upsertFight.ts` — new shared helper, same pattern
+  as `upsertFighter`/`upsertEvent`: matches by `external_id` first, falls
+  back to (event, unordered fighter-pair) match, so a bout described by
+  both sources merges into one row
+- `src/lib/ufc-data-sync/stripNullish.ts` — new small helper, used by
+  `upsertFight` and (retrofitted) `upsertFighter`: drops null/undefined
+  keys before any `.update()` call, so a partial write from one source
+  (e.g. API-Sports never has `method`/`round`) can't blank out a field
+  only the other source knows
+- `syncJob.ts` / `syncSchedule.ts` refactored to call `upsertFight`
+  instead of building bulk-upsert arrays / hand-rolled find-or-insert
+
+**Discovered while planning the cleanup — not just a formatting problem:**
+pulled every fight row for the one event with both sources' data and
+found the two sources sometimes disagree on **facts**, not just naming.
+For that card: 8 of 12 Wikipedia bouts matched an API-Sports bout by
+identical fighter-id pair; 1 pair was a fighter-identity miss ("Diego
+Ferreira" vs "Carlos Diego Ferreira" — same person, two fighter rows,
+confirmed and merged); 2 pairs had **genuinely different reported
+opponents** for the same fighter (Louie Sutherland vs. "Henrique da Silva
+Lopes" per API-Sports, vs. "José Luiz" per Wikipedia; Miles Johns vs.
+"Jessie Rosas" per API-Sports, vs. "Gianni Vázquez" — with a confirmed
+result — per Wikipedia), almost certainly a late opponent replacement one
+source hasn't caught up on. Decided, with the user, not to auto-merge
+those two: no reliable way to know which source is stale.
+
+**Cleanup performed (destructive, done only after explicit user
+confirmation):** merged the "Carlos Diego Ferreira" fighter duplicate into
+"Diego Ferreira" (repointed its fights, deleted the row); merged the one
+duplicate pair that had real data to preserve (winner/method/round) onto
+the API-Sports row; deleted 8 other now-fully-redundant Wikipedia rows.
+Net: 23 → 14 fight rows for that event (11 original + 3 legitimately
+distinct: the two disputed-opponent bouts, left alone on purpose, plus one
+bout API-Sports never had at all).
+
+**Still open:** the conflicting-opponent case has no general fix — it's a
+real-world data disagreement, not a bug. If it recurs, the UI will need to
+either show both or pick a "preferred source" policy; not designed yet.

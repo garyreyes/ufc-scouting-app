@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { stripNullish } from "./stripNullish";
 
 export interface FighterWrite {
   name: string;
@@ -16,12 +17,16 @@ export interface FighterWrite {
 // window). Matching by external_id first, falling back to an exact
 // case-insensitive name match, means a Wikipedia-created placeholder row
 // gets updated in place once real data arrives instead of duplicated.
-// Fields not present on `fighter` are left untouched on update, so a
-// sparse Wikipedia-only write never blanks out fuller API-Sports data.
+// Fields that are null/undefined on `fighter` are dropped before any
+// update, so a sparse write (Wikipedia has no measurements at all; even
+// API-Sports is null for some fighters) never blanks out better data the
+// other source already wrote.
 export async function upsertFighter(
   supabase: SupabaseClient,
   fighter: FighterWrite,
 ): Promise<string> {
+  const updatePayload = stripNullish(fighter);
+
   if (fighter.external_id) {
     const { data: byExternalId, error } = await supabase
       .from("fighters")
@@ -32,7 +37,7 @@ export async function upsertFighter(
     if (byExternalId) {
       const { error: updateError } = await supabase
         .from("fighters")
-        .update(fighter)
+        .update(updatePayload)
         .eq("id", byExternalId.id);
       if (updateError) throw updateError;
       return byExternalId.id;
@@ -48,7 +53,7 @@ export async function upsertFighter(
   if (byName) {
     const { error: updateError } = await supabase
       .from("fighters")
-      .update(fighter)
+      .update(updatePayload)
       .eq("id", byName.id);
     if (updateError) throw updateError;
     return byName.id;

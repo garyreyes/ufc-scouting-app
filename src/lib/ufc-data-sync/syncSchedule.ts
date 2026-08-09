@@ -2,14 +2,8 @@ import { listUpcomingUfcEventTitles, fetchEventSchedule } from "./fetchSchedule"
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { upsertFighter } from "./upsertFighter";
 import { upsertEvent } from "./upsertEvent";
+import { upsertFight } from "./upsertFight";
 
-// Fights sourced here use a synthetic external_id ("wiki:UFC 331:0")
-// rather than API-Sports' numeric ids, since those don't exist yet for
-// fights this far out. When the date later rolls into API-Sports'
-// reachable window, syncJob.ts's run creates a *separate* fight row keyed
-// by the real external_id -- individual fights are not merged across the
-// two sources (events are, via upsertEvent; fighters are, via
-// upsertFighter). Known limitation, not yet solved.
 export async function runScheduleSync() {
   const supabase = getSupabaseAdmin();
   const titles = await listUpcomingUfcEventTitles();
@@ -35,9 +29,11 @@ export async function runScheduleSync() {
       // wiki template lists winner first: "Winner | def. | Loser").
       const winnerId = bout.winnerName ? fighter1Id : null;
 
-      const fightExternalId = `wiki:${title}:${index}`;
-      const fightRow = {
-        external_id: fightExternalId,
+      // upsertFight falls back to matching on (event, unordered fighter
+      // pair), so this merges into a fight syncJob.ts already created
+      // from API-Sports instead of leaving one bout as two rows.
+      await upsertFight(supabase, {
+        external_id: `wiki:${title}:${index}`,
         event_id: eventId,
         fighter1_id: fighter1Id,
         fighter2_id: fighter2Id,
@@ -45,20 +41,7 @@ export async function runScheduleSync() {
         method: bout.method,
         round: bout.round,
         weight_class: bout.weightClass,
-      };
-
-      const { data: existingFight, error: findFightError } = await supabase
-        .from("fights")
-        .select("id")
-        .eq("external_id", fightExternalId)
-        .maybeSingle();
-      if (findFightError) throw findFightError;
-
-      const { error: writeError } = existingFight
-        ? await supabase.from("fights").update(fightRow).eq("id", existingFight.id)
-        : await supabase.from("fights").insert(fightRow);
-      if (writeError) throw writeError;
-
+      });
       fightCount++;
     }
   }
