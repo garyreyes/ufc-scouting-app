@@ -2,6 +2,16 @@
 
 **Live app:** https://ufc-scouting-app-2jtj.vercel.app/
 
+UFC Scouting App is a note-taking tool built for actually watching fight
+tape: while you're rewatching a fighter's past bouts, you jot what you
+notice straight into their individual fighter report ("good wrestling,"
+"fades in the third," "weak chin"); then, once fight week comes around,
+you pull up both fighters' notes side by side on the matchup page and
+weigh them against each other to sharpen your pick — all backed by real
+UFC fighter/event data, private by default, and shareable with your
+friend group when you want to compare reads before locking in picks
+together.
+
 ## Why this exists
 
 I'm a huge MMA/UFC fan, and my friends and I already make picks together —
