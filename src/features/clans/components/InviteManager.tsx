@@ -35,18 +35,23 @@ export function InviteManager({ clanId, invites }: { clanId: string; invites: Cl
 
 function InviteRow({ invite, clanId }: { invite: ClanInvite; clanId: string }) {
   const [copied, setCopied] = useState(false);
-  const url = `${window.location.origin}/invite/${invite.token}`;
+  // window doesn't exist during server rendering (client components still
+  // render on the server first for the initial HTML) -- keep the
+  // displayed text a deterministic relative path, and only touch
+  // window.location.origin inside the click handler, which never runs
+  // during SSR.
+  const path = `/invite/${invite.token}`;
 
   return (
     <li className={`${styles.row} ${invite.revoked ? styles.revoked : ""}`}>
-      <span className={styles.url}>{invite.revoked ? "Revoked" : url}</span>
+      <span className={styles.url}>{invite.revoked ? "Revoked" : path}</span>
       {!invite.revoked && (
         <div className={styles.actions}>
           <button
             type="button"
             className={styles.action}
             onClick={() => {
-              navigator.clipboard.writeText(url);
+              navigator.clipboard.writeText(`${window.location.origin}${path}`);
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             }}
