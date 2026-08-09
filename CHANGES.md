@@ -499,3 +499,26 @@ closed. The app itself is not yet deployed to Vercel.
 
 **Next:** add the sync secrets to the GitHub repo so the new workflow can
 actually run; deploy to Vercel.
+
+## Phase 13 — Deployed to Vercel
+
+- Deployed via Vercel's GitHub integration (auto-deploys on push to
+  `main`). Live at https://ufc-scouting-app-2jtj.vercel.app/
+- Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` were
+  needed as Vercel env vars (set for Production and Preview) — confirmed
+  by grepping `src/` outside `ufc-data-sync/` that nothing else touches
+  `process.env`. The service-role key and API-Sports key stay
+  GitHub-Actions-only, never reach Vercel.
+- Added the deployed domain's `/auth/callback` path to Supabase's
+  Redirect URLs allowlist (Site URL alone isn't enough — the app
+  explicitly builds `redirectTo` from `window.location.origin`, which
+  must be allow-listed exactly). No code changes needed since that
+  origin derivation was already dynamic, not hardcoded to localhost.
+- Verified live: Google + GitHub sign-in, fighters/events data loading,
+  clan creation + invite link, and writing a scouting report.
+
+**Status:** app is fully deployed and functional end-to-end. Everything
+from the original HANDOFF.md roadmap is done.
+
+**Next:** no blocking work left — remaining items (custom domain,
+onboarding friends) are optional/user-driven, not build tasks.

@@ -9,9 +9,10 @@ dark mode), Supabase Auth (Google + GitHub OAuth), and clans + scouting
 reports (both matchup-level and, as of Phase 11, per-fighter notes) —
 the actual point of the app — built, with editing added on top. Invite
 links and RLS visibility (SPECIFIC_CLANS correctly hidden from non-members)
-both verified end-to-end with a real second account. The sync job is now
-scheduled to run automatically once a day via GitHub Actions
-(`.github/workflows/sync.yml`). Full history: see
+both verified end-to-end with a real second account. The sync job runs
+automatically twice a day via GitHub Actions
+(`.github/workflows/sync.yml`). The app is deployed to Vercel and live.
+Full history: see
 [CHANGES.md](CHANGES.md). Full architecture/decisions: see
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -23,13 +24,16 @@ recurs.
 
 ## What's NOT done yet (next steps, in order)
 
-1. **Add the three sync secrets to the GitHub repo** (Settings > Secrets and
-   variables > Actions): `NEXT_PUBLIC_SUPABASE_URL`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `UFC_API_SPORTS_KEY` — same values as
-   `.env.local`. Without these the new `sync.yml` workflow will fail.
-2. **Deploy the app to Vercel** — not done yet, only decided as the target
-   host (CHANGES.md Phase 12). Sync scheduling was deliberately kept
-   independent of this via GitHub Actions, so it doesn't block on it.
+The app is deployed and live at https://ufc-scouting-app-2jtj.vercel.app/ —
+auth (Google + GitHub), fighters/events data, clans + invites, and
+scouting reports all verified working there. Sync job runs automatically
+twice daily via GitHub Actions. Nothing is currently blocking day-to-day
+use.
+
+Not yet done, lower priority:
+- Custom domain (currently on the free `*.vercel.app` subdomain — fine as
+  is, only worth it if wanted)
+- Inviting friends and actually using it together for a real fight card
 
 ## Working style for this project (context for Claude, not just the user)
 
