@@ -22,6 +22,7 @@ export function ReportForm({
         placeholder="What did you see? Why did they win or lose?"
         required
         rows={4}
+        maxLength={2000}
         className={styles.textarea}
       />
       <div className={styles.row}>

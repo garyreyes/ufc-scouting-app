@@ -25,6 +25,7 @@ export function FighterReportForm({
         placeholder="What's your read on this fighter? (e.g. good wrestling, weak chin)"
         required
         rows={3}
+        maxLength={2000}
         className={styles.textarea}
       />
       <div className={styles.row}>

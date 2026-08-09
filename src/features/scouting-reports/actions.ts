@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { ReportVisibility } from "./types";
 
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
 async function requireUser() {
   const supabase = await createClient();
   const {
@@ -13,13 +15,32 @@ async function requireUser() {
   return { supabase, user };
 }
 
+// RLS also enforces this (0010_fix_report_share_clan_membership.sql), but
+// filtering here first means a tampered clanIds list never reaches the
+// database as a rejected write -- it's just silently dropped from the
+// share list instead.
+async function keepOnlyOwnClans(
+  supabase: SupabaseServerClient,
+  userId: string,
+  clanIds: string[],
+): Promise<string[]> {
+  if (clanIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("clan_members")
+    .select("clan_id")
+    .eq("user_id", userId)
+    .in("clan_id", clanIds);
+  if (error) throw error;
+  return data.map((row) => row.clan_id);
+}
+
 export async function createReport(formData: FormData) {
   const { supabase, user } = await requireUser();
 
   const fightId = String(formData.get("fightId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
   const visibility = String(formData.get("visibility") ?? "PRIVATE") as ReportVisibility;
-  const clanIds = formData.getAll("clanIds").map(String);
+  const clanIds = await keepOnlyOwnClans(supabase, user.id, formData.getAll("clanIds").map(String));
 
   if (!fightId || !body) throw new Error("Missing fight or report body");
 
@@ -45,7 +66,7 @@ export async function updateReport(reportId: string, fightId: string, formData: 
 
   const body = String(formData.get("body") ?? "").trim();
   const visibility = String(formData.get("visibility") ?? "PRIVATE") as ReportVisibility;
-  const clanIds = formData.getAll("clanIds").map(String);
+  const clanIds = await keepOnlyOwnClans(supabase, user.id, formData.getAll("clanIds").map(String));
   if (!body) throw new Error("Report body required");
 
   const { error } = await supabase
@@ -90,7 +111,7 @@ export async function createFighterReport(formData: FormData) {
   const fighterId = String(formData.get("fighterId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
   const visibility = String(formData.get("visibility") ?? "PRIVATE") as ReportVisibility;
-  const clanIds = formData.getAll("clanIds").map(String);
+  const clanIds = await keepOnlyOwnClans(supabase, user.id, formData.getAll("clanIds").map(String));
   // Revalidate whichever page the form was submitted from (fight page or
   // fighter profile) so the new report shows up without a manual refresh.
   const redirectPath = String(formData.get("redirectPath") ?? `/fighters/${fighterId}`);
@@ -119,7 +140,7 @@ export async function updateFighterReport(reportId: string, redirectPath: string
 
   const body = String(formData.get("body") ?? "").trim();
   const visibility = String(formData.get("visibility") ?? "PRIVATE") as ReportVisibility;
-  const clanIds = formData.getAll("clanIds").map(String);
+  const clanIds = await keepOnlyOwnClans(supabase, user.id, formData.getAll("clanIds").map(String));
   if (!body) throw new Error("Report body required");
 
   const { error } = await supabase

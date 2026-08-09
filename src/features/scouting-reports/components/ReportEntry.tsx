@@ -44,6 +44,7 @@ export function ReportEntry({
           defaultValue={body}
           required
           rows={3}
+          maxLength={2000}
           className={styles.textarea}
         />
         <div className={styles.row}>

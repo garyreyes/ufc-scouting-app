@@ -522,3 +522,71 @@ from the original HANDOFF.md roadmap is done.
 
 **Next:** no blocking work left — remaining items (custom domain,
 onboarding friends) are optional/user-driven, not build tasks.
+
+## Phase 14 — Security review + RLS test suite
+
+Ran a full security review before inviting friends to use real accounts
+(and given the app's gambling-adjacent use case). Checked: RLS coverage
+and correctness on every table, IDOR risk on every mutating Server
+Action, the security-definer RPCs (`accept_clan_invite`,
+`get_invite_clan_name`, membership helpers) for privilege-escalation
+paths, GRANT/RLS consistency, invite token strength, secrets hygiene
+(service-role key never leaves `ufc-data-sync/`, `.env.local` never
+committed), stored-XSS exposure, and whether `proxy.ts`/page components
+ever trust a client-supplied user id anywhere instead of the session.
+
+**Found and fixed:** `report_clan_shares`/`fighter_report_clan_shares`'
+INSERT policies checked that the caller authored the report being
+shared, but never checked the caller is actually a member of the
+`clan_id` they're sharing it into. An authenticated user could share
+their own report into any clan whose UUID they could observe (e.g. one
+they'd left, or seen referenced elsewhere) — bounded impact (only their
+own content, not a read of someone else's data) but a real break of the
+stated visibility invariant. Fixed in
+`0010_fix_report_share_clan_membership.sql` by adding
+`is_clan_member(clan_id)` to both `with check` clauses, plus
+defense-in-depth in the Server Actions themselves
+(`keepOnlyOwnClans()` in `src/features/scouting-reports/actions.ts`
+filters `clanIds` against the caller's actual memberships before the
+insert, so a tampered request is silently dropped rather than reaching
+the DB as a rejected write).
+
+**Also added**, low-risk hygiene, not security findings: a 2000-char
+cap on report bodies and 60-char cap on clan names
+(`0011_length_limits.sql` + matching `maxLength` on the relevant forms)
+— nothing currently stops an unbounded paste, and there's no XSS risk
+either way (confirmed no `dangerouslySetInnerHTML` touches user data
+anywhere; React auto-escapes).
+
+**Everything else came back clean**: RLS enabled + default-deny on
+every table, every mutating Server Action double-checks `user_id =
+auth.uid()` beyond what RLS already enforces, no security-definer RPC
+allows spoofing another user's identity or joining a clan without a
+valid unrevoked token, grants match policies with no gaps in either
+direction, and secrets never leave their intended execution context.
+
+**Added `supabase/tests/rls.sql`** — a manual regression test: creates
+temporary fixtures inside a transaction that rolls back at the end,
+simulates two different logged-in users via `set local role
+authenticated` + `request.jwt.claims` (the same technique learned the
+hard way in Phase 10/11), and asserts the full visibility matrix
+(PRIVATE/ALL_MY_CLANS/SPECIFIC_CLANS, both directions), an IDOR check on
+UPDATE, the exact clan-membership bug just fixed above, and that `anon`
+still can't read scouting reports at all. Run it after any future
+migration that touches RLS, before trusting the change with real data.
+
+**Open product decision, not yet resolved:** clan invite links never
+expire and have unlimited reuse — `accept_clan_invite` only checks `not
+revoked`. Not a bug, but worth deciding deliberately rather than as a
+side effect, given the friend-group/gambling-adjacent context (see
+HANDOFF.md).
+
+**Status:** app-level security posture verified sound aside from the one
+fix above (already shipped). RLS test suite in place for future
+migrations. CI (Phase 14 also includes this from RETROSPECTIVE.md item
+#1) now runs `npm ci` + lint + build on every push, catching the class
+of bug (lockfile drift) that broke Phase 12's sync workflow.
+
+**Next:** decide on invite link expiry/reuse limits; consider
+consolidating the two near-duplicate scouting-report schemas
+(RETROSPECTIVE.md item #3) if touching that area again.

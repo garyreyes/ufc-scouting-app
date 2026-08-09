@@ -30,10 +30,29 @@ scouting reports all verified working there. Sync job runs automatically
 twice daily via GitHub Actions. Nothing is currently blocking day-to-day
 use.
 
+A full security review (Phase 14) found and fixed one real gap
+(`report_clan_shares`/`fighter_report_clan_shares` allowed sharing into
+a clan you're not a member of — fixed in
+`0010_fix_report_share_clan_membership.sql`), added a manual RLS test
+suite (`supabase/tests/rls.sql`) to catch this class of bug before it
+reaches real data, and added a CI workflow (`.github/workflows/ci.yml`)
+that runs `npm ci` + lint + build on every push.
+
+**Needs a decision, not yet made:** clan invite links never expire and
+can be reused unlimited times — only `revoked` is checked. Given the
+friend-group/gambling-adjacent use case, decide deliberately whether
+that's fine as-is (revocation is the only safety net, and it's opt-in —
+the owner has to notice and act) or whether to add expiry/max-uses.
+
 Not yet done, lower priority:
 - Custom domain (currently on the free `*.vercel.app` subdomain — fine as
   is, only worth it if wanted)
 - Inviting friends and actually using it together for a real fight card
+- Consolidating `scouting_reports`/`fighter_scouting_reports` into one
+  table with a nullable `fight_id`/`fighter_id` instead of two
+  near-duplicate schemas (RETROSPECTIVE.md item #3) — real but riskier
+  cleanup since it means migrating live data; talk through it before
+  starting
 
 ## Working style for this project (context for Claude, not just the user)
 
