@@ -19,7 +19,47 @@ export async function getFighters(
 
   const { data, error } = await request;
   if (error) throw error;
-  return data;
+
+  return fillMissingWeightClasses(data);
+}
+
+// Placeholder fighters synced from Wikipedia (upcoming fights only, no
+// API-Sports profile yet) have no weight_class of their own. One batched
+// query for their most recent fight's weight class, instead of one query
+// per fighter, so the grid doesn't show "unknown" for every fight still
+// waiting on API-Sports to catch up.
+async function fillMissingWeightClasses(fighters: Fighter[]): Promise<Fighter[]> {
+  const missingIds = fighters.filter((f) => !f.weight_class).map((f) => f.id);
+  if (missingIds.length === 0) return fighters;
+
+  const idList = missingIds.join(",");
+  const { data: fights, error } = await supabase
+    .from("fights")
+    .select("weight_class, fighter1_id, fighter2_id, event:event_id(event_date)")
+    .or(`fighter1_id.in.(${idList}),fighter2_id.in.(${idList})`);
+  if (error) throw error;
+
+  const latestByFighterId = new Map<string, { weight_class: string | null; date: string }>();
+  for (const fight of fights as unknown as {
+    weight_class: string | null;
+    fighter1_id: string;
+    fighter2_id: string;
+    event: { event_date: string };
+  }[]) {
+    for (const fighterId of [fight.fighter1_id, fight.fighter2_id]) {
+      if (!missingIds.includes(fighterId) || !fight.weight_class) continue;
+      const current = latestByFighterId.get(fighterId);
+      if (!current || fight.event.event_date > current.date) {
+        latestByFighterId.set(fighterId, { weight_class: fight.weight_class, date: fight.event.event_date });
+      }
+    }
+  }
+
+  return fighters.map((fighter) =>
+    fighter.weight_class
+      ? fighter
+      : { ...fighter, weight_class: latestByFighterId.get(fighter.id)?.weight_class ?? null },
+  );
 }
 
 export async function getFighterById(id: string): Promise<{
