@@ -5,9 +5,11 @@ Next.js app scaffolded, feature-based folders in place, Supabase project
 created, full schema + RLS migrated and verified working. Two data
 sources feeding the DB (API-Sports + Wikipedia, deduped against each
 other), a working read-only UI (events/fighters, YouTube-style shell,
-dark mode), and Supabase Auth (Google + GitHub OAuth) wired up and
-verified end-to-end. Full history: see [CHANGES.md](CHANGES.md). Full
-architecture/decisions: see [ARCHITECTURE.md](ARCHITECTURE.md).
+dark mode), Supabase Auth (Google + GitHub OAuth), and now clans +
+scouting reports — the actual point of the app — built and verified
+working end-to-end (creating a clan). Full history: see
+[CHANGES.md](CHANGES.md). Full architecture/decisions: see
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 **Known limitation, unresolved (not a bug, a real-world data conflict):**
 the two data sources occasionally report a different opponent for the
@@ -17,9 +19,11 @@ recurs.
 
 ## What's NOT done yet (next steps, in order)
 
-1. **Build clans + scouting-reports UI** on top of auth, using the
-   visibility-model RLS policies already in place since Phase 2 — this is
-   the actual point of the app, everything so far has been groundwork
+1. **Verify the rest of the clans/scouting-reports flow with a second
+   account** — invite link generation/acceptance, and the three report
+   visibility levels (PRIVATE / SPECIFIC_CLANS / ALL_MY_CLANS) actually
+   filtering correctly. Only clan creation itself has been confirmed live
+   so far (session paused after fixing the RLS bugs in CHANGES.md Phase 10)
 2. **Schedule both sync jobs to run automatically** (daily/weekly, per
    ARCHITECTURE.md) — currently only run manually via `npm run sync`
 
@@ -52,3 +56,11 @@ ship fast. Practical implications:
   version's actual conventions rather than relying on training data — this
   version renamed `middleware.ts` to `proxy.ts` (Next 16), which would have
   silently not run if built from memory instead of checking first
+- When RLS blocks something that looks like it should obviously be
+  allowed, test with a simulated session directly in SQL (`set local role
+  authenticated; set local "request.jwt.claims" = '...'`) *before*
+  chasing infrastructure explanations. Phase 10 burned real time on a
+  JWT-signing-key theory (checked Supabase dashboard settings, restarted
+  the project) before testing at the SQL level revealed it was a genuine
+  policy-logic bug (RLS chicken-and-egg on `RETURNING` / a subquery
+  through another table's SELECT policy) — nothing to do with JWTs at all

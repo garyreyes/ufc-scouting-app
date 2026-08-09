@@ -1,0 +1,43 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.author {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.visibility {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+
+.body {
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.empty {
+  color: var(--muted);
+}

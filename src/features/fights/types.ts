@@ -22,3 +22,7 @@ export interface FightWithFighters {
 export interface EventWithFights extends EventSummary {
   fights: FightWithFighters[];
 }
+
+export interface FightDetail extends FightWithFighters {
+  event: EventSummary;
+}

@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/db";
-import type { EventSummary, EventWithFights } from "./types";
+import { isInvalidIdError } from "@/lib/isInvalidIdError";
+import type { EventSummary, EventWithFights, FightDetail } from "./types";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -32,7 +33,10 @@ export async function getEventWithFights(
     .select("id, name, event_date")
     .eq("id", eventId)
     .maybeSingle();
-  if (eventError) throw eventError;
+  if (eventError) {
+    if (isInvalidIdError(eventError)) return null;
+    throw eventError;
+  }
   if (!event) return null;
 
   let query = supabase
@@ -49,4 +53,21 @@ export async function getEventWithFights(
   if (fightsError) throw fightsError;
 
   return { ...event, fights: fights as unknown as EventWithFights["fights"] };
+}
+
+export async function getFightById(fightId: string): Promise<FightDetail | null> {
+  const { data, error } = await supabase
+    .from("fights")
+    .select(
+      "id, weight_class, method, round, winner_id, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name), event:event_id(id, name, event_date)",
+    )
+    .eq("id", fightId)
+    .maybeSingle();
+  if (error) {
+    if (isInvalidIdError(error)) return null;
+    throw error;
+  }
+  if (!data) return null;
+
+  return data as unknown as FightDetail;
 }

@@ -1,0 +1,21 @@
+.eventLink {
+  display: inline-block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.eventLink:hover {
+  color: var(--foreground);
+}
+
+.meta {
+  color: var(--muted);
+  margin-top: -12px;
+  margin-bottom: 24px;
+}
+
+.signInPrompt {
+  color: var(--muted);
+  margin-bottom: 24px;
+}

@@ -1,0 +1,15 @@
+.button {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 12px;
+}
+
+.button:hover {
+  opacity: 0.9;
+}

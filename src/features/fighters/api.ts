@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/db";
+import { isInvalidIdError } from "@/lib/isInvalidIdError";
 import type { Fighter, FighterFightHistoryEntry } from "./types";
 
 export async function getFighters(
@@ -76,7 +77,10 @@ export async function getFighterById(id: string): Promise<{
     .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws")
     .eq("id", id)
     .maybeSingle();
-  if (fighterError) throw fighterError;
+  if (fighterError) {
+    if (isInvalidIdError(fighterError)) return null;
+    throw fighterError;
+  }
   if (!fighter) return null;
 
   const { data: fights, error: fightsError } = await supabase

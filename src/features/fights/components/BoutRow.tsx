@@ -14,6 +14,9 @@ export function BoutRow({ fight }: { fight: FightWithFighters }) {
       <span className={styles.result}>
         {fight.method ? `${fight.method}${fight.round ? ` · R${fight.round}` : ""}` : "Upcoming"}
       </span>
+      <Link href={`/fights/${fight.id}`} className={styles.reportsLink}>
+        Scouting reports →
+      </Link>
     </div>
   );
 }

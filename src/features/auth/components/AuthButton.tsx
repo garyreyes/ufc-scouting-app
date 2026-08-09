@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { signInWithOAuth, signOut } from "../api";
@@ -21,6 +22,7 @@ export function AuthButton() {
   const [user, setUser] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     const supabase = createClient();
@@ -79,10 +81,18 @@ export function AuthButton() {
             </>
           ) : (
             <>
-              <button type="button" className={styles.option} onClick={() => signInWithOAuth("google")}>
+              <button
+                type="button"
+                className={styles.option}
+                onClick={() => signInWithOAuth("google", pathname)}
+              >
                 Continue with Google
               </button>
-              <button type="button" className={styles.option} onClick={() => signInWithOAuth("github")}>
+              <button
+                type="button"
+                className={styles.option}
+                onClick={() => signInWithOAuth("github", pathname)}
+              >
                 Continue with GitHub
               </button>
             </>

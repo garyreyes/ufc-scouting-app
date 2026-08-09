@@ -316,3 +316,91 @@ Full chain works: OAuth login → `auth.users` insert → trigger →
 
 **Next:** build clans + scouting-reports UI on top of auth, using the
 visibility-model RLS policies already in place since Phase 2.
+
+## Phase 10 — Clans + scouting reports UI, three real RLS bugs found and fixed (2026-08-09)
+
+**Changed:**
+- `supabase/migrations/0004_clan_invites.sql` — invite-link system for
+  adding clan members (the original "owner adds members" policy from
+  0001 could only add someone whose id you already had, with no way to
+  look one up). Adds a `clan_invites` table plus `accept_clan_invite()`
+  and `get_invite_clan_name()`, both `security definer` so acceptance
+  doesn't need to relax `clan_members`' direct-insert policy at all
+- `src/app/fights/[id]/` — fight detail page (bout info + scouting
+  reports thread + compose form), linked from `BoutRow`'s new "Scouting
+  reports →" link
+- `src/app/clans/`, `src/app/invite/[token]/` — clan list/detail pages,
+  invite-link management (create/copy/revoke), invite acceptance page
+- `src/features/clans/`, `src/features/scouting-reports/` — `api.ts`
+  (reads, via the session-aware server client so RLS naturally scopes
+  results to "what this user can see") and `actions.ts` (`"use server"`
+  mutations: create/leave clan, create/revoke invite, accept invite,
+  create/delete report)
+- `src/lib/isInvalidIdError.ts` — malformed id in a URL (typo, stale
+  link) now reads as a normal 404 instead of crashing the page (Postgres
+  error `22P02`, caught in every `getById`-style query)
+- `signInWithOAuth` now accepts an optional `next` path, threaded through
+  from wherever `AuthButton` is clicked (via `usePathname`) — needed so
+  the invite-acceptance flow returns the user to the same invite page
+  after signing in, not just always to `/events/upcoming`
+
+**Three real bugs found through live debugging, not written correctly the
+first time:**
+
+1. **Missing `service_role` grants on a new table (a third time).** Same
+   root cause as Phase 2/5 (`0002`, `0003`): a `GRANT ... ON ALL TABLES`
+   only covers tables that exist *at that moment*, not ones created
+   later, and `clan_invites` was created after those migrations ran.
+   Fixed properly this time instead of patching again: `0005_service_
+   role_default_privileges.sql` uses `ALTER DEFAULT PRIVILEGES` so
+   `service_role` automatically gets full access to every future table.
+   (`anon`/`authenticated` stay deliberately manual per table — that's
+   the actual security boundary; `service_role` never needed to be.)
+
+2. **PostgREST embedding needs a real foreign key.** `profiles:user_id(
+   display_name)` queries on `scouting_reports` and `clan_members` failed
+   with `PGRST200` — both columns referenced `auth.users(id)`, not
+   `profiles(id)`, and PostgREST can't infer an embed through a shared-
+   but-indirect reference. `0006_fk_to_profiles.sql` repoints those FKs
+   (and `clans.created_by`, `clan_invites.created_by` for consistency) at
+   `profiles(id)` instead — still exactly as valid a reference, since
+   `profiles.id` already equals `auth.users.id` 1:1 via `handle_new_user`.
+
+3. **RLS chicken-and-egg on `clans` creation, two layers deep.** Spent a
+   long detour on this one — first hypothesis was a Supabase JWT-signing-
+   key propagation issue (the project uses the newer ES256 asymmetric
+   keys), tested via the dashboard and a project restart, neither
+   resolved it. The actual cause, found by testing directly in the SQL
+   editor with a simulated session (`set local role authenticated`) to
+   isolate the HTTP layer entirely: **(a)** `createClan`'s
+   `.insert().select("id")` requested the row back, but Postgres RLS
+   requires a just-inserted row to also pass the table's SELECT policy
+   before `RETURNING` can return it — and `clans`' SELECT policy is
+   `is_clan_member(id)`, false for the creator until the *next* insert
+   (into `clan_members`) runs. Fixed by generating the id client-side
+   (`randomUUID()`) so the insert never needs `RETURNING` at all.
+   **(b)** Once that surfaced, the `clan_members` insert failed too, for
+   the same underlying reason one level deeper: its own policy checks
+   `exists (select 1 from clans where created_by = auth.uid())`, and that
+   subquery is *also* subject to `clans`' SELECT policy — so a clan's
+   brand-new creator could never pass it either, for any clan, ever.
+   `0007_fix_clan_owner_chicken_egg.sql` adds an `is_clan_owner()`
+   security-definer helper (same pattern as `is_clan_member()` from 0001)
+   so this ownership check bypasses `clans`' RLS, and applies it to both
+   `clan_members`' and `clan_invites`' policies.
+
+**Lesson for next time:** when RLS blocks something that looks like it
+should obviously be allowed, test with a simulated session directly in
+SQL (`set local role authenticated; set local "request.jwt.claims" =
+...`) *before* chasing infrastructure explanations (JWT keys, caching,
+propagation) — it isolates app/network/auth-layer causes from actual
+policy-logic bugs in one query, far faster than dashboard exploration.
+
+**Status:** verified end-to-end live — created a clan ("mma"), confirmed
+both the `clans` row and the creator's `clan_members` row exist. Invite
+link generation/acceptance and scouting report create/visibility not yet
+independently verified beyond code review (session paused here).
+
+**Next:** verify invite links and scouting-report visibility rules
+(PRIVATE / SPECIFIC_CLANS / ALL_MY_CLANS) actually work end-to-end with a
+second account; schedule both sync jobs to run automatically.

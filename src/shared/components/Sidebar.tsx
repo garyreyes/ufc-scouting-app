@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: "/events/upcoming", label: "Upcoming Events", icon: "\u{1F4C5}" },
   { href: "/events/past", label: "Past Events", icon: "\u{1F551}" },
   { href: "/fighters", label: "Fighters", icon: "\u{1F94A}" },
+  { href: "/clans", label: "Clans", icon: "\u{1F465}" },
 ] as const;
 
 export function Sidebar({ collapsed }: { collapsed: boolean }) {
