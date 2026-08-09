@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { WeightClassFilter } from "./WeightClassFilter";
 import { ThemeToggle } from "./ThemeToggle";
+import { AuthButton } from "@/features/auth/components/AuthButton";
 import styles from "./TopBar.module.css";
 
 export function TopBar({
@@ -56,6 +57,7 @@ export function TopBar({
         <WeightClassFilter />
       </form>
       <ThemeToggle />
+      <AuthButton />
     </header>
   );
 }

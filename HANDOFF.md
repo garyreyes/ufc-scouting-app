@@ -3,34 +3,24 @@
 ## Status
 Next.js app scaffolded, feature-based folders in place, Supabase project
 created, full schema + RLS migrated and verified working. Two data
-sources feeding the DB: API-Sports (recent/confirmed results, `npm run
-sync:recent`) and Wikipedia (upcoming schedule up to ~2 months out, `npm
-run sync:schedule`); `npm run sync` runs both. 8 events / dozens of
-fighters / ~90 fights live in the DB, spanning already-happened through
-mid-October. No app UI/features built yet. Full history: see
-[CHANGES.md](CHANGES.md). Full architecture/decisions: see
-[ARCHITECTURE.md](ARCHITECTURE.md).
-
-Events, fighters, and fights are now deduplicated across the two sources
-(`upsertEvent`/`upsertFighter`/`upsertFight`, all in
-`src/lib/ufc-data-sync/`). One real edge case remains open, see below.
+sources feeding the DB (API-Sports + Wikipedia, deduped against each
+other), a working read-only UI (events/fighters, YouTube-style shell,
+dark mode), and Supabase Auth (Google + GitHub OAuth) wired up and
+verified end-to-end. Full history: see [CHANGES.md](CHANGES.md). Full
+architecture/decisions: see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 **Known limitation, unresolved (not a bug, a real-world data conflict):**
-the two sources occasionally report a different opponent for the same
-fighter on the same card (found and documented in CHANGES.md Phase 7 —
-almost certainly a late replacement one source hasn't caught up on). These
-are deliberately left as separate rows rather than guessed at. No policy
-decided yet for how the UI should handle this if/when it shows up again
-(show both? prefer one source?).
+the two data sources occasionally report a different opponent for the
+same fighter on the same card (CHANGES.md Phase 7). Left as separate rows
+on purpose. No policy decided yet for how the UI should handle it if it
+recurs.
 
 ## What's NOT done yet (next steps, in order)
 
-1. **Build one feature end-to-end first** — recommended: fighter search +
-   profile view (read-only, no auth needed — real data is already synced)
-   — to prove the UI layer works before building scouting reports/clans
-2. **Wire up Supabase Auth** (Google + GitHub OAuth) once a feature needs a
-   logged-in user (scouting reports, clans)
-3. **Schedule both sync jobs to run automatically** (daily/weekly, per
+1. **Build clans + scouting-reports UI** on top of auth, using the
+   visibility-model RLS policies already in place since Phase 2 — this is
+   the actual point of the app, everything so far has been groundwork
+2. **Schedule both sync jobs to run automatically** (daily/weekly, per
    ARCHITECTURE.md) — currently only run manually via `npm run sync`
 
 ## Working style for this project (context for Claude, not just the user)
@@ -58,3 +48,7 @@ ship fast. Practical implications:
   pass
 - New migrations go in `supabase/migrations/` as new numbered files — never
   edit an already-applied migration
+- Before writing Next.js code, check `node_modules/next/dist/docs/` for this
+  version's actual conventions rather than relying on training data — this
+  version renamed `middleware.ts` to `proxy.ts` (Next 16), which would have
+  silently not run if built from memory instead of checking first

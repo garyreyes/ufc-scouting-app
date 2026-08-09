@@ -243,3 +243,76 @@ bout API-Sports never had at all).
 **Still open:** the conflicting-opponent case has no general fix — it's a
 real-world data disagreement, not a bug. If it recurs, the UI will need to
 either show both or pick a "preferred source" policy; not designed yet.
+
+## Phase 8 — First UI: events/fighters pages, YouTube-style shell (2026-08-09)
+
+**Changed:**
+- App shell (`src/shared/components/`): collapsible icon-rail sidebar
+  (Upcoming Events / Past Events / Fighters), top bar with fighter-name
+  search + multi-select weight-class filter synced to the URL, dark-by-
+  default theme with a manual toggle (localStorage + a blocking init
+  script to avoid a flash of the wrong theme on load)
+- Pages, all reading live Supabase data: `/events/upcoming`, `/events/past`,
+  `/events/[id]` (full card, winners highlighted), `/fighters`
+  (searchable/filterable grid), `/fighters/[id]` (bio + fight history with
+  a real W-L record derived from `fights.winner_id`, not the unpopulated
+  `fighters.wins`/`losses` columns). Root route redirects to
+  `/events/upcoming`.
+- `getFighters()`/fighter profile: fall back to the weight class of a
+  fighter's most recent fight when their own record doesn't have one yet
+  (affects Wikipedia-only placeholder fighters). Initially only added to
+  the profile page; the user caught that the grid still showed "unknown"
+  for the same fighters, so extended to `getFighters()` too via one
+  batched query (not per-fighter, to avoid N+1).
+
+**Bug found by the user, fixed same session:** the weight-class filter
+matched `fighters.weight_class` directly, but ~128 of ~144 fighters have
+that column null (only resolvable via the fights-fallback above) — so
+filtering by e.g. Flyweight+Bantamweight returned nothing despite
+Flyweight fighters clearly visible on screen. Fixed by filtering against
+the resolved value instead of the raw column.
+
+**Status:** verified live via curl against the dev server (real event/
+fighter names render, filter returns correct fighters after the fix).
+Interactive behavior (hamburger collapse, filter popover, theme toggle)
+only checked by the user in-browser, not automatable from here.
+
+**Next:** wire up Supabase Auth so clans/scouting-reports — the actual
+point of the app — can get built on top of what's here.
+
+## Phase 9 — Supabase Auth wired up (Google + GitHub OAuth) (2026-08-09)
+
+**Changed:**
+- Installed `@supabase/ssr`; added `src/lib/supabase/client.ts` (browser,
+  cookie-based session) and `server.ts` (Server Components/Route
+  Handlers, async `cookies()`) alongside the existing plain client in
+  `lib/db.ts` (kept as-is for public reads that don't need to know who's
+  logged in)
+- `src/proxy.ts` — refreshes the session cookie on every request. Built as
+  `proxy.ts`, not `middleware.ts`: Next.js 16 renamed the convention
+  (confirmed in this version's bundled docs before writing it — the two
+  aren't interchangeable, `middleware.ts` would silently not run)
+- `src/app/auth/callback/route.ts` — exchanges the OAuth code for a
+  session, redirects back into the app
+- `src/features/auth/api.ts` (`signInWithOAuth`, `signOut`) and
+  `components/AuthButton.tsx` — self-contained client component managing
+  its own auth state via `onAuthStateChange`, wired into `TopBar`
+- `src/lib/requireEnv.ts` — small helper so the "missing env var" checks
+  type-check correctly inside functions (TypeScript doesn't carry a
+  module-level null-check's narrowing into a function defined below it);
+  retrofitted into `lib/db.ts` too for consistency
+
+**External setup (user did this, not scriptable):** created a Google
+Cloud OAuth client and a GitHub OAuth App, both with their authorization
+callback URL pointed at Supabase's own callback
+(`https://<project-ref>.supabase.co/auth/v1/callback`), then entered both
+providers' client ID/secret into Supabase's Authentication → Providers.
+
+**Status:** verified end-to-end — signed in via both providers, confirmed
+a `profiles` row was created automatically (via the `handle_new_user`
+trigger from Phase 2's migration) with the real display name from OAuth.
+Full chain works: OAuth login → `auth.users` insert → trigger →
+`profiles` row → readable back out.
+
+**Next:** build clans + scouting-reports UI on top of auth, using the
+visibility-model RLS policies already in place since Phase 2.

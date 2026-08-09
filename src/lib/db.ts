@@ -1,12 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
+import { requireEnv } from "./requireEnv";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl = requireEnv(process.env.NEXT_PUBLIC_SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = requireEnv(
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+);
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. Copy .env.local.example to .env.local and fill in values from the Supabase dashboard.",
-  );
-}
-
+// Plain client, no cookie-based session -- used for public reads
+// (fighters/events/fights) that don't need to know who's logged in. For
+// auth-aware queries, use lib/supabase/client.ts or server.ts instead.
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
