@@ -9,6 +9,10 @@ export function ThemeToggle() {
   const [isLight, setIsLight] = useState(false);
 
   useEffect(() => {
+    // Deliberate: server has no `document`, so the initial render must
+    // match its "false" (dark) output. Reading the real value in a lazy
+    // useState initializer instead would cause a hydration mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLight(document.documentElement.dataset.theme === "light");
   }, []);
 

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm ci fails loudly if package-lock.json is out of sync with
+      # package.json -- this is what would have caught the lockfile drift
+      # that silently broke the sync workflow (CHANGES.md Phase 12) the
+      # moment it happened, instead of via a scheduled job failing later.
+      - run: npm ci
+
+      - run: npm run lint
+
+      # A handful of routes prerender at build time and query Supabase for
+      # real data (events/fighters listing pages), so the build needs the
+      # public anon key -- same value as NEXT_PUBLIC_SUPABASE_ANON_KEY in
+      # .env.local, safe to expose since RLS (not secrecy) is what
+      # actually restricts access to this key.
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}

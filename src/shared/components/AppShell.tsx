@@ -11,7 +11,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
+    // Deliberate: server has no localStorage, so the initial render must
+    // match its "false" output. Reading the real value in a lazy useState
+    // initializer instead would cause a hydration mismatch.
     const stored = localStorage.getItem(COLLAPSE_STORAGE_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (stored) setCollapsed(stored === "true");
   }, []);
 
