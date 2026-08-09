@@ -8,7 +8,10 @@ other), a working read-only UI (events/fighters, YouTube-style shell,
 dark mode), Supabase Auth (Google + GitHub OAuth), and clans + scouting
 reports (both matchup-level and, as of Phase 11, per-fighter notes) —
 the actual point of the app — built, with editing added on top. Invite
-links verified end-to-end with a real second account. Full history: see
+links and RLS visibility (SPECIFIC_CLANS correctly hidden from non-members)
+both verified end-to-end with a real second account. The sync job is now
+scheduled to run automatically once a day via GitHub Actions
+(`.github/workflows/sync.yml`). Full history: see
 [CHANGES.md](CHANGES.md). Full architecture/decisions: see
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -20,13 +23,13 @@ recurs.
 
 ## What's NOT done yet (next steps, in order)
 
-1. **Verify report editing and visibility filtering live with the second
-   account** — does an edited report save correctly, and does a
-   SPECIFIC_CLANS report actually stay hidden from someone not in that
-   clan? Not yet re-tested after the Phase 11 RLS recursion fix
-   (CHANGES.md Phase 11)
-2. **Schedule both sync jobs to run automatically** (daily/weekly, per
-   ARCHITECTURE.md) — currently only run manually via `npm run sync`
+1. **Add the three sync secrets to the GitHub repo** (Settings > Secrets and
+   variables > Actions): `NEXT_PUBLIC_SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`, `UFC_API_SPORTS_KEY` — same values as
+   `.env.local`. Without these the new `sync.yml` workflow will fail.
+2. **Deploy the app to Vercel** — not done yet, only decided as the target
+   host (CHANGES.md Phase 12). Sync scheduling was deliberately kept
+   independent of this via GitHub Actions, so it doesn't block on it.
 
 ## Working style for this project (context for Claude, not just the user)
 

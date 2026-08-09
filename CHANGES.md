@@ -471,3 +471,31 @@ from a non-member?) still not explicitly re-tested after the 0008 fix.
 
 **Next:** verify report editing and visibility filtering live with the
 second account; schedule both sync jobs to run automatically.
+
+## Phase 12 — Verified visibility filtering, automated the sync job
+
+- **Verified live** with the second account: a `SPECIFIC_CLANS` report
+  stays correctly hidden from a user who isn't a member of the shared
+  clan. Closes the last open item from Phase 11.
+- **Sync automation.** Discussed where the app will be hosted (decided:
+  Vercel) and, separately, how to schedule `npm run sync`. Vercel Cron
+  hitting an API route was considered but rejected: API-Sports is
+  deliberately throttled to 1 request/6.5s client-side to stay under its
+  undocumented 10 req/min free-tier limit (Phase 5), and a sync run
+  (multiple date lookups + one fighter lookup per unique fighter) can
+  easily exceed Vercel's serverless function duration cap (60s on
+  Hobby). Went with a GitHub Actions cron workflow instead
+  (`.github/workflows/sync.yml`) — runs `syncJob.ts` (API-Sports) then
+  `syncSchedule.ts` (Wikipedia) daily at 00:00 UTC (08:00 PHT), on
+  GitHub-hosted runners with no comparable timeout. Matches actual usage
+  too: cards are mostly weekend, next card is usually known by Monday,
+  so once a day is enough — no need for anything more aggressive.
+  Requires `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and
+  `UFC_API_SPORTS_KEY` to be added as GitHub repo Actions secrets before
+  it can run (not yet done — see HANDOFF.md).
+
+**Status:** both items from Phase 11's "not done yet" list are now
+closed. The app itself is not yet deployed to Vercel.
+
+**Next:** add the sync secrets to the GitHub repo so the new workflow can
+actually run; deploy to Vercel.

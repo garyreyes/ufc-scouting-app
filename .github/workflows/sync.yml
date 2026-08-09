@@ -1,0 +1,36 @@
+name: Sync UFC data
+
+on:
+  schedule:
+    # 00:00 UTC = 08:00 Philippine time. Runs daily -- cheap relative to
+    # API-Sports' free-tier 100 req/day cap, and catches new fight-week
+    # updates (results, next-card schedule) within a day.
+    - cron: "0 0 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Sync recent results (API-Sports)
+        run: npx tsx src/lib/ufc-data-sync/syncJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          UFC_API_SPORTS_KEY: ${{ secrets.UFC_API_SPORTS_KEY }}
+
+      - name: Sync upcoming schedule (Wikipedia)
+        run: npx tsx src/lib/ufc-data-sync/syncSchedule.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
