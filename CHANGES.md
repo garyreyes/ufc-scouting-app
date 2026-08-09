@@ -404,3 +404,70 @@ independently verified beyond code review (session paused here).
 **Next:** verify invite links and scouting-report visibility rules
 (PRIVATE / SPECIFIC_CLANS / ALL_MY_CLANS) actually work end-to-end with a
 second account; schedule both sync jobs to run automatically.
+
+## Phase 11 — Finished verifying Phase 10, added individual fighter reports (2026-08-09)
+
+**Changed:**
+- Two more crashes found via live testing, both the same class as prior
+  fixes: `InviteManager` referenced `window.location.origin` during
+  render, which doesn't exist during server rendering (client components
+  still render server-side first) — fixed by keeping the displayed text a
+  relative path and only touching `window` inside the click handler.
+  `/clans/[id]` queried `clans` unconditionally, but that table has no
+  `anon` grant at all by design — logged-out visitor guard added, same
+  fix as the fight detail page in Phase 10.
+- **New feature, requested mid-session after seeing the matchup report
+  UI:** individual fighter reports — notes attached to a fighter directly
+  (e.g. "good wrestling"), not to one specific bout, so the same note
+  shows on every fight page that fighter appears in and on their profile.
+  `supabase/migrations/0009_fighter_scouting_reports.sql` — new
+  `fighter_scouting_reports` + `fighter_report_clan_shares` tables, same
+  visibility model and RLS pattern as matchup reports. Fight page now
+  shows two columns (one per fighter) above the existing matchup thread;
+  fighter profile pages get their own reports section.
+- **Real bug found immediately after building the above:**
+  `scouting_reports`' SELECT policy and `report_clan_shares`' SELECT
+  policy queried each other directly — a genuine circular dependency
+  between the two policies. Postgres rejects this outright with
+  "infinite recursion detected in policy" as soon as `scouting_reports`
+  is touched at all, not just for `SPECIFIC_CLANS` rows — the cycle is in
+  the policy *definitions*, independent of any row's data. Spent a real
+  detour chasing a JWT-signing-key theory first (checked the Supabase
+  dashboard's JWT Keys page, restarted the project) before isolating the
+  actual cause by simulating a session directly in SQL (`set local role
+  authenticated; set local "request.jwt.claims" = '...'`) — confirming
+  the lesson written down at the end of Phase 10 about testing that way
+  first. `0008_fix_scouting_reports_recursion.sql` fixes it with a
+  security-definer helper, same pattern as `is_clan_member()`. Applied
+  the same pattern preemptively to the new fighter-report tables in 0009,
+  so they don't hit the identical trap.
+- **Feature request:** reports weren't editable, only create/delete —
+  the RLS "author updates" policies already supported it (present since
+  the original 0001/0009 migrations), just no UI existed. Added a shared
+  `ReportCard` component with an edit/display toggle, used by both report
+  kinds. Bound Server Actions (`updateReport.bind(null, id, fightId)`)
+  are passed as props rather than plain closures, since only bound
+  Server Actions — not arbitrary functions — can cross the Server→Client
+  Component boundary in this framework.
+- `FightHistoryRow` (on a fighter's profile) now links to the specific
+  fight (`/fights/[id]`) instead of the event page, so there's an actual
+  path from a fighter's profile into one of their bouts' scouting reports.
+
+**Also found and fixed along the way:** wrong Supabase *project* — the
+user accidentally ran a migration against an unrelated project
+("GAMBLING TRACKER") instead of `ufc-scouting-app`, caught immediately by
+the error (`report_clan_shares` doesn't exist there) and the project name
+visible in the dashboard screenshot. Not a code bug, but worth noting:
+always confirm the active project in the dashboard before running SQL,
+especially if multiple Supabase projects exist on the same account.
+
+**Status:** invite acceptance verified end-to-end with a second real
+Google account — `clan_members` confirmed to have both users after
+accepting an invite link. Matchup + individual fighter reports verified
+working (create, and the RLS recursion bug caught before real use).
+Edit capability built but not yet independently re-verified live.
+Visibility filtering (does a SPECIFIC_CLANS report actually stay hidden
+from a non-member?) still not explicitly re-tested after the 0008 fix.
+
+**Next:** verify report editing and visibility filtering live with the
+second account; schedule both sync jobs to run automatically.

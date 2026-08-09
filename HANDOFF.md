@@ -5,9 +5,10 @@ Next.js app scaffolded, feature-based folders in place, Supabase project
 created, full schema + RLS migrated and verified working. Two data
 sources feeding the DB (API-Sports + Wikipedia, deduped against each
 other), a working read-only UI (events/fighters, YouTube-style shell,
-dark mode), Supabase Auth (Google + GitHub OAuth), and now clans +
-scouting reports — the actual point of the app — built and verified
-working end-to-end (creating a clan). Full history: see
+dark mode), Supabase Auth (Google + GitHub OAuth), and clans + scouting
+reports (both matchup-level and, as of Phase 11, per-fighter notes) —
+the actual point of the app — built, with editing added on top. Invite
+links verified end-to-end with a real second account. Full history: see
 [CHANGES.md](CHANGES.md). Full architecture/decisions: see
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -19,11 +20,11 @@ recurs.
 
 ## What's NOT done yet (next steps, in order)
 
-1. **Verify the rest of the clans/scouting-reports flow with a second
-   account** — invite link generation/acceptance, and the three report
-   visibility levels (PRIVATE / SPECIFIC_CLANS / ALL_MY_CLANS) actually
-   filtering correctly. Only clan creation itself has been confirmed live
-   so far (session paused after fixing the RLS bugs in CHANGES.md Phase 10)
+1. **Verify report editing and visibility filtering live with the second
+   account** — does an edited report save correctly, and does a
+   SPECIFIC_CLANS report actually stay hidden from someone not in that
+   clan? Not yet re-tested after the Phase 11 RLS recursion fix
+   (CHANGES.md Phase 11)
 2. **Schedule both sync jobs to run automatically** (daily/weekly, per
    ARCHITECTURE.md) — currently only run manually via `npm run sync`
 
@@ -63,4 +64,13 @@ ship fast. Practical implications:
   JWT-signing-key theory (checked Supabase dashboard settings, restarted
   the project) before testing at the SQL level revealed it was a genuine
   policy-logic bug (RLS chicken-and-egg on `RETURNING` / a subquery
-  through another table's SELECT policy) — nothing to do with JWTs at all
+  through another table's SELECT policy) — nothing to do with JWTs at all.
+  Phase 11 hit the same class of bug again (two policies referencing each
+  other directly = recursion) and this time caught it fast with the same
+  technique.
+- The user has multiple Supabase projects on their account. Before
+  running any migration, confirm the project name shown in the dashboard
+  matches `ufc-scouting-app` (URL should be
+  `vrwlfcywyfzfczajpdoh.supabase.co`, per `.env.local`) — Phase 11 had a
+  migration run against an unrelated project by mistake, caught quickly
+  by the resulting error but easy to miss if not checking
