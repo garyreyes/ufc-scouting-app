@@ -38,11 +38,10 @@ suite (`supabase/tests/rls.sql`) to catch this class of bug before it
 reaches real data, and added a CI workflow (`.github/workflows/ci.yml`)
 that runs `npm ci` + lint + build on every push.
 
-**Needs a decision, not yet made:** clan invite links never expire and
-can be reused unlimited times — only `revoked` is checked. Given the
-friend-group/gambling-adjacent use case, decide deliberately whether
-that's fine as-is (revocation is the only safety net, and it's opt-in —
-the owner has to notice and act) or whether to add expiry/max-uses.
+**Decided:** clan invite links stay as-is — no expiry, unlimited reuse,
+revoke manually if needed (works like a Discord invite link). Deliberate
+choice, not an oversight — fine for a small trusted friend group where
+you control distribution of the link.
 
 Not yet done, lower priority:
 - Custom domain (currently on the free `*.vercel.app` subdomain — fine as
