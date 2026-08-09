@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { ReportVisibility } from "../types";
-import styles from "./ReportCard.module.css";
+import styles from "./ReportEntry.module.css";
 
 const VISIBILITY_LABEL: Record<ReportVisibility, string> = {
   PRIVATE: "Only me",
@@ -10,8 +10,9 @@ const VISIBILITY_LABEL: Record<ReportVisibility, string> = {
   SPECIFIC_CLANS: "Specific clans",
 };
 
-export function ReportCard({
-  authorName,
+// One note inside an AuthorReportGroup. No collapse of its own -- the
+// group already decided to show it -- just the edit/display toggle.
+export function ReportEntry({
   body,
   visibility,
   isOwn,
@@ -19,7 +20,6 @@ export function ReportCard({
   updateAction,
   deleteAction,
 }: {
-  authorName: string | null;
   body: string;
   visibility: ReportVisibility;
   isOwn: boolean;
@@ -28,11 +28,7 @@ export function ReportCard({
   deleteAction: () => void | Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [draftVisibility, setDraftVisibility] = useState(visibility);
-
-  const flatBody = body.replace(/\s+/g, " ").trim();
-  const preview = flatBody.length > 80 ? `${flatBody.slice(0, 80).trimEnd()}…` : flatBody;
 
   if (editing) {
     return (
@@ -92,42 +88,24 @@ export function ReportCard({
   }
 
   return (
-    <div className={styles.card}>
-      <button
-        type="button"
-        className={styles.header}
-        onClick={() => setExpanded((current) => !current)}
-        aria-expanded={expanded}
-      >
-        <span className={styles.headerLeft}>
-          <span className={styles.chevron} data-expanded={expanded}>
-            ▸
-          </span>
-          <span className={styles.author}>{authorName ?? "Unknown"}</span>
-          {!expanded && <span className={styles.preview}>{preview}</span>}
-        </span>
-        <span className={styles.visibility}>{VISIBILITY_LABEL[visibility]}</span>
-      </button>
-      {expanded && (
-        <>
-          <p className={styles.body}>{body}</p>
-          {isOwn && (
-            <div className={styles.ownActions}>
-              <button type="button" className={styles.action} onClick={() => setEditing(true)}>
-                Edit
-              </button>
-              <button
-                type="button"
-                className={styles.action}
-                onClick={() => {
-                  if (confirm("Delete this report?")) deleteAction();
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          )}
-        </>
+    <div className={styles.entry}>
+      <span className={styles.visibility}>{VISIBILITY_LABEL[visibility]}</span>
+      <p className={styles.body}>{body}</p>
+      {isOwn && (
+        <div className={styles.ownActions}>
+          <button type="button" className={styles.action} onClick={() => setEditing(true)}>
+            Edit
+          </button>
+          <button
+            type="button"
+            className={styles.action}
+            onClick={() => {
+              if (confirm("Delete this report?")) deleteAction();
+            }}
+          >
+            Delete
+          </button>
+        </div>
       )}
     </div>
   );
