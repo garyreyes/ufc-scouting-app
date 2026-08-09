@@ -47,11 +47,32 @@ Not yet done, lower priority:
 - Custom domain (currently on the free `*.vercel.app` subdomain — fine as
   is, only worth it if wanted)
 - Inviting friends and actually using it together for a real fight card
-- Consolidating `scouting_reports`/`fighter_scouting_reports` into one
-  table with a nullable `fight_id`/`fighter_id` instead of two
-  near-duplicate schemas (RETROSPECTIVE.md item #3) — real but riskier
-  cleanup since it means migrating live data; talk through it before
-  starting
+
+**Deliberately deferred, plan already agreed:** consolidating
+`scouting_reports`/`fighter_scouting_reports` into one table with a
+nullable `fight_id`/`fighter_id` + check constraint instead of two
+near-duplicate schemas (RETROSPECTIVE.md item #3). Full staged plan
+already worked out — do NOT start it unprompted:
+
+1. Additive migration: add nullable `fighter_id` to `scouting_reports`,
+   drop `fight_id`'s `not null`, add a check constraint requiring
+   exactly one of the two set, copy every row from
+   `fighter_scouting_reports`/`fighter_report_clan_shares` into the
+   unified tables (same ids preserved). Old tables untouched.
+2. Update app code (`types.ts`, `api.ts`, `actions.ts`, merge
+   `ReportForm`/`FighterReportForm` and `ReportList`/`FighterReportList`
+   into one parameterized version each) to use the unified table.
+3. Deploy, verify both matchup reports and per-fighter notes live, then
+   re-run `supabase/tests/rls.sql` (extended for the merged shape).
+4. Only after step 3 is confirmed working: cleanup migration drops
+   `fighter_scouting_reports`, `fighter_report_clan_shares`, and the
+   `fighter_report_is_shared_with_user` helper.
+
+Explicitly postponed at the user's request until friends actually start
+using the app for a real card — not because of risk (the staged
+approach protects real data throughout), just to avoid touching live
+tables while someone else might be mid-write. Revisit once real
+multi-user activity starts.
 
 ## Working style for this project (context for Claude, not just the user)
 
