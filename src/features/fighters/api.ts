@@ -13,14 +13,19 @@ export async function getFighters(
   if (query.trim()) {
     request = request.ilike("name", `%${query.trim()}%`);
   }
-  if (weightClasses.length > 0) {
-    request = request.in("weight_class", weightClasses);
-  }
 
   const { data, error } = await request;
   if (error) throw error;
 
-  return fillMissingWeightClasses(data);
+  const resolved = await fillMissingWeightClasses(data);
+
+  // Filtered against the *resolved* weight class, not the raw column --
+  // most fighters (128 of ~144 at last count) only have one via the
+  // fights fallback below, since they're Wikipedia-only placeholders with
+  // no API-Sports profile yet. Filtering on the raw column alone made the
+  // filter useless for almost the whole roster.
+  if (weightClasses.length === 0) return resolved;
+  return resolved.filter((fighter) => fighter.weight_class && weightClasses.includes(fighter.weight_class));
 }
 
 // Placeholder fighters synced from Wikipedia (upcoming fights only, no
