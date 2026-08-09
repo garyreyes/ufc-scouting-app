@@ -1,0 +1,15 @@
+.date {
+  color: var(--muted);
+  margin-top: -12px;
+  margin-bottom: 24px;
+}
+
+.empty {
+  color: var(--muted);
+}
+
+.fightList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

@@ -1,0 +1,38 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 20px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.card:hover {
+  background: var(--surface-hover);
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  font-size: 1.75rem;
+  background: var(--background);
+  border: 1px solid var(--border);
+}
+
+.name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}

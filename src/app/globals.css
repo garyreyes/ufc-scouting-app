@@ -1,13 +1,29 @@
+/* Dark is the default (matches the reference design); data-theme="light"
+   is an explicit opt-out via the toggle in TopBar. No prefers-color-scheme
+   dependency -- the manual toggle is the only source of truth. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0f0f0f;
+  --foreground: #f1f1f1;
+  --surface: #181818;
+  --surface-hover: #272727;
+  --border: #303030;
+  --muted: #aaaaaa;
+  --accent: #e3243b;
+  --accent-foreground: #ffffff;
+  --sidebar-width: 220px;
+  --sidebar-width-collapsed: 72px;
+  --topbar-height: 64px;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #171717;
+  --surface: #f5f5f5;
+  --surface-hover: #ececec;
+  --border: #e0e0e0;
+  --muted: #6b6b6b;
+  color-scheme: light;
 }
 
 html {
@@ -42,8 +58,12 @@ a {
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin-bottom: 12px;
 }

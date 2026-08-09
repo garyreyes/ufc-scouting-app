@@ -1,0 +1,35 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+  color: var(--foreground);
+}
+
+.card:hover {
+  background: var(--surface-hover);
+}
+
+.thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  font-size: 2.5rem;
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+}
+
+.name {
+  padding: 12px 14px 4px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.date {
+  padding: 0 14px 14px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}

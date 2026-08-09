@@ -1,0 +1,22 @@
+.shell {
+  min-height: 100vh;
+}
+
+.topbarFallback {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-height);
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  z-index: 20;
+}
+
+.content {
+  padding-top: calc(var(--topbar-height) + 24px);
+  padding-left: 24px;
+  padding-right: 24px;
+  padding-bottom: 48px;
+  transition: margin-left 0.15s ease;
+}
