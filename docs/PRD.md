@@ -2,6 +2,9 @@
 
 **Status:** v2 scope, written retroactively
 **Written:** 2026-08-29
+**Amended:** 2026-08-29 — picks and bets split into two separate judgments,
+scoreboard split into two boards (UC-2, UC-3, UC-4, §5, §8); disputed-opponent
+policy decided (§7)
 **Supersedes:** the product story in `README.md` (see "Pivot record" below)
 
 > This is the single source of product truth. `ARCHITECTURE.md` owns *how*
@@ -88,11 +91,27 @@ credibility score. Judging the rumour is my job — that's the whole
 intern-not-oracle premise, and it's why a flag I disagree with costs me
 nothing.
 
-### UC-2 — Log a pick with a stake
+### UC-2 — Log a pick, and separately decide whether to bet it
 
-I pick **selectively** — only fights where I see value, not the whole card.
-For each: winner, unit stake, optional predicted method, confidence, and
-free-text reasoning.
+**A pick and a bet are two different judgments and must not be collapsed.**
+
+- A **pick** says who wins. No money. I can have an opinion on a fight I
+  would never back.
+- A **bet** says *the price is wrong*. Units at the frozen snapshot price.
+
+They come apart at both ends. A -6000 favourite — decimal 1.0167, **98.4%
+implied** — is near-certain to win and worthless to back; you would need to
+believe better than 98.4% before a single unit of edge exists. And an
+underdog I think probably *loses* can still be the correct bet if the market
+prices it below my own estimate. So a bet may be placed on the fighter I did
+not pick, and that is a feature, not a contradiction.
+
+For each: predicted winner, my **estimated probability**, confidence,
+optional predicted method, free-text reasoning — and optionally a
+`bet_fighter` plus unit stake.
+
+Estimated probability is required, not decorative. Without it a losing bet
+cannot be diagnosed: there is no way to tell a bad read from bad sizing.
 
 **Pricing comes from one scheduled odds snapshot taken ~12 hours before the
 event** — that's when I actually place my hypothetical picks. Every pick,
@@ -113,22 +132,51 @@ it a reason to.** It is explicitly not allowed to just rubber-stamp heavy
 favourites — a favourite with a corroborated weight-cut flag is exactly the
 case it should fade.
 
-It stakes **selectively and sizes by confidence**, same discipline as me, so
-the comparison is like-for-like.
+It runs the **same two-judgment discipline as me**, so the comparison is
+like-for-like: it picks a winner on every fight, and separately decides
+whether the price justifies backing anyone.
 
-### UC-4 — The scoreboard, in units
+**It must be capable of declining to bet.** A pick it is confident in but
+cannot back at the offered price is a correct and expected output — silence
+on a -6000 favourite is the intern working, not failing. Betting is gated on
+edge, `(estimated_probability × decimal_odds) − 1`, above a threshold, and
+sized by that edge. This is what stops it piling units onto unbackable
+favourites, and it is the same reason it is not allowed to rubber-stamp
+chalk.
 
-Three P&L lines, all in units, all settled from real results:
+### UC-4 — The scoreboard: two boards, not one
+
+Because a pick and a bet are different judgments, they are scored separately.
+Every row settles **twice, independently**.
+
+**Board 1 — units (bets only).** Did I find mispriced fights?
 
 | Line | What it is | Why it's there |
 |---|---|---|
-| **Me** | my picks, my stakes | the thing being measured |
-| **Intern** | its picks, its stakes | the opponent |
-| **Chalk** | flat 1u on every favourite, every fight | the control |
+| **Me** | my bets, my stakes | the thing being measured |
+| **Intern** | its bets, its stakes | the opponent |
+| **Chalk** | flat 1u on every favourite, every fight | the control — precisely the strategy that ignores value |
 
-The chalk line is computed automatically and costs nothing. **If neither of
-us beats it, that's the single most valuable thing this app can tell me** —
-and without it, a positive P&L proves nothing.
+**Board 2 — accuracy (picks).** Did I read the fights right?
+
+| Line | What it is | Why it's there |
+|---|---|---|
+| **Me** | my picks | |
+| **Intern** | its picks | head-to-head on fights we both picked |
+| **Chalk** | always pick the favourite | the control — favourites win most of the time, so a pick line that cannot beat this is noise |
+
+Head-to-head on shared fights is the headline accuracy number, since only
+fights we both picked are like-for-like. The intern's full-card accuracy is
+shown alongside as secondary context — it costs nothing and stabilises faster.
+
+**The two boards can and should disagree.** Being right and losing money
+means good reads and bad prices; being wrong and making money means the
+reverse. That divergence is not noise to be reconciled — it is the most
+informative thing on the screen, and neither board alone can show it.
+
+Both chalk lines are computed automatically and cost nothing. **If neither of
+us beats them, that's the single most valuable thing this app can tell me** —
+and without them, a positive P&L proves nothing.
 
 Breakdowns: by weight class, by stance/style matchup, by favourite vs.
 underdog, and by whether a rumour flag was present.
@@ -191,9 +239,16 @@ the app is built to surface.
 | Discipline | a logged pick + stake for every card in the 10-card window, none logged after the fight started |
 | Odds coverage | ≥90% of staked fights have a snapshotted price |
 
-**Explicit anti-metric:** raw pick accuracy. It can't distinguish a 0.5u
-chalk pick from a 2.5u underdog read, which is precisely the skill being
-measured. Accuracy may be *displayed*; it is not the score.
+**Accuracy is a real metric, but a different one.** It scores Board 2 (picks)
+and is measured head-to-head against the intern and against always-pick-the-
+favourite. What it must never do is stand in for Board 1: accuracy cannot
+distinguish a 0.5u chalk bet from a 2.5u underdog read, which is exactly the
+skill the units board exists to measure.
+
+**The anti-metric, stated precisely:** using pick accuracy as evidence that
+the *betting* is working. A high pick accuracy with a negative unit P&L is a
+coherent and common result — it means good reads at bad prices — and reading
+it as success is the specific mistake this two-board split exists to prevent.
 
 ---
 
@@ -247,11 +302,19 @@ and "done" means the test was run and observed passing.**
 - **Card postponed** → picks carry to the new date, locks recompute.
 - **Sources disagree on the result** → do not settle. Surface it for manual
   resolution.
-- **Known unresolved bug:** the two data sources sometimes report a
-  different opponent for the same fighter on the same card, leaving two rows
-  (`CHANGES.md` Phase 7). Staking on the wrong row is now a *correctness*
-  problem, not just a display oddity. Needs a decision before the scoreboard
-  can be trusted.
+- **Disputed opponent** (the `CHANGES.md` Phase 7 problem, now decided): the
+  two sources sometimes report a different opponent for the same fighter on
+  the same card. These are **one bout the sources disagree about**, not two
+  bouts — almost always a late replacement one source hasn't caught. Policy:
+  **detect, hold, self-resolve.** A candidate sharing exactly one fighter opens
+  a conflict instead of inserting a second row; the fight is excluded from
+  **both boards** while the conflict is open, matching sportsbook practice
+  where an opponent change voids bets on that bout. It clears automatically
+  when the sources converge (the common case, usually days before the card),
+  or after the fight, since the row with a confirmed result is the one that
+  happened. A preferred-source rule was rejected: Phase 7 showed Wikipedia
+  stale in one case and API-Sports stale in the other, so any static
+  precedence would have been wrong half the time.
 
 ### Rumour engine
 
@@ -292,13 +355,19 @@ and "done" means the test was run and observed passing.**
 - `bout_order` on fights (correct Main Event → prelims ordering)
 - Odds ingestion: one scheduled snapshot per card at T-12h, with fuzzy
   fight matching + a review queue for low-confidence matches
-- Prediction logging: winner, **unit stake**, confidence, reasoning,
-  snapshotted odds, enforced pick lock
+- Disputed-opponent detection: one conflict queue covering both low-confidence
+  odds matches and contested bouts; disputed fights excluded from both boards
+  until resolved
+- Pick logging: predicted winner, **estimated probability**, confidence,
+  reasoning — on any fight, no stake required
+- Bet logging: **optional and separate**, may back a different fighter than
+  the pick; unit stake at the snapshotted price, enforced pick lock
 - Reddit/social rumour engine: corroboration count + source links, no
   credibility verdict
-- Intern picks: market-anchored, rumour-adjusted, selective,
-  confidence-sized
-- Unit P&L scoreboard: **me vs. intern vs. chalk control**
+- Intern output: market-anchored, rumour-adjusted picks on every fight, plus
+  edge-gated bets it is **free to decline entirely**
+- Two-board scoreboard: **units and accuracy**, each with its own chalk
+  control line
 - Result settlement including void / draw / NC handling
 - **A test runner** — none is currently installed, and the
   correctness-critical items in §7 cannot be done test-first without one
@@ -403,3 +472,9 @@ exactly one wrapper module.
 | Chalk control line | decided 2026-08-29 |
 | Odds priced from one T-12h snapshot, not per-pick | user-originated — matches when picks actually get placed |
 | Data source fork deferred | decided 2026-08-29 |
+| **Pick and bet split into two judgments** | user-originated — the intern must be able to decline an unbackable favourite |
+| **A bet may back a different fighter than the pick** | user-originated — value can sit on the side you think loses |
+| **Two scoreboards (units + accuracy), each with a chalk control** | follows from the split; resolves the old "accuracy is an anti-metric but display it anyway" tension |
+| UFCStats rejected on evidence (JS proof-of-work wall, no HTTPS) | verified live 2026-08-29 — see `ARCHITECTURE.md` Fork 1 |
+| Disputed opponents: detect/hold/self-resolve, no preferred source | decided 2026-08-29 — Phase 7 data disproved static precedence |
+| Disputed fights blocked from **both** boards, not just bets | decided 2026-08-29 — a bout that may not exist can't score a pick either |
