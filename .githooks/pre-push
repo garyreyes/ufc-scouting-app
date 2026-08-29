@@ -1,0 +1,21 @@
+#!/bin/sh
+# Fast local gate: catches the cheap failures before they cost a CI run.
+# Deliberately does NOT run `npm run build` -- that takes ~30s and CI is the
+# real gate. This is the fast feedback loop, not the authority.
+#
+# Enable with:  git config core.hooksPath .githooks
+# Bypass once:  git push --no-verify
+#
+# Pushing to main is a production deploy (Vercel auto-deploys from it), so
+# this hook failing is a good reason to stop and look, not to reach for
+# --no-verify.
+
+set -e
+
+echo "pre-push: lint"
+npm run lint
+
+echo "pre-push: test"
+npm run test
+
+echo "pre-push: ok (build still runs in CI)"

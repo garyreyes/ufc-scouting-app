@@ -53,6 +53,7 @@ the end instead of being a known constraint from the start.
 ## What to change next project
 
 ### 1. Set up CI before writing feature code, not after
+
 A GitHub Actions workflow that runs `npm ci`, `npm run build`, and
 `npm run lint` on every push — even solo, even before there's a team to
 review PRs — would have caught the lockfile drift the moment it happened,
@@ -61,7 +62,9 @@ should be one of the first things scaffolded, alongside the Next.js app
 itself.
 
 ### 2. Treat RLS policies as testable, not just reviewable
+
 Writing a small suite of SQL test cases up front — using `set local role`
+
 + `set local "request.jwt.claims"` to simulate different users, checked
 against expected row visibility — would have caught both the Phase 10 and
 Phase 11 bugs before they ever reached the live app. This doesn't need a
@@ -73,6 +76,7 @@ time sink of the whole project and the only class of bug invisible to
 normal build/lint tooling.
 
 ### 3. Do a lightweight design pass before copying a working pattern
+
 When a new feature looks structurally identical to one that already
 exists (per-fighter reports vs. per-fight reports), that's the moment to
 ask "should this actually be the same table with a discriminator column?"
@@ -81,6 +85,7 @@ call and should be re-invoked for any feature that adds a new table, not
 just at the very start of the project.
 
 ### 4. Decide deployment target and secrets layout early
+
 A short "where does this run, and what does each execution context need"
 note (local dev / CI / production host) belongs in ARCHITECTURE.md from
 the start, even if the actual deploy happens much later. It would have
@@ -89,6 +94,7 @@ key are sync-job-only and should never reach the deployed app — instead of
 that being verified reactively via a grep right before deploying.
 
 ### 5. Use a Supabase MCP server for future database-heavy projects
+
 Most of the RLS debugging cost was context-switching overhead: dashboard
 tab → SQL editor → paste query → read result → switch back. A Supabase MCP
 server (queries and migrations run directly from the coding session) would
@@ -98,6 +104,7 @@ instead of navigated to by hand each time across multiple dashboard tabs/
 projects on the same account.
 
 ### 6. Keep pushing on the "surface forks as questions" habit — it worked
+
 The one thing that *did* work well and is worth explicitly continuing: the
 CLAUDE.md instruction to surface real technical decisions (data source,
 hosting platform, sync scheduling mechanism) as questions rather than

@@ -1,6 +1,6 @@
 # UFC Scouting App
 
-**Live app:** https://ufc-scouting-app-2jtj.vercel.app/
+**Live app:** <https://ufc-scouting-app-2jtj.vercel.app/>
 
 UFC Scouting App is a note-taking tool built for actually watching fight
 tape: while you're rewatching a fighter's past bouts, you jot what you
@@ -71,6 +71,7 @@ Open [http://localhost:3000](http://localhost:3000). Copy
 values to run it locally.
 
 Other scripts:
+
 - `npm run build` / `npm run start` — production build/run
 - `npm run lint` — lint
 - `npm run sync` — manually run the fighter/event data sync (normally

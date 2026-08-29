@@ -8,6 +8,7 @@ current status/next steps and ARCHITECTURE.md for the design.
 ## Phase 1 — Next.js scaffold + feature folders (2026-08-09)
 
 **Changed:**
+
 - Scaffolded with `create-next-app` (TypeScript, App Router, ESLint, no
   Tailwind), `src/` layout
 - Reshaped into the feature-based structure from ARCHITECTURE.md:
@@ -30,6 +31,7 @@ point, so `src/lib/db.ts` was unverified.
 ## Phase 2 — Supabase schema + RLS (2026-08-09)
 
 **Changed:**
+
 - Supabase project created (region: Asia-Pacific), "Automatically expose
   new tables" deliberately left unchecked, "Enable automatic RLS" left on
 - `.env.local` filled with the project's URL + publishable key
@@ -64,6 +66,7 @@ search/profile (read-only, no auth needed) as the first end-to-end feature.
 ## Phase 3 — External data source decision (2026-08-09)
 
 **Changed:**
+
 - ARCHITECTURE.md's "Open questions" resolved: external data source is
   **API-Sports MMA API** (api-sports.io), chosen over scraping
   UFCStats.com (unlicensed/fragile) and Wikidata (too thin on fight
@@ -81,6 +84,7 @@ coverage, then implement `fetchFighter.ts` / `fetchFightHistory.ts` /
 ## Phase 4 — API-Sports key wired up + verified (2026-08-09)
 
 **Changed:**
+
 - API-Sports account created, MMA API key added to `.env.local` as
   `UFC_API_SPORTS_KEY` (server-only, no `NEXT_PUBLIC_` prefix)
 - `.env.local.example` updated with a placeholder for it
@@ -105,6 +109,7 @@ profile feature as the first end-to-end vertical slice.
 ## Phase 5 — Sync job implemented, free-tier limits discovered (2026-08-09)
 
 **Changed:**
+
 - `src/lib/ufc-data-sync/client.ts` — shared fetch wrapper for API-Sports,
   now with built-in request throttling (see below)
 - `fetchFighter.ts` — fetches one fighter, converts height/reach strings
@@ -120,6 +125,7 @@ profile feature as the first end-to-end vertical slice.
   bypass and table-level GRANTs are independent things)
 
 **Discovered the hard way (undocumented, found by triggering the errors):**
+
 - The free plan's `date` param isn't just "no ranges" — it only accepts a
   narrow rolling window (~3 days) ending near today. Older AND future
   dates are both rejected. There is no way to reach upcoming fight cards
@@ -156,6 +162,7 @@ fighter search/profile (read-only) as the first end-to-end UI feature.
 ## Phase 6 — Wikipedia schedule source, resolving the upcoming-fights gap (2026-08-09)
 
 **Changed:**
+
 - `src/lib/ufc-data-sync/fetchSchedule.ts` — lists upcoming UFC events via
   Wikipedia's `Category:Scheduled mixed martial arts events` and parses
   each event's `{{MMAevent bout}}` wikitext template (weight class, both
@@ -205,6 +212,7 @@ first end-to-end UI feature.
 ## Phase 7 — Fight-level dedup across sources (2026-08-09)
 
 **Changed:**
+
 - `src/lib/ufc-data-sync/upsertFight.ts` — new shared helper, same pattern
   as `upsertFighter`/`upsertEvent`: matches by `external_id` first, falls
   back to (event, unordered fighter-pair) match, so a bout described by
@@ -247,6 +255,7 @@ either show both or pick a "preferred source" policy; not designed yet.
 ## Phase 8 — First UI: events/fighters pages, YouTube-style shell (2026-08-09)
 
 **Changed:**
+
 - App shell (`src/shared/components/`): collapsible icon-rail sidebar
   (Upcoming Events / Past Events / Fighters), top bar with fighter-name
   search + multi-select weight-class filter synced to the URL, dark-by-
@@ -283,6 +292,7 @@ point of the app — can get built on top of what's here.
 ## Phase 9 — Supabase Auth wired up (Google + GitHub OAuth) (2026-08-09)
 
 **Changed:**
+
 - Installed `@supabase/ssr`; added `src/lib/supabase/client.ts` (browser,
   cookie-based session) and `server.ts` (Server Components/Route
   Handlers, async `cookies()`) alongside the existing plain client in
@@ -320,6 +330,7 @@ visibility-model RLS policies already in place since Phase 2.
 ## Phase 10 — Clans + scouting reports UI, three real RLS bugs found and fixed (2026-08-09)
 
 **Changed:**
+
 - `supabase/migrations/0004_clan_invites.sql` — invite-link system for
   adding clan members (the original "owner adds members" policy from
   0001 could only add someone whose id you already had, with no way to
@@ -408,6 +419,7 @@ second account; schedule both sync jobs to run automatically.
 ## Phase 11 — Finished verifying Phase 10, added individual fighter reports (2026-08-09)
 
 **Changed:**
+
 - Two more crashes found via live testing, both the same class as prior
   fixes: `InviteManager` referenced `window.location.origin` during
   render, which doesn't exist during server rendering (client components
@@ -503,7 +515,7 @@ actually run; deploy to Vercel.
 ## Phase 13 — Deployed to Vercel
 
 - Deployed via Vercel's GitHub integration (auto-deploys on push to
-  `main`). Live at https://ufc-scouting-app-2jtj.vercel.app/
+  `main`). Live at <https://ufc-scouting-app-2jtj.vercel.app/>
 - Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` were
   needed as Vercel env vars (set for Production and Preview) — confirmed
   by grepping `src/` outside `ufc-data-sync/` that nothing else touches
@@ -583,9 +595,9 @@ HANDOFF.md).
 
 **Status:** app-level security posture verified sound aside from the one
 fix above (already shipped). RLS test suite in place for future
-migrations. CI (Phase 14 also includes this from RETROSPECTIVE.md item
-#1) now runs `npm ci` + lint + build on every push, catching the class
-of bug (lockfile drift) that broke Phase 12's sync workflow.
+migrations. CI (Phase 14 also includes this from RETROSPECTIVE.md
+item #1) now runs `npm ci` + lint + build on every push, catching the
+class of bug (lockfile drift) that broke Phase 12's sync workflow.
 
 **Next:** decide on invite link expiry/reuse limits; consider
 consolidating the two near-duplicate scouting-report schemas

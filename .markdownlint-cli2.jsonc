@@ -1,0 +1,23 @@
+{
+  // Docs-only PRs get this instead of the full build/test suite (see
+  // .github/workflows/ci.yml). The point is to catch things that actually
+  // render wrong, not to enforce a house style on prose.
+  "config": {
+    // Hard-wrapped prose plus wide decision tables. Line length is a
+    // formatting preference here, not a correctness signal.
+    "MD013": false,
+    // Table column alignment/padding style. Cosmetic only -- the tables in
+    // ARCHITECTURE.md and PRD.md render correctly as they are.
+    "MD060": false,
+    // Duplicate headings are legitimate in CHANGES.md, where every phase
+    // entry repeats the same sub-headings. Only flag same-level siblings.
+    "MD024": { "siblings_only": true },
+    // CLAUDE.md carries a second H1 inside the nextjs-agent-rules block,
+    // which `next dev` writes and re-adds automatically -- removing it just
+    // recreates an uncommitted change. Not something we can fix, so not
+    // something worth failing CI over.
+    "MD025": false
+  },
+  "globs": ["**/*.md"],
+  "ignores": ["node_modules", ".next"]
+}

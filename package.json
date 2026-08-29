@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "sync:recent": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncJob.ts",
     "sync:schedule": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncSchedule.ts",
     "sync": "npm run sync:recent && npm run sync:schedule"
@@ -26,6 +28,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tsx": "^4.23.11",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }

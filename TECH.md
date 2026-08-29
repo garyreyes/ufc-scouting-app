@@ -32,7 +32,7 @@ Two outside sources, because neither one alone is enough:
 So: **API-Sports covers "who fought and what happened," Wikipedia covers
 "what's coming up."** Two separate scripts run these:
 
-```
+```text
 src/lib/ufc-data-sync/syncJob.ts       -- pulls from API-Sports
 src/lib/ufc-data-sync/syncSchedule.ts  -- pulls from Wikipedia
 ```
@@ -57,6 +57,7 @@ function throttle(): Promise<void> {
   return next;
 }
 ```
+
 This is why a sync run takes a while (minutes, not seconds) if a lot of
 fighters need fetching — it's deliberately slow to avoid getting
 rate-limited mid-run.
@@ -66,9 +67,11 @@ rate-limited mid-run.
 Wikipedia doesn't have an API for "give me the fight card as structured
 data" — the schedule lives inside the page's raw wikitext as a template,
 like:
-```
+
+```text
 {{MMAevent bout|Lightweight|Islam Makhachev|def.|Ian Machado Garry|...}}
 ```
+
 `fetchSchedule.ts` fetches that raw wikitext via Wikipedia's MediaWiki API,
 finds every `{{MMAevent bout ...}}` block with a regex, and splits each one
 by its `|` pipes into weight class / fighter1 / result-or-vs / fighter2 /

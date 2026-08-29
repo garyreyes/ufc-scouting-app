@@ -44,7 +44,7 @@ The v1 group features (clans, invites, shared-report visibility) are
 | Testing | **Vitest** | Required before any correctness-critical work |
 | Hosting | **Vercel** free tier | Auto-deploy on push to `main` |
 | Batch jobs | **GitHub Actions** cron | `sync.yml` today; intern and odds jobs join it |
-| CI | **GitHub Actions** `ci.yml` | `npm ci` + lint + build — **add `test`** |
+| CI | **GitHub Actions** `ci.yml`, job `gates` | `npm ci` + lint + test + build, path-scoped; docs-only PRs get markdown lint instead. Required by branch protection **by job name** |
 
 **Hard constraint: $0/month.** Free tiers only.
 
@@ -159,7 +159,7 @@ more condition, no new enforcement surface.
 
 ### Existing (v1, unchanged)
 
-```
+```text
 Fighter 1---* Fight          Event 1---* Fight
 Clan 1---* ClanMember *---1 User             [FROZEN]
 Fight 1---* ScoutingReport *---1 User        [FROZEN]
@@ -167,7 +167,7 @@ Fight 1---* ScoutingReport *---1 User        [FROZEN]
 
 ### New in v2
 
-```
+```text
 Fight  1---*  Pick             (author: USER | INTERN; opinion + optional bet)
 Fight  1---1  OddsSnapshot     (one per fight, written once, never updated)
 Fight  1---*  RumourFlag       (one per distinct concern per fighter)
@@ -293,7 +293,7 @@ re-pulled at a worse price rather than losing the card entirely.
 
 ## Folder structure
 
-```
+```text
 src/
   features/
     fighters/          components/, api.ts, types.ts

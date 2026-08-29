@@ -6,13 +6,36 @@ on:
   pull_request:
 
 jobs:
-  build:
+  # Job name is load-bearing: branch protection requires the check "gates"
+  # by name. Renaming this job silently disables the protection rule, since
+  # a required check that never posts blocks merges forever rather than
+  # failing loudly. Change both together or neither.
+  gates:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
+      # The job always runs and always reports, so the required check always
+      # posts. Only the expensive steps below are conditional -- using
+      # paths-ignore on the trigger instead would mean docs PRs wait forever
+      # for a check that never arrives.
+      #
+      # Note what is NOT excluded: .github/**, package.json, and the lockfile
+      # are deliberately treated as code, because they change what the gates
+      # themselves check.
+      - name: Detect what changed
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+
       - uses: actions/setup-node@v4
+        if: steps.changes.outputs.code == 'true'
         with:
           node-version: 22
           cache: npm
@@ -21,16 +44,40 @@ jobs:
       # package.json -- this is what would have caught the lockfile drift
       # that silently broke the sync workflow (CHANGES.md Phase 12) the
       # moment it happened, instead of via a scheduled job failing later.
-      - run: npm ci
+      - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
+        run: npm ci
 
-      - run: npm run lint
+      - name: Lint
+        if: steps.changes.outputs.code == 'true'
+        run: npm run lint
+
+      # Tests run before the build: they are far faster, and the
+      # correctness-critical work in ARCHITECTURE.md (unit P&L, edge math,
+      # pick lock, odds matching, disputed-opponent detection) is defined as
+      # test-first, so a red test should stop the run early.
+      - name: Test
+        if: steps.changes.outputs.code == 'true'
+        run: npm run test
 
       # A handful of routes prerender at build time and query Supabase for
       # real data (events/fighters listing pages), so the build needs the
       # public anon key -- same value as NEXT_PUBLIC_SUPABASE_ANON_KEY in
       # .env.local, safe to expose since RLS (not secrecy) is what
       # actually restricts access to this key.
-      - run: npm run build
+      #
+      # `next build` also runs the TypeScript check, so this is the
+      # type-check gate as well as the build gate.
+      - name: Build (includes type check)
+        if: steps.changes.outputs.code == 'true'
+        run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      # Docs-only changes still get a real check rather than a free pass.
+      - name: Lint markdown (docs-only change)
+        if: steps.changes.outputs.code != 'true'
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: '**/*.md'

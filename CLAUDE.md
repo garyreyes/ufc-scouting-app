@@ -1,92 +1,139 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ## Status
 
-No code has been written yet. This repo currently contains only planning docs:
-`ARCHITECTURE.md` (full architecture) and `HANDOFF.md` (decisions made + next
-steps in order). Read both before doing anything — `HANDOFF.md` in particular
-lists the exact next steps in sequence (scaffold Next.js, reshape into
-feature folders, set up Supabase, write RLS policies, pick external data
-source, build fighter search/profile as the first end-to-end feature).
-Once code exists, update this section and remove the pointer to HANDOFF.md's
-step list as steps are completed.
+**Shipped and live**, at <https://ufc-scouting-app-2jtj.vercel.app/> — Phases
+1–14 complete. Auth, fighter/event data, and the twice-daily sync job all run
+in production.
 
-## Priorities
+**The project has been re-scoped to v2** (see `docs/PRD.md`): a solo tool for
+one user. The v1 group features — clans, invites, shared scouting reports —
+are **frozen, not deleted**: their code and tables stay, their routes stay
+reachable, and no further development happens on them. Do not extend them,
+and do not start the `scouting_reports`/`fighter_scouting_reports` table merge
+described in `HANDOFF.md` — it is cancelled permanently.
 
-Structure and security take priority over speed of delivery. Do not take
-structural shortcuts to move faster without flagging the tradeoff first. The
-user is deliberately building up architecture/security judgment through this
-project (non-technical "vibe coder" learning by doing) — surface real
-technical forks (data source choices, permission models, etc.) as questions
-rather than deciding silently.
+## Read these first, in this order
 
-Before calling any Supabase-backed feature "done," explicitly verify:
-- RLS is enabled on the table
-- Default posture is deny-all with explicit allow-policies matching the
-  intended visibility rules
+| File | What it owns |
+|---|---|
+| `docs/PRD.md` | **Product truth.** What and why. Wins any disagreement |
+| `ARCHITECTURE.md` | **The stack**, entities, schema decisions, layer boundaries |
+| `PROJECT_FACTS.md` | Durable decisions that shouldn't be re-litigated |
+| `CHANGES.md` | Dated log of what actually shipped, phase by phase |
+| `HANDOFF.md` | v1-era status. **Partly superseded** — the PRD wins |
+
+## Stop and ask — never proceed carefully
+
+These are halts, not judgment calls.
+
+1. **Never hand-roll authentication, sessions, or cryptography** — including
+   password hashing, JWT signing/verification, token generation, or
+   password-reset flows. Use Supabase Auth and its documented configuration.
+2. **Never hand-build raw payment or OAuth requests.** Use the official SDK,
+   never a manual `fetch` with hand-assembled headers, signatures, redirect
+   params, or state/nonce handling.
+3. **Every third-party SDK gets exactly one wrapper module** in `lib/`.
+   Feature code imports the wrapper, never the SDK or raw API directly. This
+   applies to Supabase, The Odds API, Reddit, and Gemini alike.
+
+## Requires explicit confirmation before acting
+
+- **Running any database migration.** The user has multiple Supabase projects.
+  Confirm the dashboard shows `ufc-scouting-app` (URL
+  `vrwlfcywyfzfczajpdoh.supabase.co`, per `.env.local`) **before** running
+  anything. Phase 11 ran a migration against an unrelated project by mistake.
+- **Pushing to `main`.** Vercel auto-deploys from it — a push is a production
+  deploy, not a save.
+- **Any destructive data operation** — deleting or merging rows, dropping
+  tables, editing live data. Phase 7's duplicate cleanup was done only after
+  explicit confirmation, and that remains the standard.
+- **Never edit an already-applied migration.** New numbered file in
+  `supabase/migrations/`, always.
+
+## Gates
+
+`npm run lint`, `npm run test`, `npm run build` (build includes the TypeScript
+check). CI runs all three on every push and PR as the job **`gates`**, which
+branch protection requires **by name** — renaming the job silently disables
+protection, because a required check that never posts blocks merges forever
+instead of failing loudly.
+
+Docs-only changes get markdown lint instead of the full suite. `.github/**`,
+`package.json`, and the lockfile deliberately count as code.
+
+## Before calling any Supabase-backed feature done
+
+- RLS enabled on the table
+- Default posture deny-all, with explicit allow-policies matching the intended
+  rules
+- **Table GRANTs match the policies for every role that needs access,
+  including `service_role`** — RLS bypass and GRANTs are independent. Phases 2
+  and 5 both lost time to this
 - No endpoint trusts a client-supplied user ID — identity comes from the
-  authenticated session only
-- Only the Supabase anon/public key is used in frontend code; the
-  service-role key never appears client-side or in git
+  session
+- Only the anon key appears in frontend code; the service-role key never goes
+  client-side and never enters git
 
-## Architecture (see ARCHITECTURE.md for full detail)
+**When RLS blocks something that looks like it should obviously be allowed**,
+test with a simulated session directly in SQL (`set local role authenticated;
+set local "request.jwt.claims" = '...'`) *before* chasing infrastructure
+explanations. Phase 10 burned real time on a JWT-signing theory before SQL
+testing revealed a genuine policy-logic bug. Phase 11 hit the same class of
+bug and caught it fast with this technique.
 
-**Stack**: Next.js + TypeScript (App Router), Supabase (Postgres + Auth +
-Row Level Security). Auth is Google + GitHub OAuth only, no email/password.
+## Layer boundaries — enforced as file layout, not discipline
 
-**Entities**: Fighter, Event, Fight, User, Clan, ClanMember,
-ScoutingReport, ReportClanShare.
-```
-Fighter 1---* Fight
-Event   1---* Fight
-Clan    1---* ClanMember *---1 User
-Fight   1---* ScoutingReport *---1 User
-ScoutingReport 1---* ReportClanShare *---1 Clan   (only if SPECIFIC_CLANS)
-```
+- **UI components** render and handle interaction. No business logic, no
+  external calls, ever.
+- **Services** (`api.ts` / `actions.ts` / `lib/`) hold business logic and own
+  every outbound call — Supabase, Reddit, odds, Gemini.
+- **Route handlers** stay thin: parse, call a service, return.
 
-**Data source strategy**: fighter/fight data comes from an external source
-via a separate sync layer (`lib/ufc-data-sync/`), never called live from the
-UI/API. This keeps the app usable even if the external source is down. The
-actual external source is not yet chosen (see "Open questions" in
-ARCHITECTURE.md).
+If a feature needs something from another feature, it belongs in `shared/` or
+the boundary is drawn wrong. Revisit rather than reach across.
 
-**Scouting report visibility** — three levels, chosen by the report's
-author, enforced via Supabase RLS policies (not app-code checks):
-- `PRIVATE` — only the author
-- `SPECIFIC_CLANS` — members of clans explicitly attached via
-  `ReportClanShare`
-- `ALL_MY_CLANS` — anyone sharing any clan with the author
-- No fully-public tier — deliberately excluded to preserve anonymity outside
-  one's own clans.
+Actual structure (`lib/supabase/` holds the clients — there is no `db.ts` or
+`auth-config.ts`):
 
-**Folder structure** (feature-based; mandatory, not optional):
-```
+```text
 src/
-  features/
-    fighters/          components/, api.ts, types.ts
-    fights/             components/, api.ts, types.ts
-    scouting-reports/   components/, api.ts, types.ts
-    clans/               components/, api.ts, types.ts
-    auth/                components/, api.ts
-  shared/                components/, utils/
-  lib/
-    db.ts
-    ufc-data-sync/
-    auth-config.ts
-  app/                   routing/pages
+  features/   fighters/ fights/ auth/ + [FROZEN] scouting-reports/ clans/
+  shared/     components/, utils/
+  lib/        supabase/, ufc-data-sync/
+  app/        routing/pages — thin
+  proxy.ts    middleware (Next 16 renamed middleware.ts to proxy.ts)
 ```
-Rule of thumb: if a feature's code needs something from another feature,
-that's a signal it either belongs in `shared/`, or the feature boundary is
-drawn wrong — revisit before adding to it.
 
-## Reuse the app-architect skill
+## Test-first, for correctness-critical work only
 
-The global `app-architect` skill (in `~/.claude/skills/`) encodes the
-planning process used to produce ARCHITECTURE.md. Reuse it if scope expands
-significantly or a new major feature needs its own mini-planning pass before
-implementation.
+Money math, auth/permission checks, counting, and ID resolution get a
+**failing test written before the implementation**, and "done" means the test
+was run and observed passing — never "this should pass now." `ARCHITECTURE.md`
+lists the eight items this covers for v2.
+
+Layout, copy, styling, and animation get no tests — there is no single correct
+output to assert.
+
+## Working style
+
+Structure and security take priority over speed. Don't take structural
+shortcuts to move faster without flagging the tradeoff first. The user is a
+non-technical "vibe coder" deliberately building architecture and security
+judgment through this project — **surface real technical forks as questions
+rather than deciding silently.**
+
+**Do not trust third-party docs over what the API actually does.** Phase 5
+found two undocumented API-Sports free-tier limits (a ~3-day date window, a 10
+req/min cap) only by triggering the errors. During v2 planning, UFCStats.com
+was rejected after a live check found every page behind a JavaScript
+proof-of-work wall. Verify external behaviour empirically before designing
+around it.
+
+**Before writing Next.js code, check `node_modules/next/dist/docs/`** for this
+version's real conventions rather than relying on training data.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

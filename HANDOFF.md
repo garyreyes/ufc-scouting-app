@@ -1,6 +1,7 @@
 # Handoff — UFC Fighter Catalog / Scouting Reports
 
 ## Status
+
 Next.js app scaffolded, feature-based folders in place, Supabase project
 created, full schema + RLS migrated and verified working. Two data
 sources feeding the DB (API-Sports + Wikipedia, deduped against each
@@ -24,7 +25,7 @@ recurs.
 
 ## What's NOT done yet (next steps, in order)
 
-The app is deployed and live at https://ufc-scouting-app-2jtj.vercel.app/ —
+The app is deployed and live at <https://ufc-scouting-app-2jtj.vercel.app/> —
 auth (Google + GitHub), fighters/events data, clans + invites, and
 scouting reports all verified working there. Sync job runs automatically
 twice daily via GitHub Actions. Nothing is currently blocking day-to-day
@@ -44,6 +45,7 @@ choice, not an oversight — fine for a small trusted friend group where
 you control distribution of the link.
 
 Not yet done, lower priority:
+
 - Custom domain (currently on the free `*.vercel.app` subdomain — fine as
   is, only worth it if wanted)
 - Inviting friends and actually using it together for a real fight card
