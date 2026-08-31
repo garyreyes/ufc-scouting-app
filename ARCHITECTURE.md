@@ -37,7 +37,7 @@ The v1 group features (clans, invites, shared-report visibility) are
 | Auth | **Supabase Auth** — Google + GitHub OAuth | No passwords |
 | Fighter/event data | **API-Sports MMA** (free) + **Wikipedia** | API-Sports has no lookahead; Wikipedia has the schedule |
 | Results | **Wikipedia + API-Sports, cross-checked** | Two independent licensed sources — see Fork 1 |
-| Odds | **The Odds API**, free tier | One snapshot per card at T-12h |
+| Odds | **The Odds API**, free tier — **1xBet** (`onexbet`, EU region), **decimal** | One snapshot per card at T-12h. Decimal is the API default, so no odds-format conversion exists anywhere in the codebase |
 | Social source | **Reddit API** (r/MMA), free tier | Needs a registered OAuth app |
 | LLM | **Gemini Flash**, free tier, behind `lib/llm.ts` | Large context means a whole card's posts in one call; the free tier caps *requests*, so fewer and bigger calls is the right shape |
 | Fuzzy matching | TS string-similarity, human-backstopped | Feeds a review queue, not a silent best guess |
@@ -152,6 +152,36 @@ more condition, no new enforcement surface.
 - **Sources disagree** → never auto-settle. Queue for manual resolution.
 - **Only one source has reported after 24h** → settle on it, and record
   `settled_from` so single-source settlements stay visible on the scoreboard.
+
+### Fork 7 — odds source and format: **1xBet, decimal, 2-way `h2h`**
+
+Verified against The Odds API's own documentation on 2026-08-29:
+
+- **1xBet is supported**, bookmaker key `onexbet`, in the **EU** region.
+- **Decimal is the API default** (`oddsFormat=decimal`). Prices are stored
+  exactly as returned. There is no American-odds conversion anywhere in the
+  codebase, and none should be added — a conversion is a correctness risk that
+  buys nothing here.
+- **Credits cost 1 per region per market for the whole request**, not per
+  event. One card's snapshot is 1 credit against roughly 500/month, so the
+  budget is not a real constraint. The PRD's "could have" second pull at T-24h
+  is comfortably affordable.
+
+**Primary market: `h2h` (2-way win).** In MMA this is the standard market, and
+**a draw voids the bet and returns the stake** — which is already the
+settlement rule in the PRD. The draw is therefore handled for free by the
+market's own rules, not by hedging.
+
+**Still to verify empirically, and blocking:** The Odds API's docs warn that
+"some bookmakers may not list for less popular sports." That 1xBet is
+supported as a bookmaker does **not** establish that it returns MMA prices.
+This must be checked against a live response before any code depends on it,
+and the design needs a documented fallback bookmaker if it doesn't.
+
+**Open — double chance / 1X2.** Requested, not yet decided, because it appears
+to rest on a mismatch: double chance is a three-way (1X2) construct, and MMA
+is not normally offered three-way. See the discussion in the handoff; do not
+implement either way until settled.
 
 ---
 
@@ -342,10 +372,11 @@ never "this should pass now."
 
 1. **Unit P&L math** — underdog returns, favourite returns, and void handling,
    against known moneyline examples
-2. **Edge and implied-probability math** — American↔decimal conversion and
-   `(estimated_probability × decimal_odds) − 1`. This is what decides whether
-   the intern bets at all, so an error here doesn't produce a wrong number, it
-   produces a silently wrong *strategy*
+2. **Edge and implied-probability math** — `implied = 1 / decimal_odds` and
+   `edge = (estimated_probability × decimal_odds) − 1`. This is what decides
+   whether the intern bets at all, so an error here doesn't produce a wrong
+   number, it produces a silently wrong *strategy*. No American-odds
+   conversion: prices are stored exactly as the API returns them
 3. **Dual settlement** — `pick_correct` and `pnl_units` settle independently.
    The case that must be explicitly tested: prediction right, bet on the other
    fighter, bet wins. Both lines must record the truth rather than one
