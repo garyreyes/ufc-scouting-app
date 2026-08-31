@@ -602,3 +602,70 @@ class of bug (lockfile drift) that broke Phase 12's sync workflow.
 **Next:** decide on invite link expiry/reuse limits; consider
 consolidating the two near-duplicate scouting-report schemas
 (RETROSPECTIVE.md item #3) if touching that area again.
+
+## Phase 15 — v2 re-architecture + real gates (2026-08-29)
+
+**Planned:** `docs/PRD.md` re-scoped the app to a solo tool. This phase ran
+`app-architect` over that PRD, then `harness-setup` over the result. No
+feature code was written.
+
+**Decided (ARCHITECTURE.md rewritten):**
+
+- **UFCStats.com rejected on evidence.** Checked live: every page returns a
+  2,998-byte JavaScript proof-of-work challenge instead of content, and port
+  443 refuses connections. The project's own "verify empirically" rule caught
+  this mid-decision — it had already been chosen before the check ran.
+- **Results come from Wikipedia + API-Sports cross-checked.** API-Sports'
+  known limitation is no *lookahead*, which doesn't apply to settlement.
+- **`bout_order` turned out to be free** — `fetchSchedule.ts` already parses
+  Wikipedia bouts in document order and discards it.
+- **TypeScript-only runtime.** The Python case died with UFCStats: nothing
+  left in the plan is HTML scraping.
+- Intern runs on GitHub Actions cron; Gemini Flash behind `lib/llm.ts`.
+- **Picks and bets split into two judgments** (user-originated). A pick says
+  who wins; a bet says the price is wrong. They may back different fighters,
+  so a row settles twice — `pick_correct` and `pnl_units` independently.
+  Scoreboard becomes two boards, each with its own chalk control.
+- **Phase 7's disputed-opponent problem decided:** detect at the `upsertFight`
+  insert path, hold the fight out of both boards, self-resolve on source
+  convergence or a confirmed result. No preferred-source rule — Phase 7's own
+  data showed each source stale in a different case.
+
+**Changed (harness):**
+
+- **Vitest installed** — there was no test runner at all, and the v2
+  correctness-critical work is defined as test-first. First test covers
+  `stripNullish`, which guards a live data-loss path.
+- `ci.yml` job renamed `build` → **`gates`** and made path-scoped: the job
+  always runs so the required check always posts, but heavy steps are
+  conditional. Docs-only PRs get markdown lint instead. `.github/**`,
+  `package.json`, and the lockfile deliberately count as code.
+- **Branch protection enabled on `main`**: `gates` required, 0 approvals, no
+  direct pushes, admins included. Verified by attempting a direct push and
+  watching it be rejected. This matters because **Vercel deploys on push
+  regardless of CI** — before this, a red build still shipped to production.
+- `.githooks/pre-push` runs lint + test locally (`git config core.hooksPath
+  .githooks`).
+- **`CLAUDE.md` rewritten.** It still claimed no code had been written yet,
+  for a 14-phase app live in production, and pointed at `lib/db.ts` and
+  `auth-config.ts`, neither of which exists.
+- **`PROJECT_FACTS.md` created** — durable decisions that shouldn't be
+  re-litigated.
+
+**Found the hard way:** installing Vitest on Windows silently pruned
+`@emnapi/core` and `@emnapi/runtime` from `package-lock.json`. They're regular
+dependencies of `@img/sharp-wasm32`, which is optional and `cpu: wasm32`, and
+npm never resolves into a platform-gated optional package — but Linux CI still
+needs them. The first `gates` run failed on exactly this, which is the drift
+class the `npm ci` step exists to catch. Diffing against the last CI-green
+lockfile isolated the damage precisely (60 added, 0 version changes, 2
+removed) and both entries were restored verbatim. Note esbuild's platform
+variants survive, because those are declared as `optionalDependencies`.
+
+**Status:** planning docs and gates are in place. No v2 feature code exists
+yet. `PROJECT_FACTS.md` and `docs/PRD.md` are the sources of truth;
+`HANDOFF.md` is partly superseded.
+
+**Next:** `user-flow-mapper` → `docs/user-flows.md`, then `roadmap-planner`
+→ `ROADMAP.md`, then the `feature-planner` build loop starting with Phase A
+(`events.starts_at`, `fights.bout_order`, and the missing FK indexes).

@@ -24,10 +24,18 @@ jobs:
       # Note what is NOT excluded: .github/**, package.json, and the lockfile
       # are deliberately treated as code, because they change what the gates
       # themselves check.
+      # predicate-quantifier: every is load-bearing, not decoration. By
+      # default paths-filter ORs its patterns, so '**' alone matches a .md
+      # file and the '!' exclusions never apply -- the filter silently
+      # reports code=true for every change. Verified the wrong way round on
+      # PR #1, which ran the full suite on a docs-only diff and skipped the
+      # markdown lint. 'every' requires ALL patterns to match, which is the
+      # intended "everything except docs" semantics.
       - name: Detect what changed
         uses: dorny/paths-filter@v3
         id: changes
         with:
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '**'
