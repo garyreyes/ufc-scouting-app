@@ -178,10 +178,22 @@ supported as a bookmaker does **not** establish that it returns MMA prices.
 This must be checked against a live response before any code depends on it,
 and the design needs a documented fallback bookmaker if it doesn't.
 
-**Open — double chance / 1X2.** Requested, not yet decided, because it appears
-to rest on a mismatch: double chance is a three-way (1X2) construct, and MMA
-is not normally offered three-way. See the discussion in the handoff; do not
-implement either way until settled.
+**Double chance / 1X2: rejected.** Raised and then dropped on 2026-08-29
+after discussion. Double chance exists because in football a draw is a third,
+likely outcome that *loses* the bet. None of that holds here:
+
+- The 2-way `h2h` market **already returns the stake on a draw**, so there is
+  no draw exposure to hedge in the first place.
+- MMA is not normally offered three-way; `h2h_3_way` is a soccer market.
+- Even where a 1X2 MMA market exists, hedging shortens the price on **every**
+  bet to insure a sub-1% event whose unhedged outcome is "stake returned,"
+  not "loss."
+- It would also corrupt the measurement: hedged prices make the units board
+  partly a record of hedging discipline rather than of reads, which is the
+  thing the board exists to measure.
+
+Do not reintroduce it without evidence that 1xBet actually lists a three-way
+MMA market.
 
 ---
 

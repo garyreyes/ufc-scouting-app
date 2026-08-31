@@ -480,5 +480,5 @@ exactly one wrapper module.
 | UFCStats rejected on evidence (JS proof-of-work wall, no HTTPS) | verified live 2026-08-29 — see `ARCHITECTURE.md` Fork 1 |
 | Disputed opponents: detect/hold/self-resolve, no preferred source | decided 2026-08-29 — Phase 7 data disproved static precedence |
 | Odds priced from 1xBet in decimal, 2-way `h2h` | user-originated 2026-08-29 |
-| Double chance / 1X2 hedging | **raised by user, open** — MMA is not normally offered three-way, and `h2h` already voids draws |
+| Double chance / 1X2 hedging **rejected** | raised then dropped 2026-08-29 — `h2h` already returns the stake on a draw, so there is no draw exposure to hedge; hedging would shorten every price to insure a sub-1% event and would make the units board measure hedging rather than reads |
 | Disputed fights blocked from **both** boards, not just bets | decided 2026-08-29 — a bout that may not exist can't score a pick either |
