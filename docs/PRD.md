@@ -260,7 +260,9 @@ it as success is the specific mistake this two-board split exists to prevent.
 | Existing stack | Next.js + Supabase + Vercel — not restarting | shipped Phases 1–14 |
 | Single developer | Non-technical "vibe coder" building architecture judgement deliberately; structure and security beat delivery speed | `HANDOFF.md` |
 | API-Sports free tier | 100 req/day, ~3-day date window, ~10 req/min — all found empirically, none documented | `CHANGES.md` Phase 5 |
-| Odds free tier | ~500 credits/month → one scheduled pull per card at T-12h, no line-movement tracking | to verify |
+| Odds free tier | ~500 credits/month, and credits cost **1 per region per market for the whole request**, not per event — so one card's pull is 1 credit. Budget is not the binding constraint; a second T-24h pull is affordable | verified in docs 2026-08-29 |
+| Odds source | **1xBet** (`onexbet`), **EU** region, **decimal** format (the API default) | verified in docs 2026-08-29 |
+| Odds coverage risk | The Odds API warns some bookmakers don't list less popular sports. **1xBet returning MMA prices is unverified** and needs a live check before code depends on it | open |
 | LLM free tier | Gemini Flash or Groq. **Must be verified empirically before anything is built on it**, and must sit behind one swappable wrapper module so a dead tier is a one-file change | see §9 |
 | Reddit API | Free at personal volume; needs a registered OAuth app | to verify |
 | Data ordering gap | No `bout_order` column exists; card ordering is currently unreliable | verified in schema |
@@ -424,7 +426,7 @@ and "done" means the test was run and observed passing.**
 
 | Layer | Choice | Status |
 |---|---|---|
-| Odds | **The Odds API**, free tier | Limits to verify empirically |
+| Odds | **The Odds API** free tier — **1xBet** (`onexbet`), EU region, **decimal**, `h2h` 2-way market | Decimal is the API default, so no odds-format conversion exists. Whether 1xBet actually lists MMA is still unverified |
 | Social source | **Reddit API** (r/MMA), free tier | Needs a registered OAuth app |
 | LLM | **Gemini Flash or Groq**, free tier | Provider undecided; **must sit behind one wrapper module** (`lib/llm.ts`) so it's swappable |
 | Fuzzy matching | String-similarity library, TS side | Replaces today's exact `ilike` name match |
@@ -477,4 +479,6 @@ exactly one wrapper module.
 | **Two scoreboards (units + accuracy), each with a chalk control** | follows from the split; resolves the old "accuracy is an anti-metric but display it anyway" tension |
 | UFCStats rejected on evidence (JS proof-of-work wall, no HTTPS) | verified live 2026-08-29 — see `ARCHITECTURE.md` Fork 1 |
 | Disputed opponents: detect/hold/self-resolve, no preferred source | decided 2026-08-29 — Phase 7 data disproved static precedence |
+| Odds priced from 1xBet in decimal, 2-way `h2h` | user-originated 2026-08-29 |
+| Double chance / 1X2 hedging **rejected** | raised then dropped 2026-08-29 — `h2h` already returns the stake on a draw, so there is no draw exposure to hedge; hedging would shorten every price to insure a sub-1% event and would make the units board measure hedging rather than reads |
 | Disputed fights blocked from **both** boards, not just bets | decided 2026-08-29 — a bout that may not exist can't score a pick either |

@@ -76,6 +76,27 @@ Decided 2026-08-29, user-originated.
   fight is excluded from **both boards** while open. It clears on source
   convergence (usually days before the card) or on a confirmed result.
 
+## Odds
+
+- **1xBet, decimal, 2-way `h2h`.** Bookmaker key `onexbet`, **EU** region.
+  Decimal is The Odds API's default format, so **no American-odds conversion
+  exists anywhere in the codebase and none should be added** — it's a
+  correctness risk that buys nothing.
+- **Credits are 1 per region per market for the whole request**, not per
+  event. One card's snapshot is 1 credit against ~500/month, so budget is not
+  the binding constraint.
+- **Double chance / 1X2 was raised and rejected** (2026-08-29). The 2-way
+  market already returns the stake on a draw, so there is nothing to hedge;
+  MMA is not normally offered three-way; hedging would shorten every price to
+  insure a sub-1% event whose unhedged outcome is "stake returned," not
+  "loss"; and it would make the units board measure hedging discipline rather
+  than reads. Do not reintroduce without evidence 1xBet actually lists a
+  three-way MMA market.
+- **Unverified and blocking:** that 1xBet is a supported *bookmaker* does not
+  establish that it returns *MMA* prices. The Odds API warns some bookmakers
+  don't list less popular sports. Check a live response, and pick a fallback
+  bookmaker, before any code depends on it.
+
 ## Undocumented external limits, found empirically
 
 - **API-Sports free tier**: 100 req/day, a **~3-day date window**, and a **~10
