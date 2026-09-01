@@ -381,3 +381,13 @@ Decided 2026-08-29, user-originated.
   aren't reliably available, so picks lock at `events.starts_at`. This is
   *stricter* than the PRD's per-fight rule, which is the safe direction — it
   cannot be used to cheat the scoreboard.
+- **A result correction after settlement is not re-examined — deliberately,
+  D1.** `settleFights.ts` only ever looks at fights where `settled_at is
+  null`; once set, it's never revisited, even if a source later corrects
+  itself (an appeal overturning a decision, e.g. real UFC 214 precedent:
+  Jones' KO win over Cormier later became a No Contest). The per-source
+  columns (`wikipedia_winner_id` etc.) still update on a later correction —
+  only the *clock* (`reported_at`) and the *authoritative* row stop moving
+  once settled. If this ever matters for real (a settled pick turns out to
+  need un-settling), it needs its own scoped design — don't assume it's
+  covered by D1/D2's existing machinery.

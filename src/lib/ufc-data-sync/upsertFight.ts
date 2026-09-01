@@ -1,12 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sharesExactlyOneFighter } from "./sharesExactlyOneFighter";
 import { stripNullish } from "./stripNullish";
+import { buildSourceReportUpdate } from "./buildSourceReportUpdate";
+import type { ExistingSourceReports } from "./buildSourceReportUpdate";
 
 export interface FightWrite {
   external_id: string;
   event_id: string;
   fighter1_id: string;
   fighter2_id: string;
+  // Which sync job is reporting -- routes winner_id/method/round into the
+  // matching per-source columns (buildSourceReportUpdate.ts) instead of
+  // the shared winner_id/method/round, which are authoritative and
+  // written only by lib/settlement/'s settle job from
+  // 0021_result_settlement.sql forward. See ARCHITECTURE.md Fork 6.
+  source: "wikipedia" | "api_sports";
   winner_id?: string | null;
   method?: string | null;
   round?: number | null;
@@ -27,6 +35,19 @@ export type UpsertFightResult =
   | { status: "upserted"; fightId: string }
   | { status: "conflict"; conflictId: string };
 
+function sourceReport(fight: FightWrite, existing: ExistingSourceReports, now: string) {
+  return buildSourceReportUpdate(
+    {
+      source: fight.source,
+      winnerId: fight.winner_id ?? null,
+      method: fight.method ?? null,
+      round: fight.round ?? null,
+    },
+    existing,
+    now,
+  );
+}
+
 // Same cross-source problem as upsertFighter/upsertEvent: API-Sports and
 // Wikipedia describe the same bout under different external_ids ("2853"
 // vs "wiki:UFC Fight Night: ...:9"). Falls back to matching on (event,
@@ -44,17 +65,26 @@ export async function upsertFight(
   supabase: SupabaseClient,
   fight: FightWrite,
 ): Promise<UpsertFightResult> {
-  const { external_id, event_id, fighter1_id, fighter2_id, ...optional } = fight;
-  const updatePayload = stripNullish(optional);
+  const { external_id, event_id, fighter1_id, fighter2_id, weight_class, bout_order } = fight;
+  const directPayload = stripNullish({ weight_class, bout_order });
+  const now = new Date().toISOString();
 
   const { data: byExternalId, error: findError } = await supabase
     .from("fights")
-    .select("id")
+    .select("id, wikipedia_reported_at, api_sports_reported_at")
     .eq("external_id", external_id)
     .maybeSingle();
   if (findError) throw findError;
 
   if (byExternalId) {
+    const updatePayload = {
+      ...directPayload,
+      ...sourceReport(
+        fight,
+        { wikipediaReportedAt: byExternalId.wikipedia_reported_at, apiSportsReportedAt: byExternalId.api_sports_reported_at },
+        now,
+      ),
+    };
     const { error } = await supabase.from("fights").update(updatePayload).eq("id", byExternalId.id);
     if (error) throw error;
     return { status: "upserted", fightId: byExternalId.id };
@@ -62,7 +92,7 @@ export async function upsertFight(
 
   const { data: candidates, error: candidatesError } = await supabase
     .from("fights")
-    .select("id, fighter1_id, fighter2_id")
+    .select("id, fighter1_id, fighter2_id, wikipedia_reported_at, api_sports_reported_at")
     .eq("event_id", event_id);
   if (candidatesError) throw candidatesError;
 
@@ -72,6 +102,14 @@ export async function upsertFight(
       (c.fighter1_id === fighter2_id && c.fighter2_id === fighter1_id),
   );
   if (match) {
+    const updatePayload = {
+      ...directPayload,
+      ...sourceReport(
+        fight,
+        { wikipediaReportedAt: match.wikipedia_reported_at, apiSportsReportedAt: match.api_sports_reported_at },
+        now,
+      ),
+    };
     const { error } = await supabase.from("fights").update(updatePayload).eq("id", match.id);
     if (error) throw error;
     return { status: "upserted", fightId: match.id };
@@ -104,7 +142,11 @@ export async function upsertFight(
           candidate_external_id: external_id,
           candidate_fighter1_id: fighter1_id,
           candidate_fighter2_id: fighter2_id,
-          ...optional,
+          winner_id: fight.winner_id ?? null,
+          method: fight.method ?? null,
+          round: fight.round ?? null,
+          weight_class: fight.weight_class ?? null,
+          bout_order: fight.bout_order ?? null,
         },
       })
       .select("id")
@@ -113,9 +155,17 @@ export async function upsertFight(
     return { status: "conflict", conflictId: conflict.id };
   }
 
+  const insertPayload = {
+    external_id,
+    event_id,
+    fighter1_id,
+    fighter2_id,
+    ...directPayload,
+    ...sourceReport(fight, { wikipediaReportedAt: null, apiSportsReportedAt: null }, now),
+  };
   const { data: inserted, error: insertError } = await supabase
     .from("fights")
-    .insert(fight)
+    .insert(insertPayload)
     .select("id")
     .single();
   if (insertError) throw insertError;

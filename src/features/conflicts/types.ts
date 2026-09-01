@@ -40,7 +40,29 @@ export interface LowConfidenceConflict {
   details: LowConfidenceDetails;
 }
 
-export type Conflict = DisputedOpponentConflict | LowConfidenceConflict;
+// D1 (lib/settlement/settleFights.ts): both sources reported a winner and
+// disagreed, or one reported a winner while the other reported a
+// confirmed draw/NC. Raw snapshot of both sources' state at the moment
+// of detection -- not re-derived live, since a source could keep
+// changing before this gets looked at.
+export interface DisputedResultDetails {
+  wikipedia_winner_id: string | null;
+  wikipedia_method: string | null;
+  wikipedia_round: number | null;
+  api_sports_winner_id: string | null;
+}
+
+export interface DisputedResultConflict {
+  id: string;
+  kind: "disputed_result";
+  // Always the existing fight -- a result dispute is never a "which bout
+  // is this" ambiguity the way disputed_opponent is.
+  fightId: string;
+  detectedAt: string;
+  details: DisputedResultDetails;
+}
+
+export type Conflict = DisputedOpponentConflict | LowConfidenceConflict | DisputedResultConflict;
 
 // A fight in the same date window as a low-confidence conflict's odds
 // event -- the candidate pool the owner picks from, ranked by the
@@ -78,4 +100,26 @@ export interface LowConfidenceDisplay {
   candidates: CandidateFight[];
 }
 
-export type ConflictDisplay = DisputedOpponentDisplay | LowConfidenceDisplay;
+// Read-only for now, deliberately -- see settleFights.ts's own comment.
+// Most result disputes self-resolve the same way disputed_opponent ones
+// do (the next twice-daily sync run finds the sources now agree), so a
+// manual "pick the winner" action is a well-scoped later add if it turns
+// out to genuinely be needed, not a gap in this pass.
+export interface DisputedResultDisplay {
+  id: string;
+  kind: "disputed_result";
+  detectedAt: string;
+  fightId: string;
+  eventName: string;
+  eventDate: string;
+  fighter1Name: string;
+  fighter2Name: string;
+  // Null means "reported a draw/NC," not "hasn't reported" -- a display
+  // row only ever exists once at least one side has actually reported.
+  wikipediaWinnerName: string | null;
+  wikipediaMethod: string | null;
+  wikipediaRound: number | null;
+  apiSportsWinnerName: string | null;
+}
+
+export type ConflictDisplay = DisputedOpponentDisplay | LowConfidenceDisplay | DisputedResultDisplay;

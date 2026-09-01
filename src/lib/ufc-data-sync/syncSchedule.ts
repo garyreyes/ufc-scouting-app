@@ -37,6 +37,7 @@ export async function runScheduleSync() {
         event_id: eventId,
         fighter1_id: fighter1Id,
         fighter2_id: fighter2Id,
+        source: "wikipedia",
         winner_id: winnerId,
         method: bout.method,
         round: bout.round,

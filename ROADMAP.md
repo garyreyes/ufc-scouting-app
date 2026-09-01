@@ -505,13 +505,59 @@ RLS policies, which neither action re-implements.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| D1 | ⚠️ Cross-check settle job — agreement settles, 24h single-source timeout settles and flags, disagreement queues | not started |
+| D1 | ⚠️ Cross-check settle job — agreement settles, 24h single-source timeout settles and flags, disagreement queues | **done** (2026-09-01) |
 | D2 | ⚠️ Dual settlement — `pick_correct` and `pnl_units` settle independently; draw/NC/cancelled voids **both** lines | not started |
 
 **D2 note.** The case that must be explicitly tested: prediction right, bet on
 the other fighter, bet wins. Both lines must record the truth rather than one
 overwriting the other. With no winner there is no correct answer, so scoring a
 pick as wrong on a draw would be a bug, not a harsh call.
+
+**D1 result.** Getting oriented found the real blocker before writing
+anything: `fights.winner_id`/`method`/`round` were last-write-wins between
+the two sync jobs, so Fork 6's policy had no independent per-source state
+to actually compare -- whichever job ran most recently silently overwrote
+the other's report. Two forks asked and resolved: per-source columns
+directly on `fights` (over a separate reports table -- matches this
+project's repeated one-table preference), and a Wikipedia draw/NC settles
+immediately rather than waiting the usual 24h, since API-Sports
+structurally has no way to ever report "no winner" and so can never
+corroborate one -- verified live first (a real UFC 214 No Contest page),
+not assumed.
+
+A third case surfaced while writing the decision function's tests, not
+asked or guessed: if API-Sports has *actively* reported a winner while
+Wikipedia says draw/NC, that's a real disagreement, not the "nothing to
+wait for" case -- it queues like any other disagreement instead of
+settling immediately. Found by enumerating every real source-state
+combination before any implementation existed.
+
+Two new pure, mutation-verified functions: `evaluateFightSettlement.ts`
+(the whole policy, one decision per fight) and
+`buildSourceReportUpdate.ts` (routes each source's report into its own
+columns, critically preserving the *original* `reported_at` on every
+repeat report -- refreshing it would mean the 24h timeout never actually
+fires, since the sync runs twice daily). `upsertFight.ts` no longer
+writes the shared `winner_id`/`method`/`round` at all; both sync jobs now
+declare `source: "wikipedia" | "api_sports"` instead. `data_conflicts`
+gained a third kind, `disputed_result` -- read-only for now
+(`DisputedResultCard`), since most disputes are expected to self-resolve
+the same way `disputed_opponent` ones already do; a manual override is a
+well-scoped later add, not a gap. `ConflictCard`'s dispatch is now an
+exhaustiveness-checked `switch` so a future fourth kind fails the build
+instead of silently mis-rendering.
+
+**Verified live.** Migration cross-checked against `information_schema`/
+`pg_constraint`, not just the tracking table. Ran the real twice-daily
+sync end-to-end against production for the first time since
+`upsertFight.ts` changed (Wikipedia's half; `syncJob.ts` skipped locally
+for lack of a local API key). Zero results reported, independently
+confirmed correct rather than assumed: all 8 synced events' own
+`event_date` are still in the future. Then ran the settle job itself
+live: `0 settled, 0 disputed, 152 still waiting` -- the correct,
+provably-safe no-op, confirmed via a real `job_runs` row, not just the
+console line. Full reasoning and every constraint added in
+`ARCHITECTURE.md` Fork 6.
 
 ---
 
