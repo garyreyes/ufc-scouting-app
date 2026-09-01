@@ -720,3 +720,55 @@ credits/month) — gitignored, never committed.
 
 **Status:** B1 is done. B2 (immutable `odds_snapshots`) is next and can now
 proceed on a verified foundation instead of an assumed one.
+
+## Phase 17 — B2: odds_snapshots table, immutable by trigger (2026-09-01)
+
+**Added:** `supabase/migrations/0013_odds_snapshots.sql` — one frozen decimal
+price per fight (`fighter1_price`, `fighter2_price`, both `> 1` checked),
+`bookmaker` defaulting to `'onexbet'`, `odds_event_id` and `raw_response
+jsonb` for audit, `unique (fight_id)`, `fight_id references fights(id) on
+delete restrict` (a priced snapshot must never disappear as a side effect of
+cleaning up an unrelated fight row). RLS enabled, public `SELECT` for
+`anon`/`authenticated` matching the existing fighters/events/fights pattern,
+no write grant for either.
+
+**Corrected before implementing, not after:** ARCHITECTURE.md's stated
+mechanism — "immutable via absent UPDATE/DELETE policy" — doesn't survive
+contact with how `service_role` actually works in this project.
+`0003_service_role_grants.sql`'s own comment says service_role bypasses RLS
+entirely, and `0005_service_role_default_privileges.sql` grants it UPDATE/
+DELETE on every table, including future ones, forever. An absent policy
+stops `anon`/`authenticated`; it stops nothing once the sync job itself
+(which runs as service_role) is the one making the request. Replaced with a
+`BEFORE UPDATE`/`BEFORE DELETE` trigger that unconditionally raises — the
+same mechanism this project already uses for the pick lock, since triggers
+fire for every role regardless of RLS bypass.
+
+**Test-first, run for real:** extended `supabase/tests/rls.sql` (checks
+7–12) rather than adding a Vitest suite, since RLS/trigger behaviour can
+only be verified against real Postgres — matches this project's own
+established pattern. Checks cover: anon can read; anon/authenticated writes
+rejected by grants; `service_role` UPDATE and DELETE rejected **specifically
+by the immutability trigger** (the test inspects the error message so a pass
+can't be masking an unrelated rejection); a second insert for an
+already-snapshotted fight rejected by the unique constraint. Run live
+against `ufc-scouting-app` via the Dashboard SQL Editor — printed `All RLS
+checks passed.`
+
+**Found while preparing to apply the migration, not from the migration
+itself:** the Supabase CLI's migration tracking is out of sync with reality.
+`supabase migration list --linked` showed every migration `0001`–`0013`
+with an empty `remote` column, and `db push --dry-run` confirmed it would
+try to re-apply all thirteen, including `0001`'s `create table fighters`
+against a table that already exists live. All prior migrations went in by
+hand through the Dashboard SQL Editor, which never writes to the CLI's
+tracking table — so this one did too, for consistency and safety, rather
+than risk a first-time `db push` reconciliation mid-task. Also reconfirmed
+while checking project refs: the "GAMBLING TRACKER" project from the Phase
+11 incident is still on the account. Both recorded in `PROJECT_FACTS.md`.
+
+**Status:** B2 done. `ARCHITECTURE.md`'s schema-decisions section and Fork 7
+both updated with the trigger correction. B3 (odds client + fuzzy matcher)
+is next, and now carries three requirements found along the way: discard the
+`Draw` outcome, scope matching to a window around a known card date, and
+build against a verified 1xBet response rather than an assumed one.

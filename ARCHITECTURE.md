@@ -292,11 +292,22 @@ per fight per author. **`predicted_fighter_id` and `bet_fighter_id` must each
 be one of that fight's two fighters** — a plain FK to `fighters` cannot express
 this, so it goes in the same trigger as the pick lock.
 
-**`odds_snapshots` is immutable structurally, not by convention.**
-`unique (fight_id)` allows one row per fight, and the table gets **no UPDATE
-and no DELETE policy at all** — immutability by absence of permission, so
-"never re-read after the snapshot" becomes something the database enforces
-rather than a rule the code has to remember.
+**`odds_snapshots` is immutable structurally, not by convention — enforced by
+a trigger, not by an absent policy.** `unique (fight_id)` allows one row per
+fight, and `SELECT` is the only grant either `anon` or `authenticated` ever
+gets. The mechanism that actually stops an overwrite, though, is a `BEFORE
+UPDATE`/`BEFORE DELETE` trigger that unconditionally raises — **not** the
+absence of an RLS policy, which was the original plan and doesn't hold up:
+`service_role` bypasses RLS entirely and is granted UPDATE/DELETE on every
+table by default (`0005_service_role_default_privileges.sql`), so an absent
+policy protects against nothing once the sync job itself runs. Triggers fire
+for every role, `service_role` included — the same mechanism already chosen
+for the pick lock. Verified live 2026-09-01: `service_role` UPDATE and
+DELETE were both rejected by the trigger specifically (checked via the
+error message, not just a permissions failure), and a second `INSERT` for an
+already-snapshotted fight was separately rejected by the unique constraint.
+See `supabase/migrations/0013_odds_snapshots.sql` and `supabase/tests/rls.sql`
+checks 7–12.
 
 **`rumour_sources.excerpt` snapshots post text at scrape time**, so the
 evidence survives the post being deleted.
