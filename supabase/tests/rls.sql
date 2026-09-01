@@ -14,6 +14,12 @@
 --   select id, email from auth.users;
 -- Paste them into test_users below, then run the whole file.
 --
+-- Since 0017_owner_allowlist.sql: label 'a' MUST be the same account as
+-- the id hardcoded into is_owner() in that migration -- checks 13-16
+-- specifically verify owner-vs-non-owner behaviour, and only make sense
+-- if 'a' really is the owner. Label 'b' must be a different, non-owner
+-- account (any second real account works).
+--
 -- Each check is a `do $$ ... raise exception ... $$` block that
 -- aborts with a clear "FAIL (n): ..." message the instant something
 -- doesn't match what's expected. If the whole script runs to
@@ -293,6 +299,90 @@ begin
   exception
     when unique_violation then
       null; -- expected
+  end;
+end $$;
+reset role;
+
+-- ---- A3: owner allowlist ----
+-- Written before the migration was applied -- this file, run once now,
+-- is what verifies 0017_owner_allowlist.sql actually did what it claims.
+
+-- Fixture for check 16: a valid, unrevoked invite to Clan X, created
+-- while still connected as postgres (bypasses RLS, same as every other
+-- fixture above).
+insert into clan_invites (clan_id, token, created_by) values
+  ('dddddddd-0000-0000-0000-000000000001', 'test-invite-token', (select id from test_users where label = 'a'));
+
+-- 13. Non-owner ('b') cannot create a clan, even entirely under their own
+--     authorship -- this is the actual point of the restrictive policy:
+--     "clans: create own" alone would have allowed this before 0017.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'b'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into clans (name, created_by) values ('Stranger''s Clan', (select id from test_users where label = 'b'));
+    raise exception 'FAIL (13): a non-owner should not be able to create a clan under their own authorship';
+  exception
+    when insufficient_privilege then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
+-- 14. The owner ('a') can still do everything the pre-0017 policies
+--     already allowed -- the restrictive policy must not regress their
+--     own legitimate access.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+declare new_clan_id uuid;
+begin
+  insert into clans (name, created_by) values ('Owner''s New Clan', (select id from test_users where label = 'a'))
+    returning id into new_clan_id;
+  if new_clan_id is null then
+    raise exception 'FAIL (14): the owner should still be able to create a clan';
+  end if;
+end $$;
+reset role;
+
+-- 15. Non-owner ('b') cannot create a scouting report under their own
+--     authorship either -- same restrictive policy, a different table.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'b'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into scouting_reports (fight_id, user_id, body) values
+      ('cccccccc-0000-0000-0000-000000000001', (select id from test_users where label = 'b'), 'stranger note');
+    raise exception 'FAIL (15): a non-owner should not be able to create a scouting report';
+  exception
+    when insufficient_privilege then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
+-- 16. Non-owner ('b') cannot join a clan via a valid, unrevoked invite
+--     token -- accept_clan_invite is SECURITY DEFINER, so the table-level
+--     restrictive policy on clan_members doesn't reach inside it; this
+--     proves the explicit is_owner() guard added directly to the
+--     function is what's actually stopping this, not RLS incidentally.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'b'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    perform accept_clan_invite('test-invite-token');
+    raise exception 'FAIL (16): a non-owner should not be able to accept a clan invite';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then
+        raise;
+      elsif sqlerrm not like '%Not available%' then
+        raise exception 'FAIL (16): invite acceptance was rejected, but not by the owner guard -- got: %', sqlerrm;
+      end if;
+      -- else: expected, rejected by the is_owner() guard
   end;
 end $$;
 reset role;

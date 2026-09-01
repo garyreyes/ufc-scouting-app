@@ -266,6 +266,59 @@ listing that never becomes a real fight, which is a different failure mode
 from the disputed-opponent problem in Fork 5 but has the same shape: don't
 guess when the data is ambiguous, narrow the search instead.
 
+### Fork 8 — owner allowlist: **restrictive RLS policy, not rewritten permissive ones**
+
+Found during `user-flow-mapper` (2026-08-29), built in A3 (2026-09-01):
+the app is publicly deployed with open Google/GitHub signup, so any
+stranger can currently sign in and write real rows to the frozen v1
+tables — clans, scouting reports. RLS already keeps a stranger's rows
+separate from the owner's, so this was never a breach, but it's an
+unintended door, and per `docs/user-flows.md`'s security checklist the
+fix has to be enforced in the database, not only the UI.
+
+**Mechanism: one restrictive policy per table, not a rewrite of every
+existing permissive one.** Postgres RLS policies for the same command are
+permissive by default and OR'd together (0012's own comment already
+established this) — a new permissive policy can only *widen* what's
+already allowed, never narrow it. The only way to cut down what
+`clans: create own`, `scouting_reports: author creates`, and similar
+policies already allow, without touching any of them, is a **restrictive**
+policy: restrictive policies are AND'd on top of whatever the permissive
+ones allow. One `as restrictive for all using (is_owner())` policy per
+table does the whole job — `clans`, `clan_members`, `clan_invites`,
+`scouting_reports`, `report_clan_shares`, `fighter_scouting_reports`,
+`fighter_report_clan_shares`. `profiles` is deliberately excluded: its one
+row per signup is created by the `handle_new_user` trigger regardless of
+this app's RLS, and letting a stranger rename their own harmless
+shadow-row isn't meaningful data creation.
+
+**`accept_clan_invite` needed a second, different fix — RLS doesn't reach
+inside a `SECURITY DEFINER` function.** Same class of gap as
+`odds_snapshots`' original immutability mistake (Fork 7 / B2): this
+function's internal `insert into clan_members` runs with the function
+owner's privileges, which bypasses the new restrictive policy on
+`clan_members` entirely. A stranger with a leaked or guessed invite token
+could still join a clan through it. Fixed with an explicit `if not
+is_owner() then raise exception` guard inside the function itself — the
+table-level policy alone was not enough. Redefined via `create or replace
+function` in the new migration, not an edit to `0004` where it was first
+defined.
+
+**Verified live 2026-09-01**, `supabase/tests/rls.sql` checks 13–16: a
+non-owner can no longer create a clan or a scouting report under their own
+authorship (both previously allowed by the permissive policies alone), the
+owner's own access is unregressed, and a non-owner is rejected from
+`accept_clan_invite` specifically by the `is_owner()` guard — checked via
+the error message, not just any rejection, so a pass can't be masking an
+unrelated failure.
+
+**`lib/auth.ts` (`isOwner()`) carries no security weight of its own.** It
+exists for one reason: deciding what the UI shows (sign-in prompt vs. "not
+available" vs. the real screen). The actual boundary is `is_owner()` in
+Postgres, enforced independently of anything the app layer does or any bug
+in it — the same "app-layer check is UX, the database is the boundary"
+split already established for the odds-snapshot immutability trigger.
+
 ---
 
 ## Entities
@@ -395,8 +448,11 @@ writing into a table that already exists. Two kinds, one table:
   open conflict" is exactly what the pick-lock trigger will ask.
 - **RLS: no policy at all for `anon`/`authenticated`, deliberately fail
   closed.** This is an internal review queue (`docs/user-flows.md` gates
-  `/conflicts` behind the owner allowlist), and the allowlist itself (A3)
-  doesn't exist yet. Loosen this on purpose in A3, not by omission now.
+  `/conflicts` behind the owner allowlist). `is_owner()` now exists (A3,
+  Fork 8) and `data_conflicts` could be given an owner-only read policy at
+  any point, but it hasn't been — there's still no `/conflicts` screen to
+  read it (that's B6), so there's nothing to loosen this for yet. Add the
+  policy when B6 actually needs it, not speculatively now.
 
 **`rumour_sources.excerpt` snapshots post text at scrape time**, so the
 evidence survives the post being deleted.

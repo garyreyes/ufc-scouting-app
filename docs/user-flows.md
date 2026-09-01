@@ -211,16 +211,19 @@ always, so a redirect would be a surprise rather than a help.
 
 ### Security baseline, applied inline (triggered by the gates above)
 
-- [ ] **The allowlist is enforced in the database, not only in the UI.** A
-      UI-only check is exactly the "never trust the client" failure — a
-      stranger could still write via a direct request. `picks` INSERT/UPDATE
-      policies must check owner identity, not merely `user_id = auth.uid()`.
-- [ ] The allowlist lives in **one server-side module** (`lib/auth.ts`), which
-      features import. Never a client-side comparison, never duplicated.
-- [ ] The owner identity comes from the **session**, never from anything the
-      client sends.
-- [ ] The allowlist value is an **environment variable**, server-only, never
-      `NEXT_PUBLIC_`.
+- [x] **The allowlist is enforced in the database, not only in the UI.**
+      Done in A3 (2026-09-01) — `is_owner()` plus one restrictive RLS policy
+      per writable v1 table (`supabase/migrations/0017_owner_allowlist.sql`).
+      `picks` doesn't exist yet (C1); when it's built it must reuse
+      `is_owner()` the same way, not re-derive the check.
+- [x] The allowlist lives in **one server-side module** (`lib/auth.ts`), which
+      features import. Never a client-side comparison, never duplicated. Note
+      the module is UX-only — `is_owner()` in Postgres is the actual
+      boundary, independent of any bug in the app layer.
+- [x] The owner identity comes from the **session**, never from anything the
+      client sends — `auth.uid()` resolves from the signed JWT.
+- [x] The allowlist value is an **environment variable**, server-only, never
+      `NEXT_PUBLIC_` (`OWNER_USER_ID`, read via `requireEnv`).
 - [ ] Server Actions handle the writes, so CSRF is covered by Next's origin
       checks — but no write may live in a plain unauthenticated route handler.
 - [ ] Login rate limiting is the OAuth provider's; there is no password path

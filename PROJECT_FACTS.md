@@ -148,6 +148,33 @@ Decided 2026-08-29, user-originated.
   belongs to B5's schedule, or an explicit confirmed dry-run — don't run
   it ad hoc.
 
+## Access control
+
+- **The app is publicly deployed with open Google/GitHub signup on a tool
+  meant for one user.** Found during `user-flow-mapper` (2026-08-29), fixed
+  in A3 (2026-09-01): `is_owner()` plus one restrictive RLS policy per
+  writable v1 table. See `ARCHITECTURE.md` Fork 8 for the full design.
+- **Any new writable table needs the same restrictive policy, added
+  deliberately — it will never happen by accident.** A brand-new table with
+  only ordinary permissive policies (`user_id = auth.uid()`, etc.) is
+  writable by *any* signed-in stranger, not just the owner, until an
+  `as restrictive ... using (is_owner())` policy is added for it too. This
+  is the first thing to check when C1 builds `picks`.
+- **A `SECURITY DEFINER` function needs its own `is_owner()` guard inside
+  the function body — a table's RLS policy does not reach it.** Confirmed
+  with `accept_clan_invite`: it bypasses `clan_members`' restrictive policy
+  entirely via the same mechanism already found for `service_role` and
+  `odds_snapshots`' immutability (Fork 7). Check for this pattern before
+  trusting any future `SECURITY DEFINER` function against a stranger.
+- **`OWNER_USER_ID` must match the UUID hardcoded into `is_owner()`** in
+  `supabase/migrations/0017_owner_allowlist.sql`, or the app-layer UI and
+  the actual RLS boundary disagree about who the owner is. The env var is
+  UX only and carries no security weight — RLS enforces this independent
+  of it.
+- **`supabase/tests/rls.sql`'s label `'a'` must be the owner account** for
+  checks 13–16 (added in A3) to mean anything — the file's own header now
+  says so.
+
 ## Undocumented external limits, found empirically
 
 - **API-Sports free tier**: 100 req/day, a **~3-day date window**, and a **~10
