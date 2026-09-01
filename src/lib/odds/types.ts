@@ -1,6 +1,8 @@
-// Shapes matching The Odds API's real response, verified live 2026-09-01
-// against mma_mixed_martial_arts/odds?bookmakers=onexbet (see
-// ARCHITECTURE.md Fork 7 / CHANGES.md Phase 16).
+// Shapes matching The Odds API's real response -- verified live 2026-09-01
+// for 1xBet (CHANGES.md Phase 16), then re-verified the same day for
+// BetOnline.ag (Phase 20) when the bookmaker changed. Both confirm the
+// same event/outcome envelope; only the outcome count per market differs
+// by bookmaker (see parseOutcomes.ts).
 
 export interface OddsOutcome {
   name: string;
