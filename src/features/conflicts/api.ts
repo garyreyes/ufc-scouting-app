@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { rankFightMatches } from "@/lib/odds/matchFights";
 import { fetchUnpricedFights } from "@/lib/odds/eligibleUnpricedFights";
-import type { DisputedOpponentDetails, LowConfidenceDetails, ConflictDisplay } from "./types";
+import type { DisputedOpponentDetails, DisputedResultDetails, LowConfidenceDetails, ConflictDisplay } from "./types";
 
 // data_conflicts has no client SELECT grant at all (0014_data_conflicts.sql
 // -- deliberately closed by default, loosened only for the owner via the
@@ -52,9 +52,9 @@ export async function getOpenDisputedFightIds(fightIds: string[]): Promise<Set<s
 
 interface ConflictRow {
   id: string;
-  kind: "disputed_opponent" | "low_confidence_odds_match";
+  kind: "disputed_opponent" | "low_confidence_odds_match" | "disputed_result";
   fight_id: string | null;
-  details: DisputedOpponentDetails | LowConfidenceDetails;
+  details: DisputedOpponentDetails | LowConfidenceDetails | DisputedResultDetails;
   detected_at: string;
 }
 
@@ -71,17 +71,19 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
 
   const conflicts = rows as unknown as ConflictRow[];
 
-  const disputed = conflicts.filter((c) => c.kind === "disputed_opponent");
+  const disputedOpponent = conflicts.filter((c) => c.kind === "disputed_opponent");
   const lowConfidence = conflicts.filter((c) => c.kind === "low_confidence_odds_match");
+  const disputedResult = conflicts.filter((c) => c.kind === "disputed_result");
 
-  const [disputedDisplays, lowConfidenceDisplays] = await Promise.all([
-    resolveDisputedDisplays(admin, disputed),
+  const [disputedOpponentDisplays, lowConfidenceDisplays, disputedResultDisplays] = await Promise.all([
+    resolveDisputedDisplays(admin, disputedOpponent),
     resolveLowConfidenceDisplays(admin, lowConfidence),
+    resolveDisputedResultDisplays(admin, disputedResult),
   ]);
 
-  // Restore detected_at order rather than the two-group split above.
+  // Restore detected_at order rather than the three-group split above.
   const byId = new Map(
-    [...disputedDisplays, ...lowConfidenceDisplays].map((d) => [d.id, d]),
+    [...disputedOpponentDisplays, ...lowConfidenceDisplays, ...disputedResultDisplays].map((d) => [d.id, d]),
   );
   return conflicts.map((c) => byId.get(c.id)).filter((d): d is ConflictDisplay => d !== undefined);
 }
@@ -179,5 +181,59 @@ async function resolveLowConfidenceDisplays(
       oddsAwayTeam: details.oddsEvent.away_team,
       candidates,
     };
+  });
+}
+
+async function resolveDisputedResultDisplays(
+  admin: SupabaseClient,
+  rows: ConflictRow[],
+): Promise<import("./types").DisputedResultDisplay[]> {
+  if (rows.length === 0) return [];
+
+  const fightIds = rows.map((r) => r.fight_id as string);
+  const { data: fights, error: fightsError } = await admin
+    .from("fights")
+    .select(
+      "id, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name), event:event_id(name, event_date)",
+    )
+    .in("id", fightIds);
+  if (fightsError) throw fightsError;
+
+  type EmbeddedFight = {
+    id: string;
+    fighter1: { id: string; name: string };
+    fighter2: { id: string; name: string };
+    event: { name: string; event_date: string };
+  };
+  const fightById = new Map(((fights ?? []) as unknown as EmbeddedFight[]).map((f) => [f.id, f]));
+
+  return rows.flatMap((r) => {
+    const fight = fightById.get(r.fight_id as string);
+    if (!fight) return []; // defensive: the fight was deleted out from under an open conflict
+
+    const details = r.details as DisputedResultDetails;
+    const nameForWinner = (winnerId: string | null): string | null => {
+      if (winnerId === null) return null;
+      if (winnerId === fight.fighter1.id) return fight.fighter1.name;
+      if (winnerId === fight.fighter2.id) return fight.fighter2.name;
+      return "Unknown fighter";
+    };
+
+    return [
+      {
+        id: r.id,
+        kind: "disputed_result" as const,
+        detectedAt: r.detected_at,
+        fightId: r.fight_id as string,
+        eventName: fight.event.name,
+        eventDate: fight.event.event_date,
+        fighter1Name: fight.fighter1.name,
+        fighter2Name: fight.fighter2.name,
+        wikipediaWinnerName: nameForWinner(details.wikipedia_winner_id),
+        wikipediaMethod: details.wikipedia_method,
+        wikipediaRound: details.wikipedia_round,
+        apiSportsWinnerName: nameForWinner(details.api_sports_winner_id),
+      },
+    ];
   });
 }

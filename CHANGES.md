@@ -1411,3 +1411,41 @@ the owner's own name. The real enforcement remains C1's trigger and RLS.
 
 **Status:** C4 done. Phase C (picks and bets) is complete. Next: Phase D
 (settlement).
+
+## Phase 33 — D1: the cross-check settle job (2026-09-01)
+
+Found the real blocker before writing anything: `fights.winner_id`/
+`method`/`round` were last-write-wins between the two sync jobs, so
+there was no independent per-source state to compare -- Fork 6's
+agree/disagree policy literally couldn't be evaluated. Two forks asked
+and resolved: new per-source columns directly on `fights` (over a
+separate reports table, matching this project's one-table preference),
+and a Wikipedia draw/NC settles immediately rather than waiting 24h,
+since API-Sports structurally can never report "no winner" and so can
+never corroborate one -- verified live against a real UFC 214 No
+Contest page, not assumed.
+
+A third case found while writing the decision function's tests, not
+guessed: API-Sports actively reporting a winner while Wikipedia says
+draw/NC is a real disagreement, not the "nothing to wait for" case --
+it queues instead of settling.
+
+New: `lib/settlement/evaluateFightSettlement.ts` (pure, mutation-
+verified, the whole policy) and `lib/ufc-data-sync/
+buildSourceReportUpdate.ts` (routes each source's report into its own
+columns, preserving the original `reported_at` so the 24h clock only
+ever starts once). `upsertFight.ts` no longer writes the shared result
+columns directly. `data_conflicts` gained a third kind,
+`disputed_result`, with a read-only card (`ConflictCard`'s dispatch is
+now an exhaustiveness-checked `switch`).
+
+Verified live: migration cross-checked against `information_schema`,
+not just the tracking table. Ran the real twice-daily sync end-to-end
+against production for the first time since `upsertFight.ts` changed;
+zero results reported, independently confirmed correct (all 8 synced
+events are still in the future). Ran the settle job itself live: `0
+settled, 0 disputed, 152 still waiting`, confirmed via a real `job_runs`
+row.
+
+**Status:** D1 done. Next: D2, dual settlement (writing `pick_correct`/
+`pnl_units` onto every pick once its fight settles).

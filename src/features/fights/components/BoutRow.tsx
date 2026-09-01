@@ -52,7 +52,15 @@ export function BoutRow({
         />
       </div>
       <span className={styles.result}>
-        {fight.method ? `${fight.method}${fight.round ? ` · R${fight.round}` : ""}` : "Upcoming"}
+        {fight.method
+          ? `${fight.method}${fight.round ? ` · R${fight.round}` : ""}`
+          : // A fight can settle on api_sports alone after the 24h single-
+            // source timeout (lib/settlement/), which never carries method/
+            // round -- winner_id is set with no method in that case, distinct
+            // from a genuinely upcoming fight (neither is set).
+            fight.winner_id !== null
+            ? "Final"
+            : "Upcoming"}
       </span>
       <Link href={`/fights/${fight.id}`} className={styles.reportsLink}>
         Scouting reports →

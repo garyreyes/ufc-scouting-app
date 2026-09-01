@@ -97,6 +97,7 @@ export async function runSyncJob() {
       event_id: eventId,
       fighter1_id: fighter1Id,
       fighter2_id: fighter2Id,
+      source: "api_sports",
       winner_id: entry.winnerExternalId
         ? fighterIdByExternalId.get(entry.winnerExternalId)
         : null,

@@ -196,6 +196,108 @@ safe, read-only live check before building on top of it. See
 - **Only one source has reported after 24h** → settle on it, and record
   `settled_from` so single-source settlements stay visible on the scoreboard.
 
+**D1 result — the cross-check settle job.** Getting oriented surfaced the
+gap the schema-decisions entry above already names: `winner_id`/`method`/
+`round` were last-write-wins, so there was no way to evaluate this policy
+at all against a value either sync job could have already clobbered.
+Two forks asked and resolved before building:
+
+1. **Where each source's own report lives** — new columns directly on
+   `fights` (user-confirmed, over a separate `fight_result_reports`
+   table), matching this project's repeated preference for one table over
+   a second one a settlement bug or scoreboard read would need to
+   UNION/join against (same reasoning as picks+bets, one conflicts
+   queue).
+2. **Draw/NC timing** — verified live first, not assumed: Wikipedia's own
+   `{{MMAevent bout}}` template already reports "the bout is over, no
+   winner" for free (confirmed against UFC 214's real No Contest —
+   separator `"vs."`, method `"NC (overturned)"`, no winner), while
+   API-Sports' only signal is a clear win (`fighters.first.winner`/
+   `.second.winner` booleans — confirmed against `fetchFightHistory.ts`'s
+   real response shape), so it can never itself report a draw/NC or
+   corroborate one either. User-confirmed: settle a Wikipedia draw/NC
+   immediately rather than wait the usual 24h, since the wait cannot buy
+   any real confidence when the second source structurally has no
+   opinion to contribute.
+
+**A third case found while writing the decision logic out, not asked or
+guessed:** the immediate-settle policy above only holds when API-Sports
+is silent. If it has *actively* reported a winner while Wikipedia says
+draw/NC, that is a genuine disagreement between sources — not the
+"nothing to wait for" case — so it queues like any other disagreement
+instead of settling. Caught by enumerating every real combination of
+source states while writing `evaluateFightSettlement.ts`'s tests, before
+any implementation existed.
+
+Two new pure, mutation-verified functions: `evaluateFightSettlement.ts`
+(`lib/settlement/`) — the entire policy above, one decision per fight,
+I/O-free like `lib/scoring/`'s own convention — and
+`buildSourceReportUpdate.ts` (`lib/ufc-data-sync/`) — turns one source's
+incoming report into that source's own columns, critically preserving
+the *original* `reported_at` on every repeat report rather than
+refreshing it (the sync runs twice daily; refreshing the clock on every
+re-report would mean the 24h timeout never actually fires). This exact
+guarantee is what every mutation test on that function targets. A later
+correction to an already-reported result (e.g. an appeal overturning a
+decision) still updates the winner/method/round, just never resets the
+clock — retroactively re-examining an *already-settled* fight is an
+explicit, documented non-goal of this phase, not an oversight: the
+settle job simply never revisits a fight once `settled_at` is set.
+
+Two defensive DB constraints added alongside the columns, matching
+`picks`' own paired-nullability checks:
+`(settled_at is null) = (settled_from is null)` and
+`(wikipedia_reported_at is null) = (wikipedia_method is null)` — the
+second exists because a mutation test surfaced that
+`evaluateFightSettlement.ts`'s explicit `null` (rather than trusting
+`wikipediaMethod`) for `api_sports_only_24h`'s method/round was only
+*provably* safe once the schema itself guarantees the pairing, not
+merely because every real caller happens to uphold it today.
+
+`upsertFight.ts` no longer writes `winner_id`/`method`/`round` directly
+— both sync jobs now declare a `source: "wikipedia" | "api_sports"` and
+route through `buildSourceReportUpdate`. The `disputed_opponent`
+conflict's own `details` payload (candidate winner/method/round, shown
+on the resolution card) is unaffected — it now reads those fields
+directly off the incoming `FightWrite` rather than an intermediate
+"optional fields" object, same values as before.
+
+`data_conflicts` gained a third kind, `disputed_result`, for the queue
+case above — same "one queue, not two" reasoning as the original two
+(Fork 5). Given real scope: read-only for now (`DisputedResultCard`),
+not a full manual-resolution picker like `disputed_opponent`'s. Most
+result disputes are expected to self-resolve the same way — the next
+twice-daily sync finds the sources now agree, and the settle job settles
+it on its own — so a manual override is a well-scoped later add if it
+turns out to be genuinely needed, not a gap in this pass.
+`ConflictCard`'s dispatch is now a `switch` with a `never`-typed
+exhaustiveness guard rather than an `if`/fallthrough, specifically so a
+future fourth kind is a compile error if its UI branch is forgotten,
+not a silent mis-render.
+
+**Verified live, 2026-09-01.** Migration applied and cross-checked
+against `information_schema`/`pg_constraint`, not just the tracking
+table: all 8 new columns and both new constraints match exactly. Ran
+the real twice-daily sync (`npm run sync`) end-to-end against
+production for the first time since `upsertFight.ts` changed — this is
+application code, not schema DDL, the same category B5 asked about
+before its first live `matchAndSnapshot` run. Wikipedia's half exercised
+for real (75 fights across 8 events); `syncJob.ts` (API-Sports) skipped
+locally for lack of a local API key, exercised only by the existing
+scheduled workflow. Zero fights reported a result, and this was
+independently confirmed correct rather than assumed: every one of the 8
+synced events' own `event_date` is still in the future (2026-09-05
+through 2026-11-07), so none could possibly have a real result yet. Then
+ran the settle job itself live (`npm run settlement:settle-fights`):
+`0 settled, 0 disputed, 152 still waiting` — the correct, provably-safe
+no-op, since `wikipedia_reported_at`/`api_sports_reported_at` are new
+columns and every existing fight predates them. Confirmed via a real
+`job_runs` row (`status: success`, summary matching the console output
+exactly), not just the console line. `settle_fights` is deliberately not
+added to `TRACKED_JOB_NAMES` (the odds pipeline's own degraded-banner
+list) — out of D1's scope, and a `job_runs` row already gives basic
+auditability without it.
+
 ### Fork 7 — odds source and format: **BetOnline.ag, decimal, `h2h`**
 
 **Current bookmaker: `betonlineag` (BetOnline.ag), region `us`.** Changed
@@ -406,6 +508,18 @@ yet:**
   overwritten on every run, not write-once**: the PRD's "card postponed →
   picks carry to the new date, locks recompute" needs `starts_at` to track
   the freshest odds data, unlike `odds_snapshots`' immutability.
+- `fights.wikipedia_winner_id/method/round/reported_at` and
+  `fights.api_sports_winner_id/reported_at`, plus `settled_at`/
+  `settled_from` — **added in D1** (`0021_result_settlement.sql`). Before
+  this, `winner_id`/`method`/`round` were last-write-wins between the two
+  sync jobs, so there was no way to tell "both sources agree" from "only
+  one has run since" — Fork 6's policy literally could not be evaluated
+  against a value that had already been overwritten. `winner_id`/`method`/
+  `round` are now authoritative and written only by `lib/settlement/`'s
+  settle job; each sync job writes its own report into its own columns
+  instead (`upsertFight.ts`, routed through
+  `lib/ufc-data-sync/buildSourceReportUpdate.ts`). See the D1 result below
+  Fork 6.
 
 **Pick lock is enforced at the card, not the bout.** Per-fight start times are
 not reliably available from either source, so picks lock at
@@ -700,10 +814,11 @@ src/
   features/
     fighters/          components/, api.ts, types.ts
     fights/            components/, api.ts, types.ts
-    conflicts/         components/ (ConflictCard + its two kind-specific
-                       cards), api.ts, actions.ts,
-                       resolveDisputedOpponent.ts, resolveLowConfidence.ts
-                       (pure, mutation-tested), types.ts — built B6
+    conflicts/         components/ (ConflictCard + its three kind-specific
+                       cards, DisputedResultCard read-only — built D1),
+                       api.ts, actions.ts, resolveDisputedOpponent.ts,
+                       resolveLowConfidence.ts (pure, mutation-tested),
+                       types.ts — built B6
     job-health/        components/ (JobHealthBanner, RetryButton),
                        api.ts, actions.ts, evaluateJobHealth.ts,
                        types.ts — built B5
@@ -727,7 +842,11 @@ src/
                        service-role wrapper, shared — moved 2026-09-01
                        from ufc-data-sync/supabaseAdmin.ts once lib/odds/
                        needed the same client, rather than duplicate it)
-    ufc-data-sync/     API-Sports + Wikipedia ingestion (existing)
+    ufc-data-sync/     API-Sports + Wikipedia ingestion (existing);
+                       buildSourceReportUpdate.ts — built D1, routes each
+                       sync job's result into its own per-source columns
+                       on fights instead of the old shared, last-write-
+                       wins ones
     llm.ts             single Gemini wrapper — swappable in one file  [NEW]
     jobs/              runWithTracking.ts — generic job_runs bookkeeping,
                        built B5 for the odds jobs, written generically
@@ -744,6 +863,11 @@ src/
                        the conflicts screen's candidate picker
     reddit/            Reddit OAuth client                           [NEW]
     intern/            clustering + pick generation (batch)          [NEW]
+    settlement/         evaluateFightSettlement.ts (pure, mutation-
+                       tested), settleFights.ts, runSettleFights.ts
+                       (`npm run settlement:settle-fights`, and
+                       .github/workflows/sync.yml, after both sync jobs)
+                       — built D1
     scoring/           impliedProbability.ts, edge.ts,
                        scorePickCorrect.ts, scoreBetPnl.ts, types.ts
                        (FightOutcome) — built C2; probabilityForFighter.ts,
@@ -861,7 +985,11 @@ never "this should pass now."
    says the stake is "voided and returned, not counted as a loss," which is
    a real, known net-zero outcome distinct from `null`'s "no bet was ever
    placed." Collapsing the two would make a voided bet indistinguishable
-   from one that never existed on the units board
+   from one that never existed on the units board. **The "disagreement
+   settles neither line" half is done in D1** — `evaluateFightSettlement.ts`
+   is what actually detects agreement/disagreement/draw-NC and produces
+   the outcome C2's functions consume; C2 only ever covered what to do
+   with an outcome already known. See Fork 6 above for the full result
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.
