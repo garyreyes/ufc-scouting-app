@@ -180,6 +180,123 @@ begin
 end $$;
 reset role;
 
+-- ---- B2: odds_snapshots immutability ----
+-- Written before the migration existed -- see ARCHITECTURE.md's
+-- correctness-critical item #5 and 0013_odds_snapshots.sql's own comment
+-- for why "absent policy" alone doesn't achieve this against service_role.
+
+insert into odds_snapshots (fight_id, fighter1_price, fighter2_price)
+values ('cccccccc-0000-0000-0000-000000000001', 1.65, 2.30);
+
+-- 7. Public read: anon can see a snapshot (matches the card-view flow in
+--    docs/user-flows.md, where prices are visible logged out).
+set local role anon;
+do $$
+declare row_count int;
+begin
+  select count(*) into row_count from odds_snapshots
+    where fight_id = 'cccccccc-0000-0000-0000-000000000001';
+  if row_count <> 1 then
+    raise exception 'FAIL (7): anon should see the fixture odds_snapshot, saw %', row_count;
+  end if;
+end $$;
+reset role;
+
+-- 8. anon cannot write at all -- no grant exists.
+set local role anon;
+do $$
+begin
+  begin
+    insert into odds_snapshots (fight_id, fighter1_price, fighter2_price)
+      values ('cccccccc-0000-0000-0000-000000000001', 1.5, 2.5);
+    raise exception 'FAIL (8): anon should not be able to insert into odds_snapshots';
+  exception
+    when insufficient_privilege then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
+-- 9. authenticated cannot write either -- same absence of a grant. Uses
+--    user A's session for consistency with the checks above, though this
+--    table has no ownership concept to test.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into odds_snapshots (fight_id, fighter1_price, fighter2_price)
+      values ('cccccccc-0000-0000-0000-000000000001', 1.5, 2.5);
+    raise exception 'FAIL (9): authenticated should not be able to insert into odds_snapshots';
+  exception
+    when insufficient_privilege then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
+-- 10. service_role CAN write (has default privileges, unlike anon/
+--     authenticated) but UPDATE must still be rejected -- by the trigger,
+--     not by a permissions error. This is the actual test of the
+--     correctness-critical requirement: RLS bypass and table grants both
+--     let service_role through, so only the trigger is standing here.
+--     Checking the message contains "immutable" makes sure a pass isn't
+--     silently masking some unrelated rejection.
+set local role service_role;
+do $$
+begin
+  begin
+    update odds_snapshots set fighter1_price = 9.99
+      where fight_id = 'cccccccc-0000-0000-0000-000000000001';
+    raise exception 'FAIL (10): service_role should not be able to update an existing odds_snapshots row';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then
+        raise;
+      elsif sqlerrm not like '%immutable%' then
+        raise exception 'FAIL (10): update was rejected, but not by the immutability trigger -- got: %', sqlerrm;
+      end if;
+      -- else: expected, rejected by the immutability trigger
+  end;
+end $$;
+reset role;
+
+-- 11. Same for DELETE.
+set local role service_role;
+do $$
+begin
+  begin
+    delete from odds_snapshots where fight_id = 'cccccccc-0000-0000-0000-000000000001';
+    raise exception 'FAIL (11): service_role should not be able to delete an existing odds_snapshots row';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then
+        raise;
+      elsif sqlerrm not like '%immutable%' then
+        raise exception 'FAIL (11): delete was rejected, but not by the immutability trigger -- got: %', sqlerrm;
+      end if;
+  end;
+end $$;
+reset role;
+
+-- 12. A second INSERT for the same fight_id must also fail -- proving an
+--     upsert-style overwrite (which the trigger above doesn't cover,
+--     since it's a fresh row, not an UPDATE) can't sneak a new price in
+--     either. The unique(fight_id) constraint is what stops this.
+set local role service_role;
+do $$
+begin
+  begin
+    insert into odds_snapshots (fight_id, fighter1_price, fighter2_price)
+      values ('cccccccc-0000-0000-0000-000000000001', 1.5, 2.5);
+    raise exception 'FAIL (12): a second snapshot for the same fight_id should not be insertable';
+  exception
+    when unique_violation then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
 rollback;
 
 select 'All RLS checks passed.' as result;

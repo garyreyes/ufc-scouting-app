@@ -128,6 +128,24 @@ Decided 2026-08-29, user-originated.
 
 ## Infrastructure
 
+- **The Supabase CLI's migration tracking is out of sync with reality, and
+  `supabase db push` is unsafe to run as-is.** Confirmed 2026-09-01:
+  `supabase migration list --linked` shows every migration `0001`–`0013`
+  with an empty `remote` column, and `supabase db push --dry-run` confirms
+  it would try to re-apply all thirteen — including `0001`'s `create table
+  fighters`, which already exists live. All of `0001`–`0012` were applied
+  by hand through the Dashboard SQL Editor, which never writes to the CLI's
+  tracking table. **Until this is deliberately reconciled (`supabase
+  migration repair`, not done yet, needs its own confirmation before
+  running since it rewrites the CLI's history for every existing
+  migration), every migration goes in through the SQL Editor by hand, not
+  `db push`.**
+- **A second Supabase project on the same account is named "GAMBLING
+  TRACKER"** (`mbytqdkgwpzaensnphwd`, `ap-northeast-1`) — this is the exact
+  project Phase 11 accidentally ran a migration against. It still exists.
+  Always confirm the dashboard shows `ufc-scouting-app` /
+  `vrwlfcywyfzfczajpdoh` (`ap-southeast-1`) before running anything.
+
 - **The user has multiple Supabase projects.** Confirm the dashboard shows
   `ufc-scouting-app` (`vrwlfcywyfzfczajpdoh.supabase.co`) before running any
   migration. Phase 11 ran one against an unrelated project by mistake.

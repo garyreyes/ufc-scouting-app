@@ -72,7 +72,7 @@ and it now also owns `starts_at`.
 | # | Sub-phase | Status |
 |---|---|---|
 | B1 | Verification spike — does 1xBet actually return MMA, real free-tier limits, `commence_time` shape, and a named fallback bookmaker | **done** (2026-09-01) |
-| B2 | ⚠️ `odds_snapshots` table, immutable via absent UPDATE/DELETE policy | not started |
+| B2 | ⚠️ `odds_snapshots` table, immutable via a trigger (not absent policy — corrected, see below) | **done** (2026-09-01) |
 | B3 | ⚠️ Odds client + fuzzy fight matcher, scoped to a window around the known card date; low-confidence matches open a `data_conflicts` row instead of guessing; client keeps the two fighter outcomes and discards `Draw` | not started |
 | B4 | Daily discovery pull populating `events.starts_at` from `commence_time` | not started |
 | B5 | T-12h snapshot job (GitHub Actions) + `job_runs` + loud degraded banner | not started |
@@ -87,6 +87,19 @@ Fighter B, `Draw`), not two as first assumed — see `PROJECT_FACTS.md` and
 new note: the odds feed lists rumoured future matchups (the same fighter
 against different opponents on one date), so matching must be scoped to a
 window around a known card rather than a blind name search.
+
+**B2 result.** ARCHITECTURE.md originally specified immutability via absent
+UPDATE/DELETE policy — checked before implementing and found insufficient:
+`service_role` bypasses RLS and is granted UPDATE/DELETE on every table by
+default, so an absent policy protects against nothing once the sync job
+itself runs. Corrected to a trigger (same mechanism as the pick lock),
+verified live: `service_role` UPDATE/DELETE both rejected by the trigger
+specifically, a second insert for an already-snapshotted fight rejected by
+the unique constraint (`supabase/tests/rls.sql` checks 7–12). Also found:
+the Supabase CLI's migration tracking is unsynced with the live database —
+`db push` is unsafe until deliberately reconciled — so this and every prior
+migration went in through the Dashboard SQL Editor by hand. See
+`PROJECT_FACTS.md`.
 
 **B5 note.** A missed snapshot silently voids a whole card's scoreboard, which
 the PRD calls the single highest-impact failure in the system. It must alert
