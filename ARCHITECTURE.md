@@ -526,6 +526,9 @@ src/
   features/
     fighters/          components/, api.ts, types.ts
     fights/            components/, api.ts, types.ts
+    job-health/        components/ (JobHealthBanner, RetryButton),
+                       api.ts, actions.ts, evaluateJobHealth.ts,
+                       types.ts — built B5
     picks/             components/, api.ts, actions.ts, types.ts   [NEW]
     scoreboard/        components/, api.ts, types.ts               [NEW]
     rumours/           components/, api.ts, types.ts               [NEW]
@@ -540,10 +543,17 @@ src/
                        needed the same client, rather than duplicate it)
     ufc-data-sync/     API-Sports + Wikipedia ingestion (existing)
     llm.ts             single Gemini wrapper — swappable in one file  [NEW]
+    jobs/              runWithTracking.ts — generic job_runs bookkeeping,
+                       built B5 for the odds jobs, written generically
+                       because the Phase F rumour engine needs the same
     odds/              client.ts, matchFights.ts, parseOutcomes.ts,
                        similarity.ts, matchAndSnapshot.ts — built B3;
                        discoverStartTimes.ts, runDiscoverStartTimes.ts —
-                       built B4 (`npm run odds:discover-start-times`)
+                       built B4 (`npm run odds:discover-start-times`);
+                       snapshotWindow.ts, eligibleUnpricedFights.ts,
+                       runOddsJobsOnce.ts, runScheduledOddsJob.ts — built
+                       B5 (`npm run odds:scheduled-job`, and
+                       .github/workflows/odds.yml every 2h)
     reddit/            Reddit OAuth client                           [NEW]
     intern/            clustering + pick generation (batch)          [NEW]
     scoring/           unit P&L math — pure functions, no I/O        [NEW]
@@ -587,7 +597,12 @@ never "this should pass now."
    overwriting the other
 4. **Pick lock** — a pick cannot be created or edited after `events.starts_at`
 5. **Odds snapshot immutability** — a later sync must not overwrite a price
-   that is already pending or settled
+   that is already pending or settled. **A second half, found while building
+   B5:** a too-early write is just as permanent as an overwrite — the
+   trigger (B2) only stops the second write, not a premature first one.
+   `lib/odds/snapshotWindow.ts`'s `isPastSnapshotWindow` (the T-12h gate) is
+   what stops that half, mutation-tested at its boundary and its null-start
+   guard
 6. **Odds ↔ fight matching** — a wrong match silently corrupts every
    downstream number, so low-confidence matches must reach the review queue
    rather than being guessed. Matching is **scoped to a window around the
@@ -606,10 +621,12 @@ never "this should pass now."
    bookmaker's hardcoded key — removing the filter both times made the test
    fail with the actual Draw price (33.0) returned as a fighter's price,
    confirming it catches the real regression rather than passing for an
-   unrelated reason. `matchAndSnapshot.ts` (the write-glue) has
-   **not** been run against production — a premature write is effectively
-   permanent given `odds_snapshots`' immutability; its first real run
-   belongs to B5's schedule or an explicit confirmed dry-run
+   unrelated reason. `matchAndSnapshot.ts` (the write-glue) **ran live for
+   the first time in B5** (2026-09-01, explicit confirmation), gated by
+   the T-12h check above — safe by construction at the time, since no
+   known card was within 12h of starting, so every candidate was correctly
+   excluded and `odds_snapshots` stayed at 0 rows, confirmed by a direct
+   query afterward
 7. **Disputed-opponent detection** — a candidate sharing *exactly one* fighter
    must open a conflict, never insert a second row; and a fight with an open
    conflict must be rejected by the pick-lock trigger. Both halves need a test,

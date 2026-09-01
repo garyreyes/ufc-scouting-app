@@ -109,7 +109,7 @@ and it now also owns `starts_at`.
 | B2 | ⚠️ `odds_snapshots` table, immutable via a trigger (not absent policy — corrected, see below) | **done** (2026-09-01) |
 | B3 | ⚠️ Odds client + fuzzy fight matcher, scoped to a window around the known card date; low-confidence matches open a `data_conflicts` row instead of guessing; client keeps the two fighter outcomes and discards `Draw` | **done** (2026-09-01) |
 | B4 | Daily discovery pull populating `events.starts_at` from `commence_time` | **done** (2026-09-01) |
-| B5 | T-12h snapshot job (GitHub Actions) + `job_runs` + loud degraded banner | not started |
+| B5 | T-12h snapshot job (GitHub Actions) + `job_runs` + loud degraded banner | **done** (2026-09-01) |
 | B6 | `/conflicts` screen — resolves both conflict types, so blockers can be cleared before picking begins | not started |
 
 **B1 result:** 1xBet returns real MMA prices — confirmed against a live
@@ -210,6 +210,66 @@ time.
 **B5 note.** A missed snapshot silently voids a whole card's scoreboard, which
 the PRD calls the single highest-impact failure in the system. It must alert
 loudly and offer a manual late pull at the worse price.
+
+**B5 result.** Cadence: every 2h (user-confirmed choice, over 1h/4h
+alternatives), one shared `fetchMmaOdds()` call per run feeding both
+tracked jobs rather than two separate fetches — ~360 credits/month against
+the documented ~500/month budget, a real constraint the original "one pull
+per card" framing hadn't accounted for once this became a poll loop rather
+than a single precise trigger.
+
+New pieces:
+- `lib/odds/snapshotWindow.ts`'s `isPastSnapshotWindow` — the T-12h gate
+  `matchAndSnapshot` was missing since B3 (item #5 above). Test-first,
+  mutation-verified at the boundary and the null-`starts_at` guard.
+- `lib/odds/eligibleUnpricedFights.ts` — extracted from `matchAndSnapshot`
+  so the same "unpriced and past T-12h" query backs both the write path
+  and the banner's missed-snapshot count, rather than two definitions of
+  the same thing drifting apart.
+- `lib/jobs/runWithTracking.ts` — generic `job_runs` bookkeeping, written
+  once for reuse by Phase F's rumour engine later, not just this phase.
+- `0018_job_runs.sql` — public-read, service-role-write-only, same
+  posture as `odds_snapshots`.
+- `lib/odds/runOddsJobsOnce.ts` — the actual shared logic, called by
+  **both** the cron script and the owner's manual retry action, so a
+  manual "late pull" is never a second, divergent code path from the
+  scheduled one.
+- `features/job-health/` — `evaluateJobHealth` (test-first, mutation-
+  verified: the staleness boundary and the missed-snapshot signal being
+  independent of job-execution status are both real branches a mutation
+  broke), the `JobHealthBanner` + `RetryButton` components, and
+  `retryOddsJobAction`.
+
+**The manual "late pull" needed its own security boundary, not just RLS.**
+`odds_snapshots` and `job_runs` have no client write grant at all — the
+service-role admin client is the only way in — so `retryOddsJobAction`'s
+own `isOwner()` check, run server-side against the real session, **is**
+the actual boundary for this one action, unlike every other `isOwner()`
+use so far, which is UX-only backed by real RLS. Added a test for
+`isOwner()` itself (`src/lib/auth.test.ts`) precisely because of this
+second role — mutation-verified.
+
+**A real regression found and fixed before merge, not after:** the first
+version of `JobHealthBanner` checked ownership via `cookies()`-based auth
+directly in its own server render. `next build`'s route table showed the
+actual cost — `/`, `/events/past`, and `/events/upcoming` silently flipped
+from static+revalidated to server-rendered on every request, a page-wide
+cost for one small piece of chrome. Fixed by moving the ownership check
+into a client-triggered server action (`checkCanRetryAction`) that
+`RetryButton` calls after mount instead — confirmed by re-running the
+build and seeing the same three routes back to static. See
+`PROJECT_FACTS.md` for the general lesson.
+
+**`matchAndSnapshot.ts` ran live for the first time**, with explicit
+confirmation, alongside `discoverStartTimes`. Safe by construction: no
+known card was within 12h of starting (nearest is UFC 331, 2026-09-20,
+19 days out from this run), so the new T-12h gate correctly excluded
+every candidate — 0 matched, 0 low-confidence, 63 odds events all
+reporting `no_candidates` since the candidate list was empty from the
+start. **Verified by querying the actual tables afterward, not trusting
+the console summary:** `odds_snapshots` stayed at 0 rows; `job_runs` shows
+both jobs' real rows, `status: success`, summaries matching the console
+output exactly.
 
 ---
 

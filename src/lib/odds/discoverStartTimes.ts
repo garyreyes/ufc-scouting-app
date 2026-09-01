@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchMmaOdds } from "./client";
 import { AUTO_MATCH_THRESHOLD, scoreOddsEventMatch } from "./matchFights";
 import type { FightForMatching, OddsEvent } from "./types";
 
@@ -50,11 +49,15 @@ export interface DiscoverStartTimesSummary {
  * freeze on first discovery. This is what makes the odds feed the source
  * of truth for the pick lock; see B4 in ROADMAP.md.
  *
- * Does not decide WHEN to run -- that's B5's cron alongside the T-12h
- * snapshot job.
+ * Takes `oddsEvents` as a parameter rather than fetching them itself, so
+ * B5's combined runner can share one fetchMmaOdds() call across this and
+ * matchAndSnapshot -- doubling the daily credit spend for no benefit would
+ * be the wrong tradeoff against The Odds API's ~500/month free-tier budget
+ * (PROJECT_FACTS.md). Does not decide WHEN to run -- that's B5's cron.
  */
 export async function discoverStartTimes(
   supabase: SupabaseClient,
+  oddsEvents: OddsEvent[],
 ): Promise<DiscoverStartTimesSummary> {
   const summary: DiscoverStartTimesSummary = { updated: 0, noConfidentMatch: 0 };
 
@@ -65,8 +68,6 @@ export async function discoverStartTimes(
     .gte("event_date", today);
   if (eventsError) throw eventsError;
   if (!events || events.length === 0) return summary;
-
-  const oddsEvents = await fetchMmaOdds();
 
   for (const event of events) {
     const { data: fights, error: fightsError } = await supabase

@@ -1,0 +1,65 @@
+/* Restrained-colour rule (docs/user-flows.md): neutrals plus the one
+   existing accent, reused here rather than a second "warning" hue -- the
+   accent already carries "needs attention" everywhere else disputed/held/
+   degraded states show up. */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+}
+
+.reasons strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+
+.reasons ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reasons li {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.retryRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.retryButton {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.retryButton:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.retryButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.retryNote {
+  font-size: 0.8rem;
+  color: var(--muted);
+}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppShell } from "@/shared/components/AppShell";
+import { JobHealthBanner } from "@/features/job-health/components/JobHealthBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,7 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
-        <AppShell>{children}</AppShell>
+        <AppShell banner={<JobHealthBanner />}>{children}</AppShell>
       </body>
     </html>
   );
