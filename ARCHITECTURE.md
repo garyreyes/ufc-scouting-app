@@ -304,13 +304,16 @@ table-level policy alone was not enough. Redefined via `create or replace
 function` in the new migration, not an edit to `0004` where it was first
 defined.
 
-**Verified live 2026-09-01**, `supabase/tests/rls.sql` checks 13–16: a
-non-owner can no longer create a clan or a scouting report under their own
-authorship (both previously allowed by the permissive policies alone), the
-owner's own access is unregressed, and a non-owner is rejected from
-`accept_clan_invite` specifically by the `is_owner()` guard — checked via
-the error message, not just any rejection, so a pass can't be masking an
-unrelated failure.
+**Migration applied live 2026-09-01.** `is_owner()` and the restrictive
+policy are confirmed correct — direct calls with explicit arguments, and
+several short isolated reproductions of the real session pattern, all
+passed. The full `supabase/tests/rls.sql` run (checks 13–16 specifically)
+has **not** been cleanly completed yet: attempting it via `supabase db
+query -f` surfaced an inconsistency in that tool for this class of script
+(role switches + `DO` blocks), not a schema bug — see `PROJECT_FACTS.md`.
+A real pass/fail run through the Dashboard SQL Editor, the channel already
+proven reliable for this file, is what's still needed before this is
+called verified rather than merely applied.
 
 **`lib/auth.ts` (`isOwner()`) carries no security weight of its own.** It
 exists for one reason: deciding what the UI shows (sign-in prompt vs. "not

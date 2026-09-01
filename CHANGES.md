@@ -1030,3 +1030,46 @@ just this entry.
 **Status:** workflow live. `0017` (A3's owner allowlist) is still pending
 — needs `OWNER_USER_ID` added to the user's local `.env.local` before it
 can be pushed with the real value substituted for the placeholder.
+
+## Phase 24 — A3 migration applied live; retired an obsolete RLS check; found a `db query -f` limitation (2026-09-01)
+
+**`0017_owner_allowlist.sql` applied for real**, via the new CLI workflow:
+project ref re-verified immediately before the push, the placeholder
+substituted locally with the real owner id (found by querying
+`auth.users`, confirmed against the user directly since guessing wrong
+would have locked them out of their own app), pushed via `db push
+--linked`, then the local file reverted to the placeholder before
+anything else — the real value was never committed. `migration list
+--linked` confirms all 17 migrations now show applied.
+
+**Found while verifying live, not a bug in the migration:** check 3 in
+`supabase/tests/rls.sql` — "a clanmate should see 2 reports via
+ALL_MY_CLANS + SPECIFIC_CLANS" — fails permanently now, because the new
+restrictive owner-only policy blocks a non-owner from `scouting_reports`
+entirely, before that visibility logic is ever reached. Not a regression;
+the intended effect of A3. Retired with a comment explaining why, rather
+than left red — checks 1, 2, 4, 5, 6 are unaffected (none of them depend
+on a non-owner seeing anything).
+
+**Found a real limitation in the new tooling while chasing what first
+looked like a second bug:** running the full `rls.sql` via `supabase db
+query --linked -f` produced an apparent failure — even the *owner*
+rejected by the restrictive policy on `clans`. Diagnosed properly rather
+than assumed: `is_owner()` and the policy were proven correct via direct
+calls with explicit arguments, and several short, isolated reproductions
+of the exact "role-switch, set `request.jwt.claims`, insert" pattern all
+passed. But the same pattern wrapped in a `DO` block, run immediately
+after an earlier role-switch-and-reset, failed inconsistently on details
+that shouldn't matter. Root cause not identified — plausibly something in
+how the Management API executes a multi-statement file, not a real
+Postgres RLS bug, since the underlying logic checked out clean every time
+it was isolated. Recorded in `CLAUDE.md` and `PROJECT_FACTS.md`: `db
+push` is trusted for plain DDL; `db query -f` is not, for anything shaped
+like `rls.sql` (role switches, `DO` blocks, expected-exception checks) —
+run that class of script through the Dashboard SQL Editor instead, until
+this is actually understood rather than worked around silently.
+
+**Status:** A3 is live. The full `rls.sql` (checks 1, 2, 4–16; 3 retired)
+still needs a real pass/fail run through the Dashboard SQL Editor — the
+one channel proven reliable for this file — before A3 is called verified,
+not just applied.
