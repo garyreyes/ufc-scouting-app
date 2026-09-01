@@ -323,7 +323,7 @@ First point where the app is genuinely usable: a card you can work end to end.
 | # | Sub-phase | Status |
 |---|---|---|
 | C1 | ⚠️ `picks` table + pick-lock trigger + the check that each fighter belongs to that fight | **done** (2026-09-01) |
-| C2 | ⚠️ `lib/scoring` — implied probability, edge, unit P&L. Pure functions, no I/O | not started |
+| C2 | ⚠️ `lib/scoring` — implied probability, edge, unit P&L. Pure functions, no I/O | **done** (2026-09-01) |
 | C3 | Card view: bouts in `bout_order`, odds, conflict holds, quick pick (collapsed row) | not started |
 | C4 | Expanded bet row: stake, estimated probability anchored to implied, live edge | not started |
 
@@ -376,6 +376,36 @@ tracker) that `picks` has the exact columns designed.
 
 **Scope note:** C1 is schema + trigger only, no application code -- no
 `features/picks/` yet. That's C3 (card view) and C4 (bet row)'s job.
+
+**C2 result.** Four pure functions, `lib/scoring/`: `impliedProbability`,
+`edge`, `scorePickCorrect`, `scoreBetPnl`, plus a `FightOutcome` type
+(`decided` | `void`) that pins the scope -- *deciding* whether a fight is
+ready to be scored (source agreement, the 24h timeout) is Phase D's
+orchestration job, not this pure-math layer's. No I/O, no database
+access; this phase touched no migration and nothing live.
+
+Test-first throughout, every branch mutation-verified against a real
+regression, not just written and trusted:
+- `impliedProbability`/`edge` tested against the PRD's own -6000-
+  favourite example (decimal 1.0167 -> 98.4% implied).
+- `scoreBetPnl` tested against known moneyline examples (a 1.20
+  favourite, a 3.5 underdog), the void/no-bet distinction (`0` vs
+  `null`), and a defensive case the DB's own check constraint makes
+  unreachable in practice but the pure function still fails safe against
+  (only one of `bet_fighter_id`/`stake_units` set).
+- **Item #3's own test-case wording doesn't literally parse** for a
+  two-fighter fight ("prediction right... the other fighter's bet wins"
+  can't both hold when only one fighter wins at all). Rather than guess
+  which direction was meant, `dualSettlement.test.ts` covers both:
+  prediction wrong + bet on the winner, and prediction right + bet on the
+  loser -- strictly more coverage than picking one, and a mutation-
+  verified regression guard confirms `scoreBetPnl` settles against
+  `bet_fighter_id`, never `predicted_fighter_id`, either way.
+- **Void semantics clarified against the PRD's exact words**, not
+  assumed: `pick_correct` is `null` (no correct answer to score) but
+  `pnl_units` is `0`, not `null` -- "voided and returned, not counted as
+  a loss" is a real, known net-zero outcome, distinct from `null`'s "no
+  bet was ever placed." See `PROJECT_FACTS.md`.
 
 ---
 

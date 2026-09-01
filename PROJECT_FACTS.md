@@ -54,6 +54,15 @@ Decided 2026-08-29, user-originated.
 - **Accuracy must never stand in for the units board.** High pick accuracy
   with negative P&L is coherent and common — good reads at bad prices — and
   reading it as success is the exact mistake the two-board split prevents.
+- **A void's `pnl_units` is `0`, never `null` — clarified against
+  docs/PRD.md's exact wording in C2, not assumed.** `null` means "no bet
+  was ever placed" (`bet_fighter_id` is null); `0` means a bet WAS placed
+  and its stake was returned net-zero (cancelled/draw/no-contest — "voided
+  and returned, not counted as a loss"). `pick_correct` for the same void
+  IS `null`, not `false` — "who wins" has no correct answer, so scoring it
+  wrong would be a bug. The two fields deliberately use different
+  null-vs-zero conventions for the same void event; don't collapse them
+  when Phase D's settlement job writes these columns for real.
 - **`picks` is owner-only, not public — deliberately, and not permanently.**
   Decided 2026-09-01 (C1), user-originated: "for now just me until I prove
   the picks are actually reliable." A real product reason to record, not
