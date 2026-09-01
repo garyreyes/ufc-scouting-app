@@ -407,6 +407,17 @@ Decided 2026-08-29, user-originated.
   aren't reliably available, so picks lock at `events.starts_at`. This is
   *stricter* than the PRD's per-fight rule, which is the safe direction — it
   cannot be used to cheat the scoreboard.
+- **The scoreboard's "me" accuracy line has no head-to-head-vs-full-card
+  split — only the intern's does, deliberately, not an inconsistency.**
+  Decided in E1. My own picks are already exactly the fights I chose to
+  judge, so my one accuracy number is already the fair comparison point.
+  The intern (once Phase G ships) is designed to pick *every* fight, so
+  its unrestricted number would be diluted by fights I never had an
+  opinion on — that's the number that needs restricting to shared fights,
+  not mine. If a future session is tempted to "fix" this asymmetry by
+  adding a head-to-head number to "me" too, don't — it would just
+  duplicate the full number every time, since my population is always a
+  subset of the intern's once G exists.
 - **A result correction after settlement is not re-examined — deliberately,
   D1.** `settleFights.ts` only ever looks at fights where `settled_at is
   null`; once set, it's never revisited, even if a source later corrects

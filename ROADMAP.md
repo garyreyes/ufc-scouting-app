@@ -610,13 +610,65 @@ just the console output.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| E1 | Two boards — units and accuracy — three lines each, chalk computed not stored | not started |
+| E1 | Two boards — units and accuracy — three lines each, chalk computed not stored | **done** (2026-09-02) |
 | E2 | Filterable pick table with the PRD's breakdowns (weight class, stance matchup, favourite vs underdog, flag present) | not started |
 
 **E1 note.** Both boards always show all three lines. A line that disappears
 when it has no data reads as a bug and hides the control you most need. Below
 10 cards, the boards must be explicitly marked a small sample rather than
 reading as a verdict.
+
+**E1 result.** `docs/user-flows.md` had already answered nearly every real
+UX question before this phase started -- the exact empty-state copy ("No
+settled picks yet -- the chalk line appears after the first card"), the
+10-card small-sample threshold, and the unpriced-picks rule ("counted in
+accuracy, excluded from units, and said so on screen") all came straight
+from Flow 3 and its state tables, not decided fresh here. What was left
+to design was the actual computation.
+
+Three new pure, mutation-verified functions in `lib/scoring/`:
+`determineFavorite` (lower decimal price wins; a genuine tie breaks
+toward `fighter1`, deterministic and rare enough not to matter),
+`aggregateUnitsLine`, `aggregateAccuracyLine` -- the last two shared by
+all three lines on each board (me, intern, chalk alike ultimately reduce
+to the same shape: a list of bet results, or a list of `pick_correct`
+values). Chalk itself is not a stored strategy -- it's a live simulation,
+for every settled+priced fight, of a flat 1-unit bet on whichever fighter
+`determineFavorite` names, scored through the exact same
+`scoreBetPnl`/`scorePickCorrect` a real bet uses. One definition of
+"correct" and "P&L" in the whole codebase, never a second one built for
+reporting.
+
+**A real design question resolved by re-reading the PRD closely, not
+guessed:** does "me" need its own head-to-head-vs-full-card split the way
+the intern does? No -- my own picks are already exactly the fights I chose
+to judge, so my one accuracy number already is the fair comparison point.
+It's the intern's number that needs restricting to fights I *also* picked
+(`headToHead`), since once Phase G ships the intern is designed to pick
+every fight -- its unrestricted full-card number would otherwise be
+diluted by fights I never had an opinion on. Built the full
+`InternAccuracyLine` shape now, correctly, even though it's trivially
+empty until G ships real intern picks -- avoids a UI rework later, and
+"always show all three lines, even with no data" already requires the
+Intern row to render a real, honest empty state today regardless.
+
+**A real gap caught reviewing my own first draft**, before it shipped:
+`AccuracyBoard`'s "no data" row would have silently dropped the intern's
+full-card context whenever head-to-head had zero overlap but full-card
+already had real data (the exact state the app sits in for a while after
+Phase G ships, before the intern and the owner happen to pick the same
+fight). Fixed so a genuine "nothing at all" state and a "no overlap yet,
+but here's what the intern's done full-card" state render differently
+instead of collapsing into the same blank line.
+
+**Verified live, safely:** `getScoreboardData`'s exact query shapes
+(table and column names across `fights`, `picks`, `odds_snapshots`) ran
+against production via a throwaway read-only script, confirming they
+resolve without error -- `0` settled fights, `0` settled picks, matching
+D1/D2's own live runs exactly. The page's own empty-state branch
+(`accuracy.me.total === 0`) is therefore what a real visit renders right
+now, which is the correct, honest state -- deleted the script before
+commit.
 
 ---
 
