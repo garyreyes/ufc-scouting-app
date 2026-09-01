@@ -51,7 +51,7 @@ Not preferences. Each comes from `docs/user-flows.md` or a verified fact.
 | # | Sub-phase | Status |
 |---|---|---|
 | A1 | Add `events.starts_at` (nullable), `fights.bout_order`, and the missing FK indexes; populate `bout_order` from the Wikipedia sync | not started |
-| A2 | ⚠️ Disputed-opponent detection in `upsertFight` + the `data_conflicts` table | not started |
+| A2 | ⚠️ Disputed-opponent detection in `upsertFight` (the `data_conflicts` table itself was created in B3, ahead of schedule — B3 needed it too. A2 is now just the detection logic, writing into a table that already exists) | not started |
 | A3 | ⚠️ Owner allowlist — `lib/auth.ts` wrapper, enforced in RLS and not only in the UI | not started |
 
 **A1 note.** `bout_order` is nearly free — `fetchSchedule.ts` already walks
@@ -73,7 +73,7 @@ and it now also owns `starts_at`.
 |---|---|---|
 | B1 | Verification spike — does 1xBet actually return MMA, real free-tier limits, `commence_time` shape, and a named fallback bookmaker | **done** (2026-09-01) |
 | B2 | ⚠️ `odds_snapshots` table, immutable via a trigger (not absent policy — corrected, see below) | **done** (2026-09-01) |
-| B3 | ⚠️ Odds client + fuzzy fight matcher, scoped to a window around the known card date; low-confidence matches open a `data_conflicts` row instead of guessing; client keeps the two fighter outcomes and discards `Draw` | not started |
+| B3 | ⚠️ Odds client + fuzzy fight matcher, scoped to a window around the known card date; low-confidence matches open a `data_conflicts` row instead of guessing; client keeps the two fighter outcomes and discards `Draw` | **done** (2026-09-01) |
 | B4 | Daily discovery pull populating `events.starts_at` from `commence_time` | not started |
 | B5 | T-12h snapshot job (GitHub Actions) + `job_runs` + loud degraded banner | not started |
 | B6 | `/conflicts` screen — resolves both conflict types, so blockers can be cleared before picking begins | not started |
@@ -100,6 +100,19 @@ the Supabase CLI's migration tracking is unsynced with the live database —
 `db push` is unsafe until deliberately reconciled — so this and every prior
 migration went in through the Dashboard SQL Editor by hand. See
 `PROJECT_FACTS.md`.
+
+**B3 result.** Built `lib/odds/{client,similarity,parseOutcomes,matchFights,
+matchAndSnapshot}.ts`, 30 Vitest tests, all correctness-critical pieces
+test-first. The `data_conflicts` table (originally A2's job) was created
+here instead, since B3 needed it too and Fork 5 already fully specified its
+shape — A2's remaining scope is just the `upsertFight.ts` detection logic.
+`matchAndSnapshot.ts` (the write-glue) exists and is reviewable but has
+**not** been run against production — deliberately, since a premature write
+against the wrong fights can't be undone given `odds_snapshots`'
+immutability. Its first real run belongs to B5 or an explicit confirmed
+dry-run. Also moved `getSupabaseAdmin` from `lib/ufc-data-sync/
+supabaseAdmin.ts` to `lib/supabase/admin.ts` — it was never sync-specific,
+and `lib/odds/` needed the same client rather than a second copy.
 
 **B5 note.** A missed snapshot silently voids a whole card's scoreboard, which
 the PRD calls the single highest-impact failure in the system. It must alert

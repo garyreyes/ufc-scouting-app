@@ -1,5 +1,5 @@
 import { listUpcomingUfcEventTitles, fetchEventSchedule } from "./fetchSchedule";
-import { getSupabaseAdmin } from "./supabaseAdmin";
+import { getSupabaseAdmin } from "../supabase/admin";
 import { upsertFighter } from "./upsertFighter";
 import { upsertEvent } from "./upsertEvent";
 import { upsertFight } from "./upsertFight";
