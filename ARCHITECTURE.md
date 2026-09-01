@@ -114,12 +114,24 @@ disagree about**, almost always a late replacement one source hasn't caught:
 Wikipedia was stale for Sutherland, API-Sports was stale for Johns. Any static
 precedence would have been wrong on one of the two cases.
 
-1. **Detect** — [upsertFight.ts](src/lib/ufc-data-sync/upsertFight.ts) already
-   loads every fight in the event and attempts an unordered-pair match. When
-   that fails it falls straight through to `INSERT`, **which is where the
-   duplicate rows are created.** Before inserting, check whether a candidate
-   shares *exactly one* fighter; if so it is a disputed bout, not a new one.
-   Open a `DataConflict`. Never auto-merge on a guess.
+1. **Detect — done in A2.** [upsertFight.ts](src/lib/ufc-data-sync/upsertFight.ts)
+   already loaded every fight in the event and attempted an unordered-pair
+   match; when that failed it fell straight through to `INSERT`, which was
+   where the duplicate rows got created. Before inserting, it now checks
+   whether a candidate shares *exactly one* fighter via
+   [sharesExactlyOneFighter.ts](src/lib/ufc-data-sync/sharesExactlyOneFighter.ts)
+   — extracted as a pure, test-first function (5 tests, including the real
+   Phase 7 case) rather than inlined, matching `lib/scoring`'s and
+   `lib/odds`'s existing separation of decision logic from I/O. Confirmed by
+   mutation: `shared >= 1` instead of `=== 1` — the most plausible version
+   of this exact bug — correctly failed the two "same fight, not a dispute"
+   tests. If a candidate matches, it opens a `data_conflicts` row instead of
+   inserting; a repeat sync run finding the same ongoing dispute reuses the
+   existing open row rather than piling up duplicates. Never auto-merge on a
+   guess. `upsertFight`'s return type is now a discriminated union
+   (`upserted` / `conflict`) rather than a bare id, since a conflict
+   produces no new fight row — safe, since neither caller used the returned
+   id for anything.
 2. **Hold** — a fight with an open conflict is **excluded from both boards**,
    handled exactly like `unpriced`. This mirrors real sportsbook practice: an
    opponent change voids bets on the bout, because the price was for a
@@ -530,7 +542,10 @@ never "this should pass now."
 7. **Disputed-opponent detection** — a candidate sharing *exactly one* fighter
    must open a conflict, never insert a second row; and a fight with an open
    conflict must be rejected by the pick-lock trigger. Both halves need a test,
-   because a miss here puts real units on a bout that never happened
+   because a miss here puts real units on a bout that never happened.
+   **First half done in A2** — `sharesExactlyOneFighter.ts`, 5 tests,
+   mutation-verified. **Second half (the pick-lock trigger rejecting an open
+   conflict) is C1's job**, not yet built
 8. **Settlement** — void, draw, and no-contest return the stake **and void
    both lines**: with no winner, "who wins" has no correct answer, so scoring
    the pick as wrong would be a bug, not a harsh call. Disagreement between

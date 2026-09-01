@@ -904,3 +904,36 @@ scoped into the roadmap — a real decision for later, not decided here.
 `ARCHITECTURE.md` Fork 7, `docs/PRD.md`, `PROJECT_FACTS.md`, `ROADMAP.md`
 all updated — historical verification records for 1xBet kept intact and
 clearly dated, not rewritten.
+
+## Phase 21 — A2: disputed-opponent detection in upsertFight (2026-09-01)
+
+**Added** `src/lib/ufc-data-sync/sharesExactlyOneFighter.ts` — the core
+decision rule from ARCHITECTURE.md Fork 5, extracted as a pure function
+rather than inlined, matching `lib/scoring`'s and `lib/odds`'s existing
+separation of decision logic from I/O. Test-first: wrote
+`sharesExactlyOneFighter.test.ts` (5 cases, including the real Phase 7
+example — Louie Sutherland's disputed opponent) and confirmed it failed
+with no implementation before writing one. Confirmed by mutation:
+`shared >= 1` instead of `=== 1` — the most plausible version of this
+exact bug — correctly failed the two "same fight, not a dispute" cases
+while the disputed-opponent cases stayed green.
+
+**Wired into `upsertFight.ts`**, right before the `INSERT` fallback that
+Fork 5 identified as where duplicate rows got created. A candidate
+sharing exactly one fighter now opens a `data_conflicts` row instead of
+inserting a second fight. A repeat sync run (twice daily) finding the
+same ongoing dispute reuses the existing open row rather than piling up
+duplicates for one unresolved dispute.
+
+**`upsertFight`'s return type changed** from a bare fight id to a
+discriminated union (`{status:"upserted",fightId}` /
+`{status:"conflict",conflictId}`), since a disputed match produces no new
+fight row to return an id for. Confirmed safe by reading both call sites
+first: neither `syncJob.ts` nor `syncSchedule.ts` uses the returned
+value for anything.
+
+**Status:** A2 done — first half of correctness item #7. The second
+half (a fight with an open conflict must be rejected by the pick-lock
+trigger) is C1's job, not yet built. `data_conflicts`' RLS already grants
+`service_role` full access via `0005`'s `ALTER DEFAULT PRIVILEGES`, so no
+new grants migration was needed.

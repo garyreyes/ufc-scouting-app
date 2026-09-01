@@ -50,8 +50,8 @@ Not preferences. Each comes from `docs/user-flows.md` or a verified fact.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| A1 | Add `events.starts_at` (nullable), `fights.bout_order`, and the missing FK indexes; populate `bout_order` from the Wikipedia sync | **done** (code merged; migration awaiting Dashboard SQL Editor run) |
-| A2 | ⚠️ Disputed-opponent detection in `upsertFight` (the `data_conflicts` table itself was created in B3, ahead of schedule — B3 needed it too. A2 is now just the detection logic, writing into a table that already exists) | not started |
+| A1 | Add `events.starts_at` (nullable), `fights.bout_order`, and the missing FK indexes; populate `bout_order` from the Wikipedia sync | **done** (2026-09-01, migration applied live) |
+| A2 | ⚠️ Disputed-opponent detection in `upsertFight` (the `data_conflicts` table itself was created in B3, ahead of schedule — B3 needed it too. A2 is now just the detection logic, writing into a table that already exists) | **done** (2026-09-01) |
 | A3 | ⚠️ Owner allowlist — `lib/auth.ts` wrapper, enforced in RLS and not only in the UI | not started |
 
 **A1 note.** `bout_order` is nearly free — `fetchSchedule.ts` already walks
@@ -61,6 +61,17 @@ ordering. `starts_at` is added nullable here and stays empty until B4.
 **A3 note.** A UI-only allowlist is the "never trust the client" failure — a
 stranger could still write via a direct request. The check belongs in the
 `picks` policies, not just the page.
+
+**A2 result.** The decision logic (`sharesExactlyOneFighter.ts`) was
+extracted as a pure, separately-tested function rather than inlined into
+`upsertFight.ts` — 5 tests, including the real Phase 7 case, mutation-
+verified. `upsertFight`'s return type changed to a discriminated union
+(`upserted` / `conflict`) since a conflict produces no new fight row; safe,
+since neither `syncJob.ts` nor `syncSchedule.ts` used the returned id. A
+repeat sync finding the same ongoing dispute reuses the existing open
+`data_conflicts` row instead of piling up duplicates on every twice-daily
+run. The second half of correctness item #7 — the pick-lock trigger
+actually rejecting a fight with an open conflict — is C1's job.
 
 ---
 
