@@ -325,7 +325,7 @@ First point where the app is genuinely usable: a card you can work end to end.
 | C1 | ⚠️ `picks` table + pick-lock trigger + the check that each fighter belongs to that fight | **done** (2026-09-01) |
 | C2 | ⚠️ `lib/scoring` — implied probability, edge, unit P&L. Pure functions, no I/O | **done** (2026-09-01) |
 | C3 | Card view: bouts in `bout_order`, odds, conflict holds, quick pick (collapsed row) | **done** (2026-09-01) |
-| C4 | Expanded bet row: stake, estimated probability anchored to implied, live edge | not started |
+| C4 | Expanded bet row: stake, estimated probability anchored to implied, live edge | **done** (2026-09-01) |
 
 **C2 note.** No American-odds conversion exists anywhere — decimal is the API
 default and prices are stored as returned. `implied = 1 / decimal_odds`;
@@ -443,6 +443,61 @@ data under the owner's own name, not harmless log rows. Mitigated with a
 column-name cross-check against the real schema; the actual enforcement
 is C1's already-live-tested trigger, which this action does not
 re-implement.
+
+**C4 result.** Two real forks asked and resolved before building: the
+anchored-probability control is C3's own one-tap band interaction,
+reframed relative to implied ("well below market" .. "well above
+market") rather than a slider/stepper, and stake is a free numeric field
+rather than preset chips, since sizing itself is the signal E1's board
+measures. Also closed a gap C3 left open in its own code comments:
+`confidence`, `predicted_method`, and `reasoning` -- all three named by
+`docs/PRD.md` UC-2 but never exposed in the UI -- become editable here,
+since nothing else in this roadmap claims that scope.
+
+Three new pure functions in `lib/scoring/`, all correctness-critical
+(money math) and mutation-verified: `probabilityForFighter` (a bet may
+back a fighter other than the pick -- PRD's own example -- so live edge
+needs `1 - estimated_probability` when the two diverge, never the stored
+number verbatim), `priceForFighter` (the wrong side's decimal price
+silently flips edge's sign), and `applyProbabilityDelta` (turns a band's
+relative delta into the stored value, clamped inside 0019_picks.sql's
+strict `(0, 1)` check -- the PRD's own -6000 example would overflow past
+1 unclamped).
+
+**A real data-merging bug caught before it could happen, not after:**
+C3's `saveQuickPickAction` sent a partial upsert payload
+(`{predicted_fighter_id, estimated_probability, confidence}` only).
+Relying on Supabase's `resolution=merge-duplicates` upsert to leave
+untouched columns alone on conflict is exactly the kind of behaviour
+this project's own working style says not to trust from third-party docs
+without checking -- so rather than assume it's safe, both save actions
+were rebuilt around an explicit read-merge-write (`mergePickFields.ts`,
+a data-merging rule, test-first and mutation-verified) that always
+writes a complete row. This also fixed a second issue the naive design
+would have had: a fast quick-pick retap after already setting a real
+`confidence` via the expanded row must not silently revert it to the
+neutral default -- `saveQuickPickAction` now only applies that default
+when no row exists yet.
+
+The bet row only appears once a fight is priced (ordering constraint #5)
+**and** a quick pick already exists -- UC-2's own framing is "log a
+pick, and *separately* decide whether to bet it," so betting never
+creates a pick from nothing; `saveBetAction` enforces this server-side
+too, not just in the UI. `getMyPicksForFights` widened from C3's
+`predictedFighterId`-only slice to the full row (`MyQuickPick` renamed
+`MyPick`) so reopening the bet row prefills what was last saved instead
+of asking the owner to re-derive it -- recognition over recall.
+
+**Verified live, safely:** the expanded `getMyPicksForFights` column list
+(the four new fields) was checked directly against the real `picks`
+table via a throwaway read-only script (admin client, real fight ids, 0
+rows back -- expected, since no real pick has ever been written), then
+deleted before commit. `saveBetAction`/the rebuilt `saveQuickPickAction`
+were **not** exercised live -- same reasoning as C3: this session's
+`cookies()`-based auth can't run outside a real request, and faking a
+real bet would be fabricating opinion/money data under the owner's own
+name. The real enforcement remains C1's already-live-tested trigger and
+RLS policies, which neither action re-implements.
 
 ---
 

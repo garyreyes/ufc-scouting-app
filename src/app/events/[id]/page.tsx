@@ -5,7 +5,7 @@ import { getCardView } from "@/features/fights/api";
 import { BoutRow } from "@/features/fights/components/BoutRow";
 import { getMyPicksForFights } from "@/features/picks/api";
 import { getOpenDisputedFightIds } from "@/features/conflicts/api";
-import type { MyQuickPick } from "@/features/picks/types";
+import type { MyPick } from "@/features/picks/types";
 import styles from "./page.module.css";
 
 function formatDate(dateString: string): string {
@@ -48,7 +48,7 @@ export default async function EventDetailPage({
   // logged-in-but-not-allowlisted are the same UI state here
   // (docs/user-flows.md's auth-gate table), and Flow 1's own diagram
   // never branches conflict-holds or picks onto either of those paths.
-  let myPicks = new Map<string, MyQuickPick>();
+  let myPicks = new Map<string, MyPick>();
   let disputedFightIds = new Set<string>();
   if (viewerIsOwner) {
     const fightIds = event.fights.map((f) => f.id);

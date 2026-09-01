@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { QuickPick } from "@/features/picks/components/QuickPick";
-import type { MyQuickPick } from "@/features/picks/types";
+import { BetRow } from "@/features/picks/components/BetRow";
+import type { MyPick } from "@/features/picks/types";
 import type { CardBout } from "../types";
 import styles from "./BoutRow.module.css";
 
@@ -21,10 +22,19 @@ export function BoutRow({
 }: {
   fight: CardBout;
   viewerState: CardViewerState;
-  myPick: MyQuickPick | null;
+  myPick: MyPick | null;
   locked: boolean;
   disputed: boolean;
 }) {
+  // C4's bet row is additive on top of a quick pick, and only makes sense
+  // once the fight is priced -- ROADMAP.md ordering constraint #5, "the
+  // odds snapshot precedes the expanded bet row, which is built around
+  // implied probability and live edge." Before that, only the note below
+  // hints betting is coming, and only once a pick already exists --
+  // an unpriced fight three weeks out doesn't need every row cluttered
+  // with a state that isn't relevant yet.
+  const canShowBetRow = !locked && !disputed && myPick !== null;
+
   return (
     <div className={styles.row}>
       <span className={styles.weightClass}>{fight.weight_class ?? "—"}</span>
@@ -58,6 +68,18 @@ export function BoutRow({
             locked={locked}
             disputed={disputed}
           />
+          {canShowBetRow &&
+            (fight.odds !== null ? (
+              <BetRow
+                fightId={fight.id}
+                fighter1={fight.fighter1}
+                fighter2={fight.fighter2}
+                odds={fight.odds}
+                myPick={myPick}
+              />
+            ) : (
+              <p className={styles.betPending}>Betting opens once priced (T-12h before the card).</p>
+            ))}
         </div>
       )}
     </div>

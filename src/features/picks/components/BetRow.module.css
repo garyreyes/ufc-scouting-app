@@ -1,0 +1,134 @@
+.toggle {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  border-color: var(--accent);
+  color: var(--foreground);
+}
+
+.pending {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.betRow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  margin-top: 8px;
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chipSelected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.stakeInput,
+.textInput {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.85rem;
+  max-width: 160px;
+}
+
+.textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.edge {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.error {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.save {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.remove,
+.cancel {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.remove:hover,
+.cancel:hover {
+  color: var(--foreground);
+}
