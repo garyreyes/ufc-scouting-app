@@ -10,6 +10,12 @@ export interface FightWrite {
   method?: string | null;
   round?: number | null;
   weight_class?: string | null;
+  // Only ever known from the Wikipedia sync (API-Sports has no concept of
+  // card position) -- see syncSchedule.ts. 0 is a valid value (the main
+  // event), so this relies on stripNullish only filtering actual
+  // null/undefined, not falsy values -- already covered by
+  // stripNullish.test.ts's "keeps falsy values that carry meaning" case.
+  bout_order?: number | null;
 }
 
 // Same cross-source problem as upsertFighter/upsertEvent: API-Sports and

@@ -50,7 +50,7 @@ Not preferences. Each comes from `docs/user-flows.md` or a verified fact.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| A1 | Add `events.starts_at` (nullable), `fights.bout_order`, and the missing FK indexes; populate `bout_order` from the Wikipedia sync | not started |
+| A1 | Add `events.starts_at` (nullable), `fights.bout_order`, and the missing FK indexes; populate `bout_order` from the Wikipedia sync | **done** (code merged; migration awaiting Dashboard SQL Editor run) |
 | A2 | ⚠️ Disputed-opponent detection in `upsertFight` (the `data_conflicts` table itself was created in B3, ahead of schedule — B3 needed it too. A2 is now just the detection logic, writing into a table that already exists) | not started |
 | A3 | ⚠️ Owner allowlist — `lib/auth.ts` wrapper, enforced in RLS and not only in the UI | not started |
 
