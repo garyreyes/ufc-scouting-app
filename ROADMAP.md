@@ -52,7 +52,7 @@ Not preferences. Each comes from `docs/user-flows.md` or a verified fact.
 |---|---|---|
 | A1 | Add `events.starts_at` (nullable), `fights.bout_order`, and the missing FK indexes; populate `bout_order` from the Wikipedia sync | **done** (2026-09-01, migration applied live) |
 | A2 | ⚠️ Disputed-opponent detection in `upsertFight` (the `data_conflicts` table itself was created in B3, ahead of schedule — B3 needed it too. A2 is now just the detection logic, writing into a table that already exists) | **done** (2026-09-01) |
-| A3 | ⚠️ Owner allowlist — `lib/auth.ts` wrapper, enforced in RLS and not only in the UI | **done** (code merged; migration awaiting Dashboard SQL Editor run, requires editing the placeholder UUID first) |
+| A3 | ⚠️ Owner allowlist — `lib/auth.ts` wrapper, enforced in RLS and not only in the UI | **migration applied live** (2026-09-01); full `rls.sql` pass/fail run via Dashboard SQL Editor still needed — see note |
 
 **A1 note.** `bout_order` is nearly free — `fetchSchedule.ts` already walks
 Wikipedia's `{{MMAevent bout}}` templates in document order and discards the
@@ -84,9 +84,16 @@ reach its internal insert (same class of gap as `odds_snapshots`'
 original immutability mistake) — fixed with an explicit `is_owner()`
 guard inside the function. `lib/auth.ts` (`isOwner()`) is UX only; the
 real boundary is `is_owner()` in Postgres. See `ARCHITECTURE.md` Fork 8.
-**Migration not yet applied** — needs the owner's real user id substituted
-for the placeholder before running, then the Dashboard SQL Editor, then
-`supabase/tests/rls.sql` (new checks 13–16) to verify live.
+
+**Applied live, 2026-09-01 (Phase 24)**, via the new CLI workflow — owner
+id substituted locally, pushed, reverted before commit, never in git.
+`is_owner()` confirmed correct by direct calls and isolated reproductions.
+Check 3 in `rls.sql` (a pre-A3 multi-user visibility test) retired —
+categorically unreachable now, not a regression; own-account access
+(checks 1, 2, 4–6) is unaffected. **Still needed:** a real full-suite
+pass/fail run of `rls.sql` through the Dashboard SQL Editor — `db query
+-f` proved unreliable for this shape of script (role switches + `DO`
+blocks), a limitation of the tool, not the schema. See `PROJECT_FACTS.md`.
 
 ---
 

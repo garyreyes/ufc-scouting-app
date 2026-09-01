@@ -202,11 +202,26 @@ Decided 2026-08-29, user-originated.
   new migrations directly (re-verify the linked project ref is
   `vrwlfcywyfzfczajpdoh` before every push — the dashboard-visible-name
   checkpoint that caught Phase 11's mistake is gone, so this text
-  confirmation is what's left in its place); `supabase db query --linked
-  -f <file>` runs ad-hoc SQL files (e.g. `supabase/tests/rls.sql`) the
-  same way. The DB password was deliberately not requested — CLI access
-  through the existing login token is a smaller blast radius than a raw
-  Postgres connection string.
+  confirmation is what's left in its place). The DB password was
+  deliberately not requested — CLI access through the existing login
+  token is a smaller blast radius than a raw Postgres connection string.
+- **`supabase db query --linked -f <file>` is reliable for migrations and
+  short scripts, but NOT trusted for a multi-check, stateful file like
+  `supabase/tests/rls.sql`.** Found while verifying A3 live (2026-09-01):
+  `is_owner()` and the restrictive policy were independently proven
+  correct — direct calls with explicit arguments, and several short
+  isolated reproductions of "role-switch, set `request.jwt.claims`, then
+  insert" all passed correctly — but the *same* pattern wrapped in a `DO`
+  block, run immediately after an earlier role-switch-and-reset, failed
+  inconsistently depending on details that shouldn't matter (whether the
+  insert was wrapped in `DO $$ $$` at all). Root cause not identified
+  (plausibly something in how the Management API executes a multi-
+  statement file, not a real Postgres RLS bug — the underlying policy
+  logic checked out clean every time it was tested in isolation). Until
+  understood, run `rls.sql` (and anything shaped like it — many role
+  switches, `DO` blocks, expected-exception checks) through the Dashboard
+  SQL Editor, which has a real proven track record for this exact file.
+  Plain migrations (DDL, no role-switching) via `db push` are unaffected.
 - **A second Supabase project on the same account is named "GAMBLING
   TRACKER"** (`mbytqdkgwpzaensnphwd`, `ap-northeast-1`) — this is the exact
   project Phase 11 accidentally ran a migration against. It still exists.

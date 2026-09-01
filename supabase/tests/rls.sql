@@ -107,23 +107,20 @@ begin
 end $$;
 reset role;
 
--- 3. Add user B to Clan X, then re-check as B: should now see the
---    ALL_MY_CLANS report and the SPECIFIC_CLANS report (shared to Clan
---    X), but still not the PRIVATE one -- 2 visible, not 3.
-insert into clan_members (clan_id, user_id) values
-  ('dddddddd-0000-0000-0000-000000000001', (select id from test_users where label = 'b'));
-
-set local role authenticated;
-select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'b'), 'role', 'authenticated')::text, true);
-do $$
-declare visible_count int;
-begin
-  select count(*) into visible_count from scouting_reports where fight_id = 'cccccccc-0000-0000-0000-000000000001';
-  if visible_count <> 2 then
-    raise exception 'FAIL (3): clanmate should see exactly 2 reports (ALL_MY_CLANS + SPECIFIC_CLANS shared to their clan), saw %', visible_count;
-  end if;
-end $$;
-reset role;
+-- 3. RETIRED 2026-09-01 (A3, Phase 22) -- was: "add user B to Clan X,
+--    re-check as B, should see the ALL_MY_CLANS + SPECIFIC_CLANS reports
+--    (2, not 3)." Found by actually running this file after 0017: the
+--    owner-allowlist restrictive policy blocks a non-owner from
+--    scouting_reports entirely, regardless of clan membership, so this
+--    assertion is now categorically unreachable -- not a regression, the
+--    intended effect of A3. The ALL_MY_CLANS/SPECIFIC_CLANS visibility
+--    SQL itself is untouched (frozen, not deleted, per docs/PRD.md), it
+--    just has no second real user left who could ever exercise it: 'b'
+--    is blocked before that logic is reached. Checks 1, 2, 4, 5, 6 below
+--    are unaffected -- none of them depend on a non-owner seeing
+--    anything, so the same lockdown that broke this one leaves them
+--    correct (in 2 and 4's case, now correct for a second, overlapping
+--    reason as well as the original one).
 
 -- 4. User B cannot update user A's report (IDOR check). RLS filters
 --    rows out rather than erroring, so this should silently affect 0

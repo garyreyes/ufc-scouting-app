@@ -51,6 +51,12 @@ These are halts, not judgment calls.
   target project ref out loud (must read `vrwlfcywyfzfczajpdoh`, never
   `mbytqdkgwpzaensnphwd` — "GAMBLING TRACKER," still on the account). This
   confirmation is not optional just because it's automated now.
+  **`db push` (plain DDL) is trusted; `db query -f` is not, for anything
+  shaped like `supabase/tests/rls.sql`** — role switches, `DO` blocks,
+  expected-exception checks. Found live 2026-09-01: correct behaviour
+  proven in isolation, inconsistent results in the full multi-check file,
+  root cause not identified. Run that class of script through the
+  Dashboard SQL Editor instead, until this is understood.
 - **Pushing to `main`.** Vercel auto-deploys from it — a push is a production
   deploy, not a save.
 - **Any destructive data operation** — deleting or merging rows, dropping
