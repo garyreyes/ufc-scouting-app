@@ -1,0 +1,105 @@
+.quickPick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fighterButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.fighterButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.fighterButton:hover {
+  border-color: var(--accent);
+}
+
+.fighterButtonPicked {
+  border-color: var(--accent);
+}
+
+.pickedLabel {
+  font-size: 0.7rem;
+  color: var(--accent);
+}
+
+.bands {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+.bandsLabel {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.bandButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bandButton {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.bandButton:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.bandButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Restrained-colour rule: the one accent carries "needs attention" for
+   both held and locked states, matching the job-health banner and
+   conflicts cards -- no separate hue introduced for a third state. */
+.held {
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.heldLink {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.locked {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.lockedPick {
+  color: var(--foreground);
+}
+
+.error {
+  font-size: 0.8rem;
+  color: var(--accent);
+}

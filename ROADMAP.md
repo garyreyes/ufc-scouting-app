@@ -324,7 +324,7 @@ First point where the app is genuinely usable: a card you can work end to end.
 |---|---|---|
 | C1 | ⚠️ `picks` table + pick-lock trigger + the check that each fighter belongs to that fight | **done** (2026-09-01) |
 | C2 | ⚠️ `lib/scoring` — implied probability, edge, unit P&L. Pure functions, no I/O | **done** (2026-09-01) |
-| C3 | Card view: bouts in `bout_order`, odds, conflict holds, quick pick (collapsed row) | not started |
+| C3 | Card view: bouts in `bout_order`, odds, conflict holds, quick pick (collapsed row) | **done** (2026-09-01) |
 | C4 | Expanded bet row: stake, estimated probability anchored to implied, live edge | not started |
 
 **C2 note.** No American-odds conversion exists anywhere — decimal is the API
@@ -406,6 +406,43 @@ regression, not just written and trusted:
   `pnl_units` is `0`, not `null` -- "voided and returned, not counted as
   a loss" is a real, known net-zero outcome, distinct from `null`'s "no
   bet was ever placed." See `PROJECT_FACTS.md`.
+
+**C3 result.** Extended the existing `/events/[id]` route rather than a
+new one -- `docs/user-flows.md` is explicit that the card view, not the
+fight page, is where a whole card gets worked in one pass. `getCardView`
+(`features/fights/api.ts`) replaces the old `getEventWithFights`, adding
+`bout_order` sort (nulls last), and merges `odds_snapshots` in rather
+than embedding the reverse FK, matching B3's own established pattern.
+New `features/picks/` (`QuickPick`, `api.ts`, `actions.ts`,
+`quickPickBands.ts`) and a small extension to `features/conflicts/api.ts`
+(`getOpenDisputedFightIds`) for the hold state.
+
+**A real gap surfaced before any code, not after:** the flow doc's "one
+tap picks a winner" can't satisfy `estimated_probability`'s `NOT NULL`
+constraint (0019) without faking a number or asking for something real.
+Asked rather than guessed: tapping a fighter expands the row in place to
+5 preset probability bands, deliberately not anchored to the fight's own
+implied probability (a pick is opinion, independent of price -- that
+anchoring is C4's job for the bet row). `confidence` defaults silently to
+3 since, unlike probability, it feeds no P&L/edge math.
+
+Auth branching collapses two of Flow 1's states into one: logged-out and
+logged-in-but-not-owner render the same read-only card, matching the
+auth-gate table treating "sign-in prompt" and "not available" as the same
+underlying "no pick controls" state. Conflict holds and the owner's own
+picks are fetched only on the confirmed-owner path -- Flow 1's own
+diagram never branches either onto the read-only leaf.
+
+**Verification, stated honestly:** `getCardView` and
+`getOpenDisputedFightIds` both ran live against UFC 331's real card --
+`bout_order` sorts main-event-first as expected, every fight correctly
+shows unpriced 19 days before T-12h. `saveQuickPickAction` was **not**
+exercised live -- same `cookies()`-outside-a-real-request limitation as
+B5/B6, and unlike those, faking a real pick would create fake opinion
+data under the owner's own name, not harmless log rows. Mitigated with a
+column-name cross-check against the real schema; the actual enforcement
+is C1's already-live-tested trigger, which this action does not
+re-implement.
 
 ---
 

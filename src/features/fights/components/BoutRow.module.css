@@ -21,6 +21,18 @@
   justify-content: center;
 }
 
+.fighterWithPrice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.price {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .fighter {
   color: var(--foreground);
   font-weight: 500;
@@ -54,6 +66,12 @@
 
 .reportsLink:hover {
   text-decoration: underline;
+}
+
+.pickArea {
+  grid-column: 1 / -1;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 @media (max-width: 640px) {
