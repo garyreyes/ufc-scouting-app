@@ -107,6 +107,24 @@ export function scoreOddsEventMatch(
   return best;
 }
 
+/**
+ * Every candidate fight in the odds event's date window, sorted by
+ * confidence descending -- unlike scoreFightMatch, which only ever
+ * returns the single best guess. Built for B6's low-confidence conflict
+ * resolution screen: the algorithm's top pick already sits at index 0,
+ * but the owner sees every real candidate and can correct the guess
+ * itself, rather than only ever confirming or rejecting it blind.
+ */
+export function rankFightMatches(
+  oddsEvent: OddsEvent,
+  candidates: FightForMatching[],
+): FightMatchScore[] {
+  return candidates
+    .filter((fight) => isWithinCardWindow(oddsEvent.commence_time, fight.eventDate))
+    .map((fight) => ({ fightId: fight.id, confidence: fightNameSimilarity(oddsEvent, fight) }))
+    .sort((a, b) => b.confidence - a.confidence);
+}
+
 export type MatchDecision =
   | { kind: "matched"; fightId: string; confidence: number }
   | { kind: "low_confidence"; fightId: string; confidence: number }

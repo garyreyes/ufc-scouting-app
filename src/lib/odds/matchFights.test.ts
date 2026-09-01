@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { decideMatch, isWithinCardWindow, scoreFightMatch, scoreOddsEventMatch } from "./matchFights";
+import {
+  decideMatch,
+  isWithinCardWindow,
+  rankFightMatches,
+  scoreFightMatch,
+  scoreOddsEventMatch,
+} from "./matchFights";
 import type { FightForMatching, OddsEvent } from "./types";
 
 function oddsEvent(overrides: Partial<OddsEvent> = {}): OddsEvent {
@@ -127,5 +133,32 @@ describe("scoreOddsEventMatch", () => {
     const strong = oddsEvent({ id: "strong" });
     const result = scoreOddsEventMatch(fight(), [weak, strong]);
     expect(result?.oddsEvent.id).toBe("strong");
+  });
+});
+
+// Built for B6's low-confidence conflict resolution screen: unlike
+// scoreFightMatch (single best guess only), this returns EVERY candidate
+// in the window so the owner can correct the algorithm's own guess rather
+// than being railroaded into it -- "never auto-merge on a guess" applies
+// to the review screen too, not just the automatic path.
+describe("rankFightMatches", () => {
+  it("returns every in-window candidate, sorted by confidence descending", () => {
+    const weak = fight({ id: "weak", fighter1Name: "Nobody Relevant", fighter2Name: "Also Nobody" });
+    const strong = fight({ id: "strong" }); // exact match
+    const result = rankFightMatches(oddsEvent(), [weak, strong]);
+    expect(result.map((r) => r.fightId)).toEqual(["strong", "weak"]);
+    expect(result[0].confidence).toBeGreaterThan(result[1].confidence);
+  });
+
+  it("excludes candidates outside the date window entirely", () => {
+    const inWindow = fight({ id: "in-window" });
+    const outOfWindow = fight({ id: "out-of-window", eventDate: "2027-01-01" });
+    const result = rankFightMatches(oddsEvent(), [inWindow, outOfWindow]);
+    expect(result.map((r) => r.fightId)).toEqual(["in-window"]);
+  });
+
+  it("returns an empty array, not null, when nothing is in the window", () => {
+    const result = rankFightMatches(oddsEvent(), [fight({ eventDate: "2027-01-01" })]);
+    expect(result).toEqual([]);
   });
 });

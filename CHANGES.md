@@ -1206,3 +1206,52 @@ querying the actual tables, not trusting the console output:
 real success rows.
 
 **Status:** B5 done. Next: B6, the `/conflicts` screen.
+
+## Phase 28 — B6: the /conflicts screen, and two real bugs found orienting on it (2026-09-01)
+
+Built the resolution screen for both `data_conflicts` kinds -- disputed
+opponents and low-confidence odds matches -- so blockers can be cleared
+before Phase C's pick lock exists. Two pure builders
+(`resolveDisputedOpponent.ts`, `resolveLowConfidence.ts`), mutation-tested,
+reuse `stripNullish` and `parseFighterPrices` so a manual resolution
+produces exactly what the automatic path would have. The low-confidence
+picker (`rankFightMatches`) shows every in-window candidate, not just the
+algorithm's own guess (user-confirmed choice) -- the owner can correct a
+wrong guess instead of only confirming or rejecting it.
+
+Found and fixed a real bug before writing any of it: `matchAndSnapshot.ts`
+was setting `fight_id` on `low_confidence_odds_match` conflicts instead of
+leaving it `null` as the migration's own comment specified. Left as-is,
+once C1's pick-lock trigger existed it would have wrongly blocked
+*picking* a fight over a mere pricing ambiguity, not just pricing it.
+Confirmed harmless in practice -- zero rows with the wrong shape ever
+existed -- and fixed with explicit user confirmation first.
+
+**Found a second, more serious issue via a deliberately safe, read-only
+live check:** `data_conflicts` (migration 0014) didn't actually exist in
+production, despite the CLI's migration tracking claiming it was applied.
+Root cause: an earlier `migration repair --status applied` reconciliation
+assumed every migration file had genuinely been hand-applied before it
+ran; apparently not true for this one. Every conflict-detection write
+path would have thrown the first time it actually tried to use this
+table, with no obvious connection to a B3-era migration. Fixed by running
+0014 directly against the live database with explicit confirmation;
+verified via `information_schema` that this was an isolated gap, not a
+wider problem, and that grants came out correct (service_role/postgres
+only).
+
+Also fixed: Vitest never resolved `tsconfig.json`'s `@/*` alias (no
+`vitest.config.ts` had ever existed) -- latent since the project's first
+commit, surfaced only when this phase's first test transitively imported
+a `@/`-using module. Added `vitest.config.mts`.
+
+The write path (the two resolve actions) has not been exercised live --
+no real conflict exists yet, and their `cookies()`-based owner check
+can't run outside a real Next.js request. Mitigated with a direct
+cross-check of every column name used against the live schema, all
+matching exactly; honestly documented as the one thing still unverified
+by actual execution.
+
+**Status:** B6 done. Phase B complete. Next: Phase C (picks and bets),
+starting with C1's pick-lock trigger -- the second half of item #7 this
+phase's own bug fix was protecting.

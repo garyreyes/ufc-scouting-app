@@ -2,33 +2,32 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPastSnapshotWindow } from "./snapshotWindow";
 import type { FightForMatching } from "./types";
 
+export interface UnpricedFight extends FightForMatching {
+  startsAt: string | null;
+}
+
 /**
- * Fights that are both unpriced (no odds_snapshots row) and past their
- * card's T-12h window -- i.e. fights a snapshot run should have already
- * priced. Two consumers: matchAndSnapshot.ts uses it as its candidate set
- * to write against; features/job-health/api.ts uses its count as the
- * "missed snapshot" signal for the banner, since a fight can sit here
- * indefinitely even while the job itself keeps succeeding (e.g. the odds
- * feed simply never lists it -- `decideMatch`'s `no_candidates` case).
+ * Every fight with no odds_snapshots row yet, no time gate applied --
+ * the base query two different consumers filter differently:
+ * matchAndSnapshot.ts (via fetchEligibleUnpricedFights below) wants only
+ * those past their T-12h window; features/conflicts/api.ts wants ALL of
+ * them, scoped instead by an odds event's own date window
+ * (lib/odds/matchFights.ts's rankFightMatches), since a low-confidence
+ * conflict's candidate picker is about finding which fight an ALREADY-
+ * CAPTURED price belongs to, not gating a new capture.
  *
  * Works with either the service-role admin client or the public anon
  * client -- fights, events, and odds_snapshots are all public-read
- * (0002_grants.sql, 0013_odds_snapshots.sql), so the banner's client-side
- * read doesn't need elevated privileges.
+ * (0002_grants.sql, 0013_odds_snapshots.sql).
  */
-export async function fetchEligibleUnpricedFights(
-  supabase: SupabaseClient,
-  now: Date,
-): Promise<FightForMatching[]> {
+export async function fetchUnpricedFights(supabase: SupabaseClient): Promise<UnpricedFight[]> {
   const { data: alreadyPriced, error: pricedError } = await supabase
     .from("odds_snapshots")
     .select("fight_id");
   if (pricedError) throw pricedError;
   const pricedIds = new Set((alreadyPriced ?? []).map((row) => row.fight_id as string));
 
-  // Same PostgREST FK-embed pattern as features/fights/api.ts. starts_at
-  // comes along so the T-12h gate below can be applied without a second
-  // round trip per fight.
+  // Same PostgREST FK-embed pattern as features/fights/api.ts.
   const { data: fights, error: fightsError } = await supabase
     .from("fights")
     .select(
@@ -45,11 +44,24 @@ export async function fetchEligibleUnpricedFights(
 
   return ((fights ?? []) as unknown as EmbeddedFight[])
     .filter((f) => !pricedIds.has(f.id))
-    .filter((f) => isPastSnapshotWindow(f.event.starts_at, now))
     .map((f) => ({
       id: f.id,
       eventDate: f.event.event_date,
       fighter1Name: f.fighter1.name,
       fighter2Name: f.fighter2.name,
+      startsAt: f.event.starts_at,
     }));
+}
+
+/**
+ * fetchUnpricedFights, filtered to fights past their card's T-12h window
+ * -- the candidate set matchAndSnapshot.ts writes against. See
+ * snapshotWindow.ts for why this gate exists.
+ */
+export async function fetchEligibleUnpricedFights(
+  supabase: SupabaseClient,
+  now: Date,
+): Promise<FightForMatching[]> {
+  const fights = await fetchUnpricedFights(supabase);
+  return fights.filter((f) => isPastSnapshotWindow(f.startsAt, now));
 }

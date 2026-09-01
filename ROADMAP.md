@@ -110,7 +110,7 @@ and it now also owns `starts_at`.
 | B3 | ⚠️ Odds client + fuzzy fight matcher, scoped to a window around the known card date; low-confidence matches open a `data_conflicts` row instead of guessing; client keeps the two fighter outcomes and discards `Draw` | **done** (2026-09-01) |
 | B4 | Daily discovery pull populating `events.starts_at` from `commence_time` | **done** (2026-09-01) |
 | B5 | T-12h snapshot job (GitHub Actions) + `job_runs` + loud degraded banner | **done** (2026-09-01) |
-| B6 | `/conflicts` screen — resolves both conflict types, so blockers can be cleared before picking begins | not started |
+| B6 | `/conflicts` screen — resolves both conflict types, so blockers can be cleared before picking begins | **done** (2026-09-01) |
 
 **B1 result:** 1xBet returns real MMA prices — confirmed against a live
 response matching a real UFC 331 pairing, cross-checked against the
@@ -270,6 +270,49 @@ start. **Verified by querying the actual tables afterward, not trusting
 the console summary:** `odds_snapshots` stayed at 0 rows; `job_runs` shows
 both jobs' real rows, `status: success`, summaries matching the console
 output exactly.
+
+**B6 result.** Found a real bug orienting on this phase, before writing any
+UI: `matchAndSnapshot.ts` was writing `fight_id` for `low_confidence_odds_
+match` conflicts instead of `null`, contradicting the migration's own
+documented design and — once C1's pick-lock trigger exists — would have
+wrongly blocked **picking** a fight over a mere pricing ambiguity, not just
+blocked pricing it. Confirmed harmless in practice (both B5 live runs:
+`lowConfidence: 0`) and fixed before any real row could exist with the wrong
+shape. See ARCHITECTURE.md Fork 5 for the full reasoning.
+
+Built two pure resolution builders (`resolveDisputedOpponent.ts`,
+`resolveLowConfidence.ts`), mutation-tested, reusing `stripNullish` and
+`parseFighterPrices` exactly as their automatic counterparts do. The low-
+confidence picker (`rankFightMatches`) deliberately shows every in-window
+candidate fight, not just the algorithm's own best guess — user-confirmed
+choice over the simpler "single suggestion" alternative, so the owner can
+correct the algorithm rather than only ever rubber-stamping it.
+
+**A second, unrelated bug found by the live check done before writing any
+of this**: `data_conflicts` (migration 0014) didn't actually exist in
+production, despite the CLI's migration tracking claiming it was applied.
+Root-caused and fixed (`db query -f` against the live database, applying
+0014 for real) — see `PROJECT_FACTS.md` for the full incident and the
+standing lesson about not trusting a repaired tracking table as proof the
+schema matches.
+
+**Verification note, stated plainly:** the read path
+(`getOpenConflicts`/`getOpenConflictCount`) ran live against production,
+safely (read-only), and is what caught the missing-table bug above. The
+write path (the two resolve actions) has **not** been exercised live — no
+real conflict exists yet to resolve, and the actions' `cookies()`-based
+owner check can't run outside a real Next.js request, so there's no
+lightweight way to invoke them standalone the way `runOddsJobsOnce` was.
+Mitigated instead with a direct cross-check of every column name the write
+path uses against `information_schema.columns` for `fights`,
+`odds_snapshots`, and `data_conflicts` — all match exactly. First real
+exercise happens the first time an actual conflict occurs and gets
+resolved.
+
+Also fixed, found orienting on this phase: **Vitest never resolved
+`tsconfig.json`'s `@/*` alias** — latent since day one, surfaced by this
+phase's first test file to transitively import a `@/`-using module. Added
+`vitest.config.mts`. See `PROJECT_FACTS.md`.
 
 ---
 

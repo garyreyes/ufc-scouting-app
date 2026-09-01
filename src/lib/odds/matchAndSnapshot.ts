@@ -54,10 +54,17 @@ export async function matchAndSnapshot(
     }
 
     if (decision.kind === "low_confidence") {
+      // fight_id is deliberately null here, not decision.fightId --
+      // 0014_data_conflicts.sql's own design: an unmatched odds event
+      // doesn't identify a specific fight with enough confidence to
+      // block it, so that fight must stay "unpriced" (pickable, just not
+      // bettable yet), never "disputed" (blocked from picking too). The
+      // algorithm's best guess still travels in `details` for B6's
+      // resolution screen to show as a starting point, not a verdict.
       const { error } = await supabase.from("data_conflicts").insert({
         kind: "low_confidence_odds_match",
-        fight_id: decision.fightId,
-        details: { oddsEvent, confidence: decision.confidence },
+        fight_id: null,
+        details: { oddsEvent, confidence: decision.confidence, candidateFightId: decision.fightId },
       });
       if (error) throw error;
       summary.lowConfidence++;

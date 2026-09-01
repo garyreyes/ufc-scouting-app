@@ -156,7 +156,38 @@ should look." One place to check, one habit.
 
 **Enforcement:** bettable-ness is a single predicate — *no open conflict* —
 evaluated in the pick-lock trigger that is already required. Same trigger, one
-more condition, no new enforcement surface.
+more condition, no new enforcement surface. This is about **betting**
+specifically, not picking — see the B6 correction below for why the two
+conflict kinds diverge on that.
+
+**B6 result (the `/conflicts` screen).** Building the resolution UI surfaced
+a real bug in the B3 code that writes `low_confidence_odds_match` rows:
+`matchAndSnapshot.ts` was setting `fight_id` to the algorithm's own best
+guess, not `null` as this migration's own comment already specified. The
+practical effect: once C1's pick-lock trigger exists, it would have found an
+"open conflict" for that fight_id and wrongly blocked **picking** it too, not
+just pricing it — collapsing the intentional distinction above (a low-
+confidence odds match means "we don't know the price yet," the same kind of
+gap `unpriced` already handles; a disputed opponent means "this bout may not
+be the real one," which is what actually needs to block picking). Fixed:
+`fight_id` is `null` again, with the algorithm's guess moved into
+`details.candidateFightId` — a starting point for the resolution screen, not
+a verdict. Confirmed harmless in practice: both B5 live runs report
+`lowConfidence: 0`, so no row with the wrong shape ever existed.
+
+Resolution itself needed two new pure builders (`resolveDisputedOpponent.ts`,
+`resolveLowConfidence.ts`, mutation-tested), reusing `stripNullish` and
+`parseFighterPrices` exactly as their respective automatic paths do, so a
+manual resolution produces the identical shape an automatic match would
+have. The low-confidence picker (`rankFightMatches`, `matchFights.ts`)
+deliberately shows every in-window candidate, not just the algorithm's top
+guess — the owner can correct a wrong guess, not just confirm or reject it.
+
+**A second, unrelated finding from the same session:** `data_conflicts`
+(this migration, 0014) didn't actually exist in production, despite the
+CLI's migration tracking claiming it was applied — found by a deliberately
+safe, read-only live check before building on top of it. See
+`PROJECT_FACTS.md` for the root cause and the general lesson.
 
 ### Fork 6 — settlement policy
 
@@ -526,6 +557,10 @@ src/
   features/
     fighters/          components/, api.ts, types.ts
     fights/            components/, api.ts, types.ts
+    conflicts/         components/ (ConflictCard + its two kind-specific
+                       cards), api.ts, actions.ts,
+                       resolveDisputedOpponent.ts, resolveLowConfidence.ts
+                       (pure, mutation-tested), types.ts — built B6
     job-health/        components/ (JobHealthBanner, RetryButton),
                        api.ts, actions.ts, evaluateJobHealth.ts,
                        types.ts — built B5
@@ -553,7 +588,9 @@ src/
                        snapshotWindow.ts, eligibleUnpricedFights.ts,
                        runOddsJobsOnce.ts, runScheduledOddsJob.ts — built
                        B5 (`npm run odds:scheduled-job`, and
-                       .github/workflows/odds.yml every 2h)
+                       .github/workflows/odds.yml every 2h);
+                       rankFightMatches (matchFights.ts) — built B6, for
+                       the conflicts screen's candidate picker
     reddit/            Reddit OAuth client                           [NEW]
     intern/            clustering + pick generation (batch)          [NEW]
     scoring/           unit P&L math — pure functions, no I/O        [NEW]
@@ -632,8 +669,11 @@ never "this should pass now."
    conflict must be rejected by the pick-lock trigger. Both halves need a test,
    because a miss here puts real units on a bout that never happened.
    **First half done in A2** — `sharesExactlyOneFighter.ts`, 5 tests,
-   mutation-verified. **Second half (the pick-lock trigger rejecting an open
-   conflict) is C1's job**, not yet built
+   mutation-verified. **Third half (resolving a conflict once a human looks)
+   done in B6** — see the `data_conflicts` entry below. **Second half (the
+   pick-lock trigger rejecting an open conflict) is still C1's job**, not yet
+   built — B6 only clears blockers before picking begins, it doesn't enforce
+   the block itself
 8. **Settlement** — void, draw, and no-contest return the stake **and void
    both lines**: with no winner, "who wins" has no correct answer, so scoring
    the pick as wrong would be a bug, not a harsh call. Disagreement between

@@ -283,6 +283,42 @@ Decided 2026-08-29, user-originated.
   Renaming the job silently disables protection, because a required check that
   never posts blocks merges forever rather than failing loudly.
 - **Node 22**, chosen in Phase 12 after lockfile drift broke the sync workflow.
+- **The migration tracking table can say "applied" for a migration that
+  never actually ran.** Found in B6: `data_conflicts` (0014) didn't exist in
+  production at all, even though `migration list --linked` showed it
+  applied — a genuinely serious gap, since every conflict-detection write
+  path (`upsertFight.ts`, `matchAndSnapshot.ts`) would have thrown the
+  moment either one first tried to use it, with no visible connection to a
+  B3-era migration. Root cause: the Infrastructure entry above's
+  `migration repair --status applied 0001..0016` reconciliation assumed
+  every one of those files had genuinely been hand-applied through the
+  Dashboard SQL Editor before it ran — true for the others, but apparently
+  not for 0014, which the file's own header notes was added slightly out
+  of the normal sequence ("created now, ahead of ROADMAP.md's A2"). `repair`
+  only edits the tracking table; it never checks the schema actually
+  matches. Found by a deliberate, safe, read-only live check
+  (`getOpenConflicts()`/`getOpenConflictCount()` against production) done
+  specifically *because* nothing had exercised that table's real I/O
+  boundary yet — same discipline as the `fetchMmaOdds()` lesson above, one
+  layer further out: it's not just "exercise the fetch," it's "exercise the
+  fetch against the actual schema, don't trust the tracking table that says
+  the schema is already right." Fixed by running 0014's file directly via
+  `db query -f` against the live database (confirmed working: correct
+  columns, correct grants — service_role/postgres only, no anon/
+  authenticated). **Standing lesson:** after any `migration repair`,
+  cross-check `information_schema.tables`/`.columns` against what every
+  migration file actually claims to create, at least once, rather than
+  trusting the repaired tracking table as proof the schema is right.
+- **Vitest doesn't resolve `tsconfig.json`'s `"@/*"` path alias on its
+  own** — Next's own bundler (webpack/Turbopack) does, but nothing wires
+  that up for `vitest run`, since there was never a `vitest.config.ts`.
+  Latent since day one; only surfaced in B6 when a test file first
+  transitively imported a module using `@/...`
+  (`resolveDisputedOpponent.ts`). Fixed with `vitest.config.mts`
+  (`.mts`, not `.ts` — avoids an ESM/CommonJS warning without touching
+  `package.json`'s module type) setting `resolve.alias` to match
+  `tsconfig.json` manually. Any future test whose dependency graph reaches
+  a `@/`-importing module needs this to already be in place — it now is.
 
 ## Deliberate non-decisions
 
