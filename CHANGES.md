@@ -669,3 +669,54 @@ yet. `PROJECT_FACTS.md` and `docs/PRD.md` are the sources of truth;
 **Next:** `user-flow-mapper` → `docs/user-flows.md`, then `roadmap-planner`
 → `ROADMAP.md`, then the `feature-planner` build loop starting with Phase A
 (`events.starts_at`, `fights.bout_order`, and the missing FK indexes).
+
+## Phase 16 — B1: verified 1xBet MMA odds live, corrected an assumption (2026-09-01)
+
+**Verified live**, with a real Odds API key, against `mma_mixed_martial_arts`
+odds filtered to `bookmakers=onexbet`:
+
+- **1xBet returns real MMA prices.** `bookmakers` was non-empty for genuine
+  near-term UFC cards with real fighters and correct pairings — Joshua Van vs
+  Alexandre Pantoja, `commence_time` `2026-09-20T04:00:00Z`, which is the
+  evening of Sept 19 in Los Angeles and matches the Wikipedia-sourced UFC 331
+  date independently. No fallback bookmaker is needed.
+- **Credits cost 1 per successful request**, confirmed via
+  `x-requests-remaining` dropping 500 → 499 → 498 across two calls. A request
+  for an unsupported market (`h2h_3_way`) returned `422` and cost 0 —
+  validation happens before billing.
+- **`commence_time` is a real ISO timestamp on every event.** This is what
+  B4 will use to populate `events.starts_at`.
+
+**Correction, found in the same response:** the previous session (Phase 15,
+recorded during the odds-source decision) claimed MMA `h2h` was a clean 2-way
+market and that MMA isn't normally offered three-way. That was asserted, not
+checked. The live payload contradicts it — every 1xBet MMA `h2h` response
+returns **three outcomes**: Fighter A, Fighter B, and `Draw` (~33–34.0
+decimal, ~3% implied). Querying `h2h_3_way` as a separate market returns
+`422 INVALID_MARKET`; there is no distinct three-way key for this sport.
+
+The double-chance rejection from Phase 15 still stands, but not for the
+reason first given. Double chance is a wrapper bet that shortens every price
+to buy protection against an outcome you were never betting on; what the
+payload actually contains is a plain three-way price, not a combined bet.
+Fix is mechanical: the odds client keeps the two outcomes matching the
+fight's fighters and discards `Draw`. The settlement policy (a draw voids and
+returns the stake) was always a product decision this app makes, independent
+of whether the market technically prices a draw.
+
+**New design note for B3**, found while reading the live response: several
+far-future events list the same fighter against different opponents on the
+same date (e.g. Gaethje vs both Tsarukyan and Topuria, dated 2026-12-31) —
+rumoured pairings the market prices before matchmaking is final. B3's fuzzy
+matcher must scope to a window around a known card date rather than search
+by name across the full event list, or risk a false match against a listing
+that never becomes a real fight.
+
+**Changed:** `ARCHITECTURE.md` Fork 7 rewritten with the live findings and
+the correction; `docs/PRD.md` §6 and §10 updated; `PROJECT_FACTS.md` odds
+section rewritten; `ROADMAP.md` B1 marked done, B3 carries the new
+requirements. `.env.local` now holds `ODDS_API_KEY` (Starter free tier, 500
+credits/month) — gitignored, never committed.
+
+**Status:** B1 is done. B2 (immutable `odds_snapshots`) is next and can now
+proceed on a verified foundation instead of an assumed one.

@@ -85,17 +85,35 @@ Decided 2026-08-29, user-originated.
 - **Credits are 1 per region per market for the whole request**, not per
   event. One card's snapshot is 1 credit against ~500/month, so budget is not
   the binding constraint.
-- **Double chance / 1X2 was raised and rejected** (2026-08-29). The 2-way
-  market already returns the stake on a draw, so there is nothing to hedge;
-  MMA is not normally offered three-way; hedging would shorten every price to
-  insure a sub-1% event whose unhedged outcome is "stake returned," not
-  "loss"; and it would make the units board measure hedging discipline rather
-  than reads. Do not reintroduce without evidence 1xBet actually lists a
-  three-way MMA market.
-- **Unverified and blocking:** that 1xBet is a supported *bookmaker* does not
-  establish that it returns *MMA* prices. The Odds API warns some bookmakers
-  don't list less popular sports. Check a live response, and pick a fallback
-  bookmaker, before any code depends on it.
+- **1xBet MMA coverage verified live, 2026-09-01.** Real key, real response:
+  `onexbet` returns genuine UFC prices, confirmed against a real card (Joshua
+  Van vs Alexandre Pantoja, `commence_time` matching the Wikipedia-sourced
+  UFC 331 date). No fallback bookmaker needed. Credits confirmed 1 per
+  successful request via `x-requests-remaining` (500→499→498); a request for
+  an unsupported market returned `422` and cost 0.
+- **Correction, 2026-09-01: MMA `h2h` on 1xBet is three-outcome, not two.**
+  The 2026-08-29 double-chance discussion assumed `h2h` was a clean 2-way
+  market and that MMA doesn't normally offer three-way — that was asserted,
+  not checked, and the live response contradicts it: every payload returns
+  Fighter A, Fighter B, and `Draw` (~33–34.0 decimal). There is no separate
+  `h2h_3_way` key for this sport (`422 INVALID_MARKET` if requested) — the
+  third outcome is just how `h2h` is shaped here. **The odds client must keep
+  the two fighter outcomes and discard `Draw`.**
+- **Double chance / 1X2 was raised and rejected** (2026-08-29), and the
+  rejection still stands after the correction above — for a different reason
+  than first given. Double chance is a wrapper bet ("Fighter A wins OR draw")
+  that shortens every price to buy protection; what the market actually
+  returns is a plain three-way price, not a combined bet. Hedging would still
+  insure a sub-1% event at the cost of every price, and would still make the
+  units board measure hedging discipline instead of reads. Do not reintroduce
+  it — the settlement policy (draw voids and returns the stake) already
+  covers the real case for free.
+- **Design note for B3, found while reading the live response:** several
+  far-future events list the same fighter against different opponents on the
+  same date (rumoured pairings the market prices before matchmaking is
+  final). The fuzzy fight matcher must scope to a window around a known
+  card's date, not search by name across the full event list, or it risks a
+  false match against a listing that never becomes a real fight.
 
 ## Undocumented external limits, found empirically
 

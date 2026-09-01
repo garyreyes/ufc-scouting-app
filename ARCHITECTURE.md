@@ -153,47 +153,64 @@ more condition, no new enforcement surface.
 - **Only one source has reported after 24h** → settle on it, and record
   `settled_from` so single-source settlements stay visible on the scoreboard.
 
-### Fork 7 — odds source and format: **1xBet, decimal, 2-way `h2h`**
+### Fork 7 — odds source and format: **1xBet, decimal, `h2h`, drop the `Draw` outcome**
 
-Verified against The Odds API's own documentation on 2026-08-29:
+Verified two ways: against The Odds API's documentation on 2026-08-29, then
+**against a live response with a real key on 2026-09-01** — B1's spike, done
+early because the key arrived. Live verification changed one conclusion below;
+see the correction.
 
-- **1xBet is supported**, bookmaker key `onexbet`, in the **EU** region.
+- **1xBet is supported**, bookmaker key `onexbet`, in the **EU** region, and
+  **it does return real MMA prices** — confirmed live. `bookmakers` was
+  non-empty for genuine near-term UFC cards, including real fighters and
+  correct pairings (Joshua Van vs Alexandre Pantoja, `commence_time`
+  `2026-09-20T04:00:00Z`, which is the evening of Sept 19 in Los Angeles —
+  matching the Wikipedia-sourced UFC 331 date independently). The blocking
+  unknown from the first pass is resolved; no fallback bookmaker is needed.
 - **Decimal is the API default** (`oddsFormat=decimal`). Prices are stored
   exactly as returned. There is no American-odds conversion anywhere in the
-  codebase, and none should be added — a conversion is a correctness risk that
-  buys nothing here.
-- **Credits cost 1 per region per market for the whole request**, not per
-  event. One card's snapshot is 1 credit against roughly 500/month, so the
-  budget is not a real constraint. The PRD's "could have" second pull at T-24h
-  is comfortably affordable.
+  codebase, and none should be added.
+- **Credits cost 1 per successful request**, confirmed via the
+  `x-requests-remaining` header dropping 500 → 499 → 498 across two calls. A
+  request for an unsupported market (see below) returned `422` and cost **0**
+  — billing happens after validation, not on receipt.
+- **`commence_time` is a real ISO timestamp on every event**, confirmed live.
+  This is what B4 uses to populate `events.starts_at`.
 
-**Primary market: `h2h` (2-way win).** In MMA this is the standard market, and
-**a draw voids the bet and returns the stake** — which is already the
-settlement rule in the PRD. The draw is therefore handled for free by the
-market's own rules, not by hedging.
+**Correction to the first pass — `h2h` for MMA is not 2-way.** The prior
+version of this section claimed MMA doesn't normally offer a three-way market
+and that `h2h` was a clean 2-way price. That was asserted, not checked. The
+live response contradicts it: **every 1xBet MMA `h2h` payload returns three
+outcomes** — Fighter A, Fighter B, and `Draw` (priced around 33–34.0 decimal,
+roughly 3% implied). Querying `h2h_3_way` as a separate market key returns
+`422 INVALID_MARKET` — there is no separate three-way key for this sport; the
+third outcome is simply how `h2h` is shaped here.
 
-**Still to verify empirically, and blocking:** The Odds API's docs warn that
-"some bookmakers may not list for less popular sports." That 1xBet is
-supported as a bookmaker does **not** establish that it returns MMA prices.
-This must be checked against a live response before any code depends on it,
-and the design needs a documented fallback bookmaker if it doesn't.
+**This does not reopen double chance, for a different reason than first
+argued.** Double chance is a *wrapper bet* — "Fighter A wins OR it's a draw"
+— that shortens the price on every wager to buy protection against an outcome
+you were never going to bet on anyway. What the payload actually contains is
+a plain three-way *price*, not a combined bet type. The fix is mechanical:
+**the odds client keeps only the two outcomes matching the fight's two
+fighters and discards `Draw`.** The settlement policy — a draw voids the
+stake and returns it — was always a product decision this app makes, not a
+behaviour the market was performing on its own; it holds unchanged. Nothing
+about the double-chance rejection's actual reasoning (it insures a sub-1%
+event and would corrupt the units board into partly measuring hedging
+discipline) depended on the wrong "not offered three-way" claim, so that
+conclusion still stands — just not for the reason first given.
 
-**Double chance / 1X2: rejected.** Raised and then dropped on 2026-08-29
-after discussion. Double chance exists because in football a draw is a third,
-likely outcome that *loses* the bet. None of that holds here:
-
-- The 2-way `h2h` market **already returns the stake on a draw**, so there is
-  no draw exposure to hedge in the first place.
-- MMA is not normally offered three-way; `h2h_3_way` is a soccer market.
-- Even where a 1X2 MMA market exists, hedging shortens the price on **every**
-  bet to insure a sub-1% event whose unhedged outcome is "stake returned,"
-  not "loss."
-- It would also corrupt the measurement: hedged prices make the units board
-  partly a record of hedging discipline rather than of reads, which is the
-  thing the board exists to measure.
-
-Do not reintroduce it without evidence that 1xBet actually lists a three-way
-MMA market.
+**New design note for B3 (fuzzy fight matching), found while reading the live
+response.** Several far-future events show the same fighter listed against
+different opponents on the same date — e.g. Gaethje appearing against both
+Tsarukyan and Topuria, Ciryl Gane against both Aspinall and Hokit, all dated
+2026-12-31. These are rumoured pairings the market prices before matchmaking
+is final, not confirmed fights. **B3's matcher should scope to a window
+around a known card's date rather than searching by name across the full
+event list** — an unscoped search risks a false match against a speculative
+listing that never becomes a real fight, which is a different failure mode
+from the disputed-opponent problem in Fork 5 but has the same shape: don't
+guess when the data is ambiguous, narrow the search instead.
 
 ---
 
@@ -398,7 +415,14 @@ never "this should pass now."
    that is already pending or settled
 6. **Odds ↔ fight matching** — a wrong match silently corrupts every
    downstream number, so low-confidence matches must reach the review queue
-   rather than being guessed
+   rather than being guessed. Matching is **scoped to a window around the
+   known card date**, not a name search across the full event list — the odds
+   feed carries rumoured future matchups (same fighter against different
+   opponents on the same date) that an unscoped search could false-match.
+   Separately, **the client must select the two outcomes matching the fight's
+   two fighters and discard `Draw`** — 1xBet's MMA `h2h` payload is
+   three-outcome, confirmed live 2026-09-01, and a parser that assumes two
+   outcomes will silently misread the array
 7. **Disputed-opponent detection** — a candidate sharing *exactly one* fighter
    must open a conflict, never insert a second row; and a fight with an open
    conflict must be rejected by the pick-lock trigger. Both halves need a test,
