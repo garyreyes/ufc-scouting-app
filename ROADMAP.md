@@ -71,17 +71,22 @@ and it now also owns `starts_at`.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| B1 | Verification spike — does 1xBet actually return MMA, real free-tier limits, `commence_time` shape, and a named fallback bookmaker | not started |
+| B1 | Verification spike — does 1xBet actually return MMA, real free-tier limits, `commence_time` shape, and a named fallback bookmaker | **done** (2026-09-01) |
 | B2 | ⚠️ `odds_snapshots` table, immutable via absent UPDATE/DELETE policy | not started |
-| B3 | ⚠️ Odds client + fuzzy fight matcher; low-confidence matches open a `data_conflicts` row instead of guessing | not started |
+| B3 | ⚠️ Odds client + fuzzy fight matcher, scoped to a window around the known card date; low-confidence matches open a `data_conflicts` row instead of guessing; client keeps the two fighter outcomes and discards `Draw` | not started |
 | B4 | Daily discovery pull populating `events.starts_at` from `commence_time` | not started |
 | B5 | T-12h snapshot job (GitHub Actions) + `job_runs` + loud degraded banner | not started |
 | B6 | `/conflicts` screen — resolves both conflict types, so blockers can be cleared before picking begins | not started |
 
-**B1 is blocking and must come first.** The Odds API's docs warn that some
-bookmakers don't list less popular sports; 1xBet being a *supported bookmaker*
-does not establish that it returns *MMA* prices. Do not build B2–B5 against an
-unverified assumption — this project has been bitten twice by exactly that.
+**B1 result:** 1xBet returns real MMA prices — confirmed against a live
+response matching a real UFC 331 pairing, cross-checked against the
+independently-sourced Wikipedia date. No fallback bookmaker needed. One
+correction came out of it: MMA `h2h` on 1xBet is **three-outcome** (Fighter A,
+Fighter B, `Draw`), not two as first assumed — see `PROJECT_FACTS.md` and
+`ARCHITECTURE.md` Fork 7. B3 carries the resulting parsing requirement and a
+new note: the odds feed lists rumoured future matchups (the same fighter
+against different opponents on one date), so matching must be scoped to a
+window around a known card rather than a blind name search.
 
 **B5 note.** A missed snapshot silently voids a whole card's scoreboard, which
 the PRD calls the single highest-impact failure in the system. It must alert

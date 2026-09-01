@@ -261,8 +261,9 @@ it as success is the specific mistake this two-board split exists to prevent.
 | Single developer | Non-technical "vibe coder" building architecture judgement deliberately; structure and security beat delivery speed | `HANDOFF.md` |
 | API-Sports free tier | 100 req/day, ~3-day date window, ~10 req/min — all found empirically, none documented | `CHANGES.md` Phase 5 |
 | Odds free tier | ~500 credits/month, and credits cost **1 per region per market for the whole request**, not per event — so one card's pull is 1 credit. Budget is not the binding constraint; a second T-24h pull is affordable | verified in docs 2026-08-29 |
-| Odds source | **1xBet** (`onexbet`), **EU** region, **decimal** format (the API default) | verified in docs 2026-08-29 |
-| Odds coverage risk | The Odds API warns some bookmakers don't list less popular sports. **1xBet returning MMA prices is unverified** and needs a live check before code depends on it | open |
+| Odds source | **1xBet** (`onexbet`), **EU** region, **decimal** format (the API default) | verified live 2026-09-01 |
+| Odds coverage | **1xBet returns real MMA prices**, confirmed live — matched a real UFC 331 fighter pairing against the independently-sourced Wikipedia date. No fallback bookmaker needed | verified live 2026-09-01 |
+| `h2h` market shape | **Three outcomes for MMA on 1xBet** — Fighter A, Fighter B, `Draw` — not two. There is no separate `h2h_3_way` key for this sport (`422` if requested). The client keeps the two fighter outcomes and discards `Draw` | verified live 2026-09-01, corrects the 2026-08-29 assumption |
 | LLM free tier | Gemini Flash or Groq. **Must be verified empirically before anything is built on it**, and must sit behind one swappable wrapper module so a dead tier is a one-file change | see §9 |
 | Reddit API | Free at personal volume; needs a registered OAuth app | to verify |
 | Data ordering gap | No `bout_order` column exists; card ordering is currently unreliable | verified in schema |
@@ -480,5 +481,7 @@ exactly one wrapper module.
 | UFCStats rejected on evidence (JS proof-of-work wall, no HTTPS) | verified live 2026-08-29 — see `ARCHITECTURE.md` Fork 1 |
 | Disputed opponents: detect/hold/self-resolve, no preferred source | decided 2026-08-29 — Phase 7 data disproved static precedence |
 | Odds priced from 1xBet in decimal, 2-way `h2h` | user-originated 2026-08-29 |
-| Double chance / 1X2 hedging **rejected** | raised then dropped 2026-08-29 — `h2h` already returns the stake on a draw, so there is no draw exposure to hedge; hedging would shorten every price to insure a sub-1% event and would make the units board measure hedging rather than reads |
+| Double chance / 1X2 hedging **rejected** | raised then dropped 2026-08-29 — hedging would shorten every price to insure a sub-1% event and would make the units board measure hedging rather than reads. Reasoning corrected 2026-09-01: MMA `h2h` on 1xBet is in fact three-outcome (verified live), but double chance is a distinct wrapper bet from the plain three-way price the market returns, so the rejection's real reasoning was unaffected |
+| 1xBet MMA coverage confirmed live; no fallback bookmaker needed | verified 2026-09-01, resolves the 2026-08-29 open risk |
+| `h2h` for MMA is three-outcome, not two; client discards `Draw` | verified 2026-09-01 — corrects an unverified 2026-08-29 assumption |
 | Disputed fights blocked from **both** boards, not just bets | decided 2026-08-29 — a bout that may not exist can't score a pick either |
