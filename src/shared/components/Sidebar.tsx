@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { getConflictsBadgeAction } from "@/features/conflicts/actions";
 import styles from "./Sidebar.module.css";
 
 const NAV_ITEMS = [
@@ -32,6 +34,49 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
           </Link>
         );
       })}
+      <ConflictsNavItem collapsed={collapsed} isActive={pathname.startsWith("/conflicts")} />
     </nav>
+  );
+}
+
+/**
+ * Deliberately not a permanent nav item (docs/user-flows.md): appears
+ * only once the count is confirmed positive AND the viewer is confirmed
+ * the owner, checked client-side after mount via a gated server action
+ * rather than in Sidebar's own render -- the owner check needs a real
+ * session (cookies()), and doing that in the shared render path would
+ * taint every page's caching the same way B5's JobHealthBanner originally
+ * did (see PROJECT_FACTS.md). A permanently-visible, permanently-empty
+ * queue trains you to ignore it -- the same failure as an always-red CI
+ * gate -- so this renders nothing at all until there's something real to
+ * show.
+ */
+function ConflictsNavItem({ collapsed, isActive }: { collapsed: boolean; isActive: boolean }) {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    getConflictsBadgeAction()
+      .then(setCount)
+      .catch(() => setCount(null));
+  }, []);
+
+  if (!count) return null;
+
+  return (
+    <Link
+      href="/conflicts"
+      className={`${styles.link} ${isActive ? styles.active : ""}`}
+      title={collapsed ? "Conflicts" : undefined}
+    >
+      <span className={styles.icon} aria-hidden="true">
+        {"⚠️"}
+      </span>
+      {!collapsed && (
+        <span className={styles.label}>
+          Conflicts <span className={styles.badge}>{count}</span>
+        </span>
+      )}
+      {collapsed && <span className={styles.badgeCollapsed}>{count}</span>}
+    </Link>
   );
 }

@@ -59,3 +59,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Restrained-colour rule: the one accent, used here because this badge
+   only ever appears when something genuinely needs attention -- it is
+   never rendered at zero (see ConflictsNavItem's `if (!count) return
+   null`), so accent-as-alert is the meaning, not decoration. */
+.badge {
+  margin-left: 6px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.badgeCollapsed {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+}
