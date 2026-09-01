@@ -188,18 +188,25 @@ Decided 2026-08-29, user-originated.
 
 ## Infrastructure
 
-- **The Supabase CLI's migration tracking is out of sync with reality, and
-  `supabase db push` is unsafe to run as-is.** Confirmed 2026-09-01:
-  `supabase migration list --linked` shows every migration `0001`–`0013`
-  with an empty `remote` column, and `supabase db push --dry-run` confirms
-  it would try to re-apply all thirteen — including `0001`'s `create table
-  fighters`, which already exists live. All of `0001`–`0012` were applied
-  by hand through the Dashboard SQL Editor, which never writes to the CLI's
-  tracking table. **Until this is deliberately reconciled (`supabase
-  migration repair`, not done yet, needs its own confirmation before
-  running since it rewrites the CLI's history for every existing
-  migration), every migration goes in through the SQL Editor by hand, not
-  `db push`.**
+- **Migration workflow changed, 2026-09-01: Claude now runs migrations
+  directly via the Supabase CLI, with the user's explicit go-ahead.**
+  History: the CLI's migration tracking table was found out of sync with
+  reality — `migration list --linked` showed every migration `0001`–`0016`
+  with an empty `remote` column (all had been applied by hand through the
+  Dashboard SQL Editor, which never writes to the CLI's tracking table),
+  and `db push --dry-run` confirmed it would try to re-apply all sixteen.
+  **Reconciled** via `supabase migration repair --status applied
+  0001..0016 --linked` — bookkeeping only, nothing was re-run — after
+  which `db push --dry-run` correctly isolated only the genuinely new
+  migration as pending. Going forward: `supabase db push --linked` applies
+  new migrations directly (re-verify the linked project ref is
+  `vrwlfcywyfzfczajpdoh` before every push — the dashboard-visible-name
+  checkpoint that caught Phase 11's mistake is gone, so this text
+  confirmation is what's left in its place); `supabase db query --linked
+  -f <file>` runs ad-hoc SQL files (e.g. `supabase/tests/rls.sql`) the
+  same way. The DB password was deliberately not requested — CLI access
+  through the existing login token is a smaller blast radius than a raw
+  Postgres connection string.
 - **A second Supabase project on the same account is named "GAMBLING
   TRACKER"** (`mbytqdkgwpzaensnphwd`, `ap-northeast-1`) — this is the exact
   project Phase 11 accidentally ran a migration against. It still exists.

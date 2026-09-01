@@ -995,3 +995,38 @@ placeholder UUID replaced with the real owner id before running in the
 Dashboard SQL Editor, then `rls.sql` run to verify live, matching the B2
 workflow. `ARCHITECTURE.md` Fork 8, `PROJECT_FACTS.md`, `ROADMAP.md`, and
 `docs/user-flows.md`'s security checklist all updated.
+
+## Phase 23 — Migration workflow: reconciled the CLI, now runs migrations directly (2026-09-01)
+
+**Asked and answered explicitly**, not decided silently: whether Claude
+should run Supabase migrations directly via the CLI instead of handing
+SQL to the user for the Dashboard SQL Editor. User approved reconciling
+the CLI once and automating from there, having weighed it against the
+alternative (a raw Postgres connection string — explicitly declined,
+too much blast radius for the convenience gained) and against staying
+fully manual.
+
+**Reconciled**, after re-verifying the linked project ref
+(`vrwlfcywyfzfczajpdoh`) via `supabase/.temp/project-ref`: `supabase
+migration repair --status applied 0001 0002 ... 0016 --linked` — pure
+bookkeeping, nothing re-run. Verified via `migration list --linked`
+(all sixteen now show `remote` matching `local`) and `db push --dry-run`
+(correctly isolates only the genuinely new `0017` as pending — the exact
+problem from Phase 17/22 is fixed).
+
+**Going forward:** `supabase db push --linked` applies migrations
+directly; `supabase db query --linked -f <file>` runs ad-hoc SQL files
+(discovered while checking what was actually possible — this also covers
+running `supabase/tests/rls.sql`, not just tracked migrations).
+
+**What this costs, stated plainly:** the dashboard-visible-project-name
+checkpoint that caught the real Phase 11 mistake (a migration run against
+the wrong project, "GAMBLING TRACKER") is gone. Replaced with a text-based
+substitute — re-verify and state the project ref before every push — which
+is a real, weaker safety property than seeing it on screen, not a
+like-for-like swap. Recorded as a standing requirement in `CLAUDE.md`, not
+just this entry.
+
+**Status:** workflow live. `0017` (A3's owner allowlist) is still pending
+— needs `OWNER_USER_ID` added to the user's local `.env.local` before it
+can be pushed with the real value substituted for the placeholder.
