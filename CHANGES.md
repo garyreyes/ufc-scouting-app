@@ -1073,3 +1073,47 @@ this is actually understood rather than worked around silently.
 still needs a real pass/fail run through the Dashboard SQL Editor — the
 one channel proven reliable for this file — before A3 is called verified,
 not just applied.
+
+## Phase 25 — A3 actually verified live; found and fixed the real db query -f trigger (2026-09-01)
+
+**Prompted by a direct, fair question**: "so the solution is to just
+stick with copy-pasting in supabase sql editor yourself?" Phase 24 had
+concluded that with a `db query -f` limitation, without finishing the
+diagnosis. Rather than confirm that conclusion, re-opened it — and it
+was wrong to stop where it did.
+
+**Re-ran the corrected file (check 3 retired) a second time** — it had
+never actually been re-run after that fix, only fragments had been
+tested. Failed identically and deterministically at check 14, which
+ruled out "transient/flaky" and meant the failure was actually
+diagnosable.
+
+**Bisected properly, twelve isolated queries:** `is_owner()` and the
+restrictive policy proven correct via direct calls with explicit
+arguments. Two consecutive `DO` blocks with no role switch: passes. A
+role-switch-and-reset cycle with the same user before and after: passes.
+Switching to a different user with no insert attempt: passes. A
+*simplified* version of check 13 (no unreachable `raise exception` line,
+no subquery) followed by check 14: passes. Only the **exact** structure —
+check 13's `DO` block genuinely *catching* an `insufficient_privilege`
+exception, immediately followed by check 14's success path *also* wrapped
+in its own `DO` block — reproduced the failure, every time.
+
+**The fix: check 14 didn't need a `DO` block at all.** Its only job was
+confirming an INSERT succeeds; a plain top-level `INSERT` that runs
+without error already proves that, no PL/pgSQL exception handling
+required. Rewritten that way and the **complete file — checks 1–16 — was
+run for real and printed `All RLS checks passed.`** Checks 15 and 16 had
+never been independently isolated before this; they passed as part of
+the real run.
+
+**Every doc that had understated this (Phase 24's entries, `CLAUDE.md`,
+`PROJECT_FACTS.md`, `ARCHITECTURE.md` Fork 8, `ROADMAP.md`) corrected** —
+`db query -f` is not a tool to route around for this file; the actual,
+narrow, now-documented rule is: a check that only needs to prove success
+should be a plain top-level statement, not a habitual `DO` block. Only
+checks that need to *catch* something need one.
+
+**Status:** A3 is done — applied and verified live, not just applied.
+No further action needed on it. `PROJECT_FACTS.md` carries the rule for
+future checks added to `rls.sql`.

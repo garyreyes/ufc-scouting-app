@@ -329,18 +329,18 @@ reset role;
 
 -- 14. The owner ('a') can still do everything the pre-0017 policies
 --     already allowed -- the restrictive policy must not regress their
---     own legitimate access.
+--     own legitimate access. Plain top-level statement, not a DO block:
+--     an INSERT that runs without error already proves this by itself
+--     (id is not-null by definition on success), and no exception needs
+--     catching here. Found live 2026-09-01: a DO-block version of this
+--     exact check, run immediately after check 13's caught RLS-rejection
+--     exception, failed inconsistently via `supabase db query -f` even
+--     though the underlying policy was independently proven correct --
+--     see PROJECT_FACTS.md. This plain form is unaffected in every
+--     configuration tested and is simpler regardless of that.
 set local role authenticated;
 select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
-do $$
-declare new_clan_id uuid;
-begin
-  insert into clans (name, created_by) values ('Owner''s New Clan', (select id from test_users where label = 'a'))
-    returning id into new_clan_id;
-  if new_clan_id is null then
-    raise exception 'FAIL (14): the owner should still be able to create a clan';
-  end if;
-end $$;
+insert into clans (name, created_by) values ('Owner''s New Clan', (select id from test_users where label = 'a'));
 reset role;
 
 -- 15. Non-owner ('b') cannot create a scouting report under their own

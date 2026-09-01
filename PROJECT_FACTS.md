@@ -205,23 +205,26 @@ Decided 2026-08-29, user-originated.
   confirmation is what's left in its place). The DB password was
   deliberately not requested — CLI access through the existing login
   token is a smaller blast radius than a raw Postgres connection string.
-- **`supabase db query --linked -f <file>` is reliable for migrations and
-  short scripts, but NOT trusted for a multi-check, stateful file like
-  `supabase/tests/rls.sql`.** Found while verifying A3 live (2026-09-01):
-  `is_owner()` and the restrictive policy were independently proven
-  correct — direct calls with explicit arguments, and several short
-  isolated reproductions of "role-switch, set `request.jwt.claims`, then
-  insert" all passed correctly — but the *same* pattern wrapped in a `DO`
-  block, run immediately after an earlier role-switch-and-reset, failed
-  inconsistently depending on details that shouldn't matter (whether the
-  insert was wrapped in `DO $$ $$` at all). Root cause not identified
-  (plausibly something in how the Management API executes a multi-
-  statement file, not a real Postgres RLS bug — the underlying policy
-  logic checked out clean every time it was tested in isolation). Until
-  understood, run `rls.sql` (and anything shaped like it — many role
-  switches, `DO` blocks, expected-exception checks) through the Dashboard
-  SQL Editor, which has a real proven track record for this exact file.
-  Plain migrations (DDL, no role-switching) via `db push` are unaffected.
+- **`supabase db query --linked -f <file>` genuinely works for a script
+  shaped like `supabase/tests/rls.sql`** — confirmed 2026-09-01, full file
+  run for real, `All RLS checks passed.` (checks 1–16). Getting there found
+  one real, narrow, now-understood trigger, not a blanket tool limitation:
+  a check whose success path is a `DO $$ ... $$` block containing an
+  `INSERT`, run *immediately after* a **different** check whose `DO` block
+  **caught** an `insufficient_privilege` exception, fails intermittently
+  through this tool. Proven not a schema/policy bug: `is_owner()` and the
+  restrictive policy passed every direct call and every simplified,
+  semantically-equivalent reproduction (12 isolated diagnostic queries).
+  Root cause in the tool/Postgres interaction still not identified.
+  **The fix that matters going forward:** a check whose success path
+  doesn't need to *catch* anything (no `exception when ...`) doesn't need
+  a `DO` block at all — write it as a plain top-level statement (an
+  `INSERT` that runs without error already proves success). Only checks
+  that genuinely need PL/pgSQL's exception handling need a `DO` block. A
+  check written that way is unaffected regardless of what precedes it —
+  confirmed by rewriting check 14 this way, which is what made the full
+  file pass. Apply this shape to any future check in this file, rather
+  than defaulting to `DO $$ ... $$` out of habit.
 - **A second Supabase project on the same account is named "GAMBLING
   TRACKER"** (`mbytqdkgwpzaensnphwd`, `ap-northeast-1`) — this is the exact
   project Phase 11 accidentally ran a migration against. It still exists.
