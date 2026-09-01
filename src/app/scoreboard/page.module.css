@@ -1,0 +1,22 @@
+.empty {
+  color: var(--muted);
+}
+
+.notice {
+  color: var(--accent);
+  font-size: 0.85rem;
+  margin-bottom: 10px;
+}
+
+.boards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 720px) {
+  .boards {
+    grid-template-columns: 1fr;
+  }
+}

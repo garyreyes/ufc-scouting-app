@@ -886,7 +886,8 @@ src/
                        types.ts — QuickPick/api.ts/actions.ts/types.ts
                        built C3, BetRow/betProbabilityBands.ts/
                        mergePickFields.ts/saveBetAction built C4
-    scoreboard/        components/, api.ts, types.ts               [NEW]
+    scoreboard/        components/ (UnitsBoard, AccuracyBoard), api.ts
+                       (getScoreboardData), types.ts — built E1
     rumours/           components/, api.ts, types.ts               [NEW]
     scouting-reports/  components/, api.ts, types.ts            [FROZEN]
     clans/             components/, api.ts, types.ts            [FROZEN]
@@ -932,7 +933,10 @@ src/
                        C4, for the bet row's live edge;
                        fightOutcomeFromSettledFight.ts — built D2, the
                        bridge from a settled fight's schema to
-                       FightOutcome. Pure functions, no I/O
+                       FightOutcome; determineFavorite.ts,
+                       aggregateUnitsLine.ts, aggregateAccuracyLine.ts —
+                       built E1, the scoreboard's chalk line and its
+                       three-line reductions. Pure functions, no I/O
   app/                 routing/pages — thin
 ```
 
@@ -965,7 +969,14 @@ never "this should pass now."
    `lib/scoring/scoreBetPnl.ts`, tested against a favourite (decimal 1.20,
    profit = stake×0.20) and an underdog (decimal 3.5, profit = stake×2.5),
    plus a losing bet (`-stake` regardless of price) and a void (`0`,
-   distinct from no-bet's `null` — see item #8's note below)
+   distinct from no-bet's `null` — see item #8's note below). **Extended
+   in E1** for the scoreboard's chalk line — `determineFavorite.ts`
+   (lower decimal price wins; a genuine tie breaks toward `fighter1`,
+   deterministic and rare enough not to distort the baseline) feeds the
+   same `scoreBetPnl`/`scorePickCorrect` a real bettor's picks/bets use,
+   simulating a flat 1-unit bet on the favourite for every settled,
+   priced fight — one definition of "P&L," never a second one for
+   reporting
 2. **Edge and implied-probability math** — `implied = 1 / decimal_odds` and
    `edge = (estimated_probability × decimal_odds) − 1`. This is what decides
    whether the intern bets at all, so an error here doesn't produce a wrong

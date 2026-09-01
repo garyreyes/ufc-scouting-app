@@ -1487,3 +1487,40 @@ rows.
 
 **Status:** D2 done. Phase D (settlement) is complete. Next: Phase E
 (the scoreboard).
+
+## Phase 35 — E1: the two-board scoreboard (2026-09-02)
+
+`docs/user-flows.md` had already answered nearly every real UX question
+before this phase started -- the exact empty-state copy, the 10-card
+small-sample threshold, and the unpriced-picks rule all came straight
+from Flow 3. What was left to design was the computation itself.
+
+Three new pure, mutation-verified functions in `lib/scoring/`:
+`determineFavorite` (lower decimal price wins the market's favour; a
+genuine tie breaks toward `fighter1`, deterministic), and
+`aggregateUnitsLine`/`aggregateAccuracyLine`, shared by all three lines
+on each board. Chalk isn't stored -- it's a live simulation, for every
+settled+priced fight, of a flat 1-unit bet on the favourite, scored
+through the exact same `scoreBetPnl`/`scorePickCorrect` a real bet uses.
+
+A real design question resolved by re-reading the PRD closely: only the
+intern needs a head-to-head-vs-full-card split, not "me" -- my own picks
+are already exactly the fights I chose to judge, so my one number is
+already the fair comparison point. Built the full `InternAccuracyLine`
+shape now, correctly, even though it's trivially empty until Phase G
+ships real intern picks.
+
+A real gap caught reviewing my own first draft, before it shipped: the
+accuracy board's "no data" row would have silently dropped the intern's
+full-card context whenever head-to-head had zero overlap but full-card
+already had real data. Fixed so those two states render differently.
+
+New route `/scoreboard`, owner-gated (mirrors `/conflicts`), added to
+the sidebar. Verified live, safely: the real query shapes ran against
+production via a throwaway read-only script -- `0` settled fights, `0`
+settled picks, matching D1/D2's own live runs. The page's empty state
+is genuinely what a real visit renders right now.
+
+**Status:** E1 done. Next: E2, the filterable pick table with the PRD's
+breakdowns (weight class, stance matchup, favourite vs underdog, flag
+present).
