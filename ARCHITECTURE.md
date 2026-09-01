@@ -643,7 +643,9 @@ src/
                        the conflicts screen's candidate picker
     reddit/            Reddit OAuth client                           [NEW]
     intern/            clustering + pick generation (batch)          [NEW]
-    scoring/           unit P&L math — pure functions, no I/O        [NEW]
+    scoring/           impliedProbability.ts, edge.ts,
+                       scorePickCorrect.ts, scoreBetPnl.ts, types.ts
+                       (FightOutcome) — built C2, pure functions, no I/O
   app/                 routing/pages — thin
 ```
 
@@ -672,16 +674,33 @@ implementation**, and "done" means the test was run and observed passing —
 never "this should pass now."
 
 1. **Unit P&L math** — underdog returns, favourite returns, and void handling,
-   against known moneyline examples
+   against known moneyline examples. **Done in C2** —
+   `lib/scoring/scoreBetPnl.ts`, tested against a favourite (decimal 1.20,
+   profit = stake×0.20) and an underdog (decimal 3.5, profit = stake×2.5),
+   plus a losing bet (`-stake` regardless of price) and a void (`0`,
+   distinct from no-bet's `null` — see item #8's note below)
 2. **Edge and implied-probability math** — `implied = 1 / decimal_odds` and
    `edge = (estimated_probability × decimal_odds) − 1`. This is what decides
    whether the intern bets at all, so an error here doesn't produce a wrong
    number, it produces a silently wrong *strategy*. No American-odds
-   conversion: prices are stored exactly as the API returns them
+   conversion: prices are stored exactly as the API returns them. **Done in
+   C2** — `lib/scoring/impliedProbability.ts`, `edge.ts`, tested against
+   the PRD's own -6000-favourite example (decimal 1.0167 → 98.4% implied,
+   edge ≈ 0 when the estimate exactly matches the market)
 3. **Dual settlement** — `pick_correct` and `pnl_units` settle independently.
    The case that must be explicitly tested: prediction right, bet on the other
    fighter, bet wins. Both lines must record the truth rather than one
-   overwriting the other
+   overwriting the other. **Done in C2** — `scorePickCorrect.ts`,
+   `scoreBetPnl.ts`, and a dedicated `dualSettlement.test.ts`. This exact
+   sentence doesn't literally parse for a two-fighter fight (a fighter
+   can't simultaneously be "predicted right" while "the other fighter's
+   bet wins" — only one fighter wins at all), so rather than guess which
+   direction was meant, both are tested: prediction wrong + bet on the
+   winner (pick false, P&L positive) and prediction right + bet on the
+   loser (pick true, P&L negative) — a mutation-verified regression guard
+   confirms `scoreBetPnl` settles against `bet_fighter_id`, never
+   `predicted_fighter_id`, which is the actual bug class this item exists
+   to catch either way
 4. **Pick lock** — a pick cannot be created or edited after `events.starts_at`.
    **Done in C1** — `check_pick_constraints()`, a `BEFORE INSERT OR UPDATE`
    trigger, `supabase/tests/rls.sql` checks 17/24, live-verified
@@ -729,7 +748,13 @@ never "this should pass now."
 8. **Settlement** — void, draw, and no-contest return the stake **and void
    both lines**: with no winner, "who wins" has no correct answer, so scoring
    the pick as wrong would be a bug, not a harsh call. Disagreement between
-   sources settles neither line
+   sources settles neither line. **Done in C2, and clarified against
+   docs/PRD.md's exact wording:** `pick_correct` is `null` for a void (no
+   correct answer to score) but `pnl_units` is `0`, not `null` — the PRD
+   says the stake is "voided and returned, not counted as a loss," which is
+   a real, known net-zero outcome distinct from `null`'s "no bet was ever
+   placed." Collapsing the two would make a voided bet indistinguishable
+   from one that never existed on the units board
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.

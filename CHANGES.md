@@ -1299,3 +1299,36 @@ yet. That's C3 (card view) and C4 (bet row)'s job.
 
 **Status:** C1 done. Next: C2 (lib/scoring -- implied probability, edge,
 unit P&L, pure functions).
+
+## Phase 30 — C2: lib/scoring, the pure P&L/edge/settlement math (2026-09-01)
+
+Built the four pure functions everything visual downstream (C3's card
+view, C4's bet row, Phase E's scoreboard) will render against:
+impliedProbability, edge, scorePickCorrect, scoreBetPnl. No I/O, no
+database access -- this phase touched no migration and nothing live, a
+deliberate contrast with every phase since B4.
+
+Test-first, every branch mutation-verified: impliedProbability/edge
+against the PRD's own -6000-favourite example; scoreBetPnl against known
+moneyline examples (a 1.20 favourite, a 3.5 underdog) plus the void/no-bet
+distinction.
+
+ARCHITECTURE.md item #3 names an exact test case ("prediction right, bet
+on the other fighter, bet wins") that doesn't actually parse for a
+two-fighter fight -- only one fighter can win, so those three clauses
+can't all hold at once. Rather than guess which direction was meant,
+dualSettlement.test.ts covers both: prediction wrong + bet on the winner,
+and prediction right + bet on the loser. A mutation-verified regression
+guard confirms scoreBetPnl settles against bet_fighter_id, never
+predicted_fighter_id, which is the actual bug class this item exists to
+catch either way.
+
+Clarified, not assumed, against the PRD's exact wording: a void's
+pnl_units is 0 (a real, known net-zero outcome -- "voided and returned,
+not counted as a loss") while pick_correct is null (no correct answer to
+score) -- two different null-vs-zero conventions for the same event,
+recorded in PROJECT_FACTS.md so Phase D's settlement job doesn't collapse
+them.
+
+**Status:** C2 done. Phase C now has its schema (C1) and its math (C2).
+Next: C3, the card view.
