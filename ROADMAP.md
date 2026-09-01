@@ -506,7 +506,7 @@ RLS policies, which neither action re-implements.
 | # | Sub-phase | Status |
 |---|---|---|
 | D1 | ⚠️ Cross-check settle job — agreement settles, 24h single-source timeout settles and flags, disagreement queues | **done** (2026-09-01) |
-| D2 | ⚠️ Dual settlement — `pick_correct` and `pnl_units` settle independently; draw/NC/cancelled voids **both** lines | not started |
+| D2 | ⚠️ Dual settlement — `pick_correct` and `pnl_units` settle independently; draw/NC/cancelled voids **both** lines | **done** (2026-09-01) |
 
 **D2 note.** The case that must be explicitly tested: prediction right, bet on
 the other fighter, bet wins. Both lines must record the truth rather than one
@@ -558,6 +558,51 @@ live: `0 settled, 0 disputed, 152 still waiting` -- the correct,
 provably-safe no-op, confirmed via a real `job_runs` row, not just the
 console line. Full reasoning and every constraint added in
 `ARCHITECTURE.md` Fork 6.
+
+**D2 result.** Orienting on D2 found a real gap in D1's own settle job,
+fixed before writing anything new: it never checked for an open
+`disputed_opponent` conflict before settling a fight's winner, which
+could have let a real result settle for a bout still in question. Fixed
+in `settleFights.ts` directly -- a code fix, not a migration.
+
+`picks.settled_at` (new) is the only reliable "has this pick been
+processed" signal -- `pick_correct`/`pnl_units` alone can't tell a
+genuinely unsettled pick apart from a settled *void* pick with no bet,
+since both stay null/null forever. Deliberately not paired with
+`pick_correct` the way `fights.settled_at`/`settled_from` are: that
+pairing would be actively wrong here, since a legitimately settled void
+pick keeps `pick_correct = null` on purpose.
+
+**A real access-control bug caught live, before this was called done --
+not assumed correct from reading the code.** The trigger's door-opening
+for D2 needed to tell the settlement job (`service_role`) apart from
+every other caller; the first version checked `current_user =
+'service_role'`. Live-testing this properly (a real owner session, then
+a real service_role session, against a throwaway pick -- `set local
+role` + `request.jwt.claims`, the exact technique `CLAUDE.md` already
+documents for RLS testing, deleted after each run) caught a serious bug
+before merge: the owner was correctly rejected, but so was the
+**settlement job itself** -- D2 could never have written anything at
+all. Root cause: the function is `SECURITY DEFINER` (required since
+0020, to read `data_conflicts`), which swaps `current_user` to the
+function's *owner* inside its own execution, regardless of the actual
+caller -- confirmed directly with a throwaway test function. Fixed with
+`current_setting('role', true)` instead, a plain GUC read the elevation
+doesn't touch -- verified the same live way, both directions, before
+shipping the fix as a new migration (0023, since 0022 was already
+applied). Full narrative in `ARCHITECTURE.md` Fork 6 and the general
+lesson in `PROJECT_FACTS.md`.
+
+The pick lock is also exempted for `service_role` -- without it, D2
+could never write anything either, since settlement always happens
+after the card has already started.
+
+**Verified live, end to end.** Both migrations cross-checked against
+`information_schema`/`pg_proc`. Ran the real `settlement:run-jobs`
+script (D1 + D2 chained) against production: `0 settled, 0 disputed,
+152 still waiting` / `0 picks settled across 0 fights` -- correct, since
+no fight has settled yet -- confirmed via two real `job_runs` rows, not
+just the console output.
 
 ---
 

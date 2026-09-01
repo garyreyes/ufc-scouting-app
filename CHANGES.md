@@ -1449,3 +1449,41 @@ row.
 
 **Status:** D1 done. Next: D2, dual settlement (writing `pick_correct`/
 `pnl_units` onto every pick once its fight settles).
+
+## Phase 34 — D2: dual settlement, and a real access-control bug caught live (2026-09-01)
+
+Found and fixed a real gap in D1's own settle job before writing
+anything new: it never checked for an open `disputed_opponent` conflict
+before settling a fight's winner. Fixed in `settleFights.ts` directly.
+
+New: `lib/settlement/settlePicks.ts`, and `picks.settled_at`
+(`0022_dual_settlement.sql`) -- the only reliable "has this pick been
+processed" signal, since `pick_correct`/`pnl_units` alone can't tell an
+unsettled pick apart from a settled void pick with no bet (both stay
+null/null forever). Deliberately not paired with `pick_correct` the way
+`fights.settled_at`/`settled_from` are -- that pairing would be wrong
+here, since a legitimate void keeps `pick_correct = null` on purpose.
+
+**A serious access-control bug caught live, before this was called
+done.** The trigger's door-opening for D2 needed to distinguish the
+settlement job (`service_role`) from every other caller. The first
+version checked `current_user = 'service_role'` -- reasonable-looking,
+wrong in practice. Live-testing it properly (a real owner session, then
+a real service_role session, against a throwaway pick, using the exact
+`set local role` + `request.jwt.claims` technique `CLAUDE.md` already
+documents) caught the bug before merge: the owner was correctly
+rejected, but so was the **settlement job itself** -- D2 could never
+have written anything. Root cause: the function is `SECURITY DEFINER`
+(needed since 0020 to read `data_conflicts`), which swaps `current_user`
+to the function's owner for its whole execution, regardless of caller.
+Fixed with `current_setting('role', true)` instead (a new migration,
+0023, since 0022 was already applied) -- verified the same live way,
+both directions, before shipping.
+
+Ran the real `settlement:run-jobs` script (D1 + D2 chained) against
+production: `0 settled, 0 disputed, 152 still waiting` / `0 picks
+settled across 0 fights` -- correct, confirmed via two real `job_runs`
+rows.
+
+**Status:** D2 done. Phase D (settlement) is complete. Next: Phase E
+(the scoreboard).

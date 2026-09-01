@@ -37,14 +37,15 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      # D1 (ARCHITECTURE.md Fork 6): runs after both syncs above, on the
-      # same cadence, since it evaluates whatever each source just wrote
-      # to its own per-source columns (fights.wikipedia_*/api_sports_*).
-      # Settles agreements and 24h-timed-out single-source results,
-      # queues genuine disagreements -- never touches picks directly
-      # (D2's job).
-      - name: Cross-check settle job
-        run: npx tsx src/lib/settlement/runSettleFights.ts
+      # D1 + D2 (ARCHITECTURE.md Fork 6): runs after both syncs above, on
+      # the same cadence, since it evaluates whatever each source just
+      # wrote to its own per-source columns (fights.wikipedia_*/
+      # api_sports_*). D1 settles agreements and 24h-timed-out
+      # single-source results, queues genuine disagreements; D2 then
+      # writes pick_correct/pnl_units onto every pick whose fight just
+      # settled.
+      - name: Settlement (fights, then picks)
+        run: npx tsx src/lib/settlement/runSettlementJobs.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

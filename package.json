@@ -14,7 +14,7 @@
     "sync": "npm run sync:recent && npm run sync:schedule",
     "odds:discover-start-times": "dotenv -e .env.local -- tsx src/lib/odds/runDiscoverStartTimes.ts",
     "odds:scheduled-job": "dotenv -e .env.local -- tsx src/lib/odds/runScheduledOddsJob.ts",
-    "settlement:settle-fights": "dotenv -e .env.local -- tsx src/lib/settlement/runSettleFights.ts"
+    "settlement:run-jobs": "dotenv -e .env.local -- tsx src/lib/settlement/runSettlementJobs.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

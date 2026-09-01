@@ -370,6 +370,32 @@ Decided 2026-08-29, user-originated.
   or more separate actions write partial updates to needs the same
   pattern — a `.upsert(partialObject)` call is only safe when exactly one
   code path ever writes that row.
+- **Inside a `SECURITY DEFINER` function, `current_user` is the function's
+  OWNER, never the caller — `current_setting('role', true)` is the one
+  that actually reflects `SET LOCAL ROLE`.** Found in D2, live-tested
+  before shipping (not assumed): `check_pick_constraints()` needed to
+  tell the settlement job (`service_role`) apart from every other caller,
+  and the first version used `current_user = 'service_role'` — reasonable
+  on its face, wrong in practice. `SECURITY DEFINER` was already required
+  on this function since 0020 (to read `data_conflicts`, which
+  `authenticated` has no grant on), and that elevation swaps
+  `current_user` to the function owner (`postgres` here) for the entire
+  execution, regardless of what role actually called it — confirmed with
+  a throwaway `SECURITY DEFINER` test function returning `current_user`
+  both with and without `set local role service_role` active: always
+  `postgres`. The real bug this caused: **the settlement job itself got
+  rejected by its own access-control check** — a genuine service_role
+  write returned the exact same "can only be set by the settlement job"
+  error as an unauthorized one, caught by testing the positive case live,
+  not just the rejection. Fixed with `current_setting('role', true)`
+  instead, which is a plain GUC read, unaffected by the privilege
+  elevation — verified the same way, live, both directions, before
+  shipping the fix (`0023_fix_settlement_role_check.sql`). **Standing
+  lesson:** any future trigger/function that is both `SECURITY DEFINER`
+  and needs to know its caller's role must use `current_setting('role',
+  true)`, never `current_user` or `session_user` (the latter is the
+  underlying login role and doesn't reflect `SET ROLE` either — confirmed
+  the same session, both stay `postgres` throughout).
 
 ## Deliberate non-decisions
 
