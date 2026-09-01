@@ -41,6 +41,10 @@ export async function runScheduleSync() {
         method: bout.method,
         round: bout.round,
         weight_class: bout.weightClass,
+        // The wikitext template lists bouts main-card-first, so this
+        // array index is already the correct card order -- it was
+        // previously used only for external_id and discarded otherwise.
+        bout_order: index,
       });
       fightCount++;
     }

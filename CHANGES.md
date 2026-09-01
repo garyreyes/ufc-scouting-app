@@ -823,3 +823,26 @@ disputed-opponent detection logic, writing into a table that already
 exists. Next: A1 (`events.starts_at`, `fights.bout_order`, FK indexes) or
 B4 (daily discovery pull populating `starts_at` from `commence_time`) —
 both still open, neither depends on B3.
+
+## Phase 19 — A1: bout_order, starts_at, missing FK indexes (2026-09-01)
+
+**Added** `supabase/migrations/0015_bout_order_and_starts_at.sql`:
+`events.starts_at` (nullable timestamptz — not yet populated, that's B4's
+job from The Odds API's `commence_time`), `fights.bout_order` (nullable
+smallint — only ever known for Wikipedia-sourced fights), and indexes on
+`fights.event_id`/`fighter1_id`/`fighter2_id`, all three previously
+unindexed despite being joined on every event/fighter page.
+
+`syncSchedule.ts` was already iterating `event.bouts.entries()` and using
+the array index for `external_id` — this was genuinely the "nearly free"
+column ARCHITECTURE.md described: the index now also gets passed as
+`bout_order` to `upsertFight`. `FightWrite`'s new field relies on
+`stripNullish` preserving `0` (the main event) correctly on updates,
+already covered by `stripNullish.test.ts`'s falsy-value case from Phase 15
+— no new test needed for a display-ordering field, per the project's own
+test-first scope (money/auth/counting, not layout).
+
+**Status:** code merged and gated. **Migration not yet applied** — per the
+established pattern (`PROJECT_FACTS.md`: `db push` is unsafe until
+deliberately reconciled), it needs a manual run in the Dashboard SQL
+Editor before `bout_order` actually starts populating on the next sync.

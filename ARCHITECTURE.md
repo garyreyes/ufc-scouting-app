@@ -244,11 +244,17 @@ it claims to summarise.
 **Two columns the Must-haves cannot work without, and which do not exist
 yet:**
 
-- `fights.bout_order smallint` — from the Wikipedia array index.
+- `fights.bout_order smallint` — from the Wikipedia array index. **Added in
+  A1** (`supabase/migrations/0015_bout_order_and_starts_at.sql`);
+  `syncSchedule.ts` now passes the array index it was already iterating.
+  Nullable — only ever known for Wikipedia-sourced fights, since API-Sports
+  has no concept of card position.
 - `events.starts_at timestamptz` — `events.event_date` is a bare `date` with
   no time, and `fights` carries no time at all. Both the **T-12h odds
   snapshot** and the **pick lock** are defined in terms of a clock, so neither
-  is implementable against today's schema.
+  was implementable against the original schema. **Column added in A1**,
+  nullable, **not yet populated** — that's B4's job, from The Odds API's
+  `commence_time`.
 
 **Pick lock is enforced at the card, not the bout.** Per-fight start times are
 not reliably available from either source, so picks lock at
