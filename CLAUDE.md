@@ -41,10 +41,16 @@ These are halts, not judgment calls.
 
 ## Requires explicit confirmation before acting
 
-- **Running any database migration.** The user has multiple Supabase projects.
-  Confirm the dashboard shows `ufc-scouting-app` (URL
-  `vrwlfcywyfzfczajpdoh.supabase.co`, per `.env.local`) **before** running
-  anything. Phase 11 ran a migration against an unrelated project by mistake.
+- **Running any database migration.** Since 2026-09-01, Claude applies
+  migrations directly via `supabase db push --linked` (reconciled with
+  `migration repair` after the CLI's tracking table was found out of sync
+  — see `PROJECT_FACTS.md`). The user has multiple Supabase projects — the
+  dashboard-screenshot check that caught Phase 11's mistake no longer
+  applies automatically, so before every push: re-run `supabase migration
+  list --linked` or check `supabase/.temp/project-ref`, and state the
+  target project ref out loud (must read `vrwlfcywyfzfczajpdoh`, never
+  `mbytqdkgwpzaensnphwd` — "GAMBLING TRACKER," still on the account). This
+  confirmation is not optional just because it's automated now.
 - **Pushing to `main`.** Vercel auto-deploys from it — a push is a production
   deploy, not a save.
 - **Any destructive data operation** — deleting or merging rows, dropping
