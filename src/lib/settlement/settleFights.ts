@@ -23,6 +23,15 @@ export interface SettleFightsSummary {
  * syntax-risky filter would buy nothing (matches the reasoning in
  * features/picks/api.ts for preferring a simpler query over a
  * PostgREST filter shape that hasn't been verified live).
+ *
+ * A gap found orienting on D2, fixed here rather than left for later:
+ * a fight with an open disputed_opponent conflict must never settle a
+ * winner, even if both sources happen to agree on one -- the bout on
+ * file may not be the real one (ARCHITECTURE.md Fork 5), and scoring a
+ * pick against a bout that never happened corrupts the accuracy line
+ * the same way a phantom stake corrupts units. Treated as "wait," not a
+ * new conflict -- disputed_opponent is already the queue entry that
+ * covers it.
  */
 export async function settleFights(supabase: SupabaseClient): Promise<SettleFightsSummary> {
   const now = new Date();
@@ -35,9 +44,22 @@ export async function settleFights(supabase: SupabaseClient): Promise<SettleFigh
     .is("settled_at", null);
   if (error) throw error;
 
+  const { data: openDisputes, error: disputesError } = await supabase
+    .from("data_conflicts")
+    .select("fight_id")
+    .eq("kind", "disputed_opponent")
+    .is("resolved_at", null);
+  if (disputesError) throw disputesError;
+  const disputedFightIds = new Set((openDisputes ?? []).map((row) => row.fight_id as string));
+
   const summary: SettleFightsSummary = { settled: 0, conflicts: 0, stillWaiting: 0 };
 
   for (const fight of fights ?? []) {
+    if (disputedFightIds.has(fight.id)) {
+      summary.stillWaiting++;
+      continue;
+    }
+
     const state: FightSourceState = {
       wikipediaWinnerId: fight.wikipedia_winner_id,
       wikipediaMethod: fight.wikipedia_method,

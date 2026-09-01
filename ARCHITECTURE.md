@@ -298,6 +298,61 @@ added to `TRACKED_JOB_NAMES` (the odds pipeline's own degraded-banner
 list) — out of D1's scope, and a `job_runs` row already gives basic
 auditability without it.
 
+**D2 result — writing `pick_correct`/`pnl_units` for real.** A real gap
+found orienting on D2, fixed before writing any of it: D1's own settle
+job never checked for an open `disputed_opponent` conflict before
+settling a fight's winner — a fight could in principle settle a real
+result while its bout was still in question, exactly the corruption Fork
+5 exists to prevent. Fixed in `settleFights.ts` (a code fix, not a
+migration — nothing schema-level needed changing).
+
+`picks.settled_at` (new, `0022_dual_settlement.sql`) is the only reliable
+"has this pick been processed" signal — `pick_correct`/`pnl_units` alone
+can't tell a genuinely unsettled pick apart from a settled *void* pick
+with no bet, since both stay `null`/`null` forever. Deliberately **not**
+paired with `pick_correct` the way `fights.settled_at`/`settled_from`
+are (0021): that pairing would be actively wrong here, since a
+legitimately settled void pick keeps `pick_correct = null` by design (no
+correct answer to score).
+
+**A real access-control bug found and fixed live, before this was
+considered done — not assumed correct from reading the code.**
+`check_pick_constraints()`'s door-opening for D2 needed to tell the
+settlement job (`service_role`) apart from every other caller, and the
+first version checked `current_user = 'service_role'`. Live-testing this
+(a real owner session, and separately a real service_role session,
+against a throwaway pick — `set local role` + `request.jwt.claims`,
+matching CLAUDE.md's own documented RLS-testing technique, deleted after
+each run) caught a real bug before merge: the owner was correctly
+rejected, but so was the **settlement job itself** — D2 could never have
+written anything at all. Root cause: the function is `SECURITY DEFINER`
+(required since 0020, to read `data_conflicts`), and that elevation
+swaps `current_user` to the function's *owner* (`postgres`) for its
+entire execution, regardless of the actual caller — confirmed directly
+with a throwaway `SECURITY DEFINER` test function. Fixed with
+`current_setting('role', true)` instead — a plain GUC read the
+elevation doesn't touch, verified the same live-testing way, both
+directions, before shipping (`0023_fix_settlement_role_check.sql`). See
+`PROJECT_FACTS.md` for the general lesson.
+
+The pick lock check is exempted for `service_role` specifically —
+without this, D2 could never write anything either, since settlement by
+definition happens after the card has already started (`now() >=
+starts_at` would always be true by then). Every other role still locks
+exactly as before; the exemption doesn't weaken anything a real client
+could exploit, since `service_role` is never reachable from outside this
+codebase's own trusted server-side code.
+
+**Verified live, end to end, 2026-09-01.** Both migrations
+cross-checked against `information_schema`/`pg_proc`, not just the
+tracking table. Ran the real `settlement:run-jobs` script (D1 + D2
+chained, matching `lib/odds/runOddsJobsOnce.ts`'s own shape) live
+against production: `0 settled, 0 disputed, 152 still waiting` /
+`0 picks settled across 0 fights` — the correct, provably-safe no-op,
+since no fight has settled yet. Confirmed via two real `job_runs` rows
+(`settle_fights`, `settle_picks`, both `status: success`), not just the
+console output.
+
 ### Fork 7 — odds source and format: **BetOnline.ag, decimal, `h2h`**
 
 **Current bookmaker: `betonlineag` (BetOnline.ag), region `us`.** Changed
@@ -863,17 +918,21 @@ src/
                        the conflicts screen's candidate picker
     reddit/            Reddit OAuth client                           [NEW]
     intern/            clustering + pick generation (batch)          [NEW]
-    settlement/         evaluateFightSettlement.ts (pure, mutation-
-                       tested), settleFights.ts, runSettleFights.ts
-                       (`npm run settlement:settle-fights`, and
+    settlement/        evaluateFightSettlement.ts (pure, mutation-
+                       tested), settleFights.ts — built D1; settlePicks.ts
+                       — built D2; runSettlementJobsOnce.ts (D1 then D2,
+                       each its own job_runs row — same shape as
+                       lib/odds/runOddsJobsOnce.ts), runSettlementJobs.ts
+                       (`npm run settlement:run-jobs`, and
                        .github/workflows/sync.yml, after both sync jobs)
-                       — built D1
     scoring/           impliedProbability.ts, edge.ts,
                        scorePickCorrect.ts, scoreBetPnl.ts, types.ts
                        (FightOutcome) — built C2; probabilityForFighter.ts,
                        priceForFighter.ts, applyProbabilityDelta.ts — built
-                       C4, for the bet row's live edge. Pure functions,
-                       no I/O
+                       C4, for the bet row's live edge;
+                       fightOutcomeFromSettledFight.ts — built D2, the
+                       bridge from a settled fight's schema to
+                       FightOutcome. Pure functions, no I/O
   app/                 routing/pages — thin
 ```
 
@@ -931,7 +990,13 @@ never "this should pass now."
    loser (pick true, P&L negative) — a mutation-verified regression guard
    confirms `scoreBetPnl` settles against `bet_fighter_id`, never
    `predicted_fighter_id`, which is the actual bug class this item exists
-   to catch either way
+   to catch either way. **The orchestration — actually writing these two
+   columns onto every pick once its fight settles — is done in D2.** C2
+   only ever covered the math given an outcome already known; D2
+   (`lib/settlement/settlePicks.ts`) is what finds unsettled picks whose
+   fight has settled (D1) and calls C2's functions for real. See the D2
+   result under Fork 6 for the access-control bug this phase found and
+   fixed before shipping
 4. **Pick lock** — a pick cannot be created or edited after `events.starts_at`.
    **Done in C1** — `check_pick_constraints()`, a `BEFORE INSERT OR UPDATE`
    trigger, `supabase/tests/rls.sql` checks 17/24, live-verified
