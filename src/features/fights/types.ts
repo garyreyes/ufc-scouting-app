@@ -19,8 +19,20 @@ export interface FightWithFighters {
   fighter2: FightFighter;
 }
 
-export interface EventWithFights extends EventSummary {
-  fights: FightWithFighters[];
+// The card view's own row shape (C3) -- bout_order for sort/display and
+// odds, layered onto the base v1 fight shape. odds is null when the
+// fight hasn't been priced yet ("unpriced," a normal, handled state --
+// not an error).
+export interface CardBout extends FightWithFighters {
+  bout_order: number | null;
+  odds: { fighter1_price: number; fighter2_price: number } | null;
+}
+
+// The card view needs starts_at (the pick lock) alongside the enriched
+// bout rows.
+export interface CardView extends EventSummary {
+  starts_at: string | null;
+  fights: CardBout[];
 }
 
 export interface FightDetail extends FightWithFighters {

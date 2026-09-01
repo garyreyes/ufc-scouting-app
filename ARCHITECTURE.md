@@ -499,6 +499,42 @@ against the same *locked* fixture fight built for check 24, so the lock
 check fired before the one actually being tested — fixed with a third,
 dedicated unlocked fixture fight) and the `SECURITY DEFINER` gap above.
 
+**C3 result — the card view (`/events/[id]`) now writes picks, not just
+displays fights.** Extended the existing v1 route rather than a new one
+(`docs/user-flows.md`: "why the card view and not the fight page" — you
+work a whole card in one pass). A real gap surfaced before any code: the
+flow doc's "one tap picks a winner" can't literally satisfy
+`estimated_probability`'s `NOT NULL` constraint without either faking a
+number (which would make the calibration check tautological) or asking
+for something real. User-confirmed resolution: tapping a fighter expands
+the row in place to 5 preset probability bands (`quickPickBands.ts`) —
+still fast, still a real independent judgment, deliberately *not*
+anchored to this fight's own implied probability (unlike C4's bet row —
+a pick is opinion, independent of price). `confidence` defaults to 3
+silently, since unlike probability it feeds no P&L/edge math.
+
+Auth branching collapses two of the flow diagram's states into one:
+logged-out and logged-in-but-not-owner both render the same read-only
+card (`docs/user-flows.md`'s auth-gate table treats them identically —
+"sign-in prompt" and "not available" are both just "no pick controls").
+Conflict holds and the owner's own picks are fetched *only* on the
+owner-confirmed path, matching Flow 1's own diagram, which never
+branches either onto the read-only leaf.
+
+**Verification, stated honestly:** `getCardView`'s new query (`bout_order`
+sort, the odds merge) and `getOpenDisputedFightIds` both ran live against
+UFC 331's real card — confirmed `bout_order` sorts main-event-first
+(`Joshua Van vs Alexandre Pantoja` at `bout_order=0`) and every fight
+correctly shows `unpriced` 19 days out, before T-12h. `saveQuickPickAction`
+itself was **not** exercised live — its `cookies()`-based session can't run
+outside a real request, the same limitation B5/B6 hit, and unlike those
+reads, fabricating a real pick would create fake opinion data under the
+owner's own name rather than harmless log rows. Mitigated the same way as
+before: every column name in the upsert payload cross-checked against the
+real schema, and the actual enforcement (lock, membership, conflict) is
+C1's already-live-tested trigger — this action does not re-implement any
+of it.
+
 **`odds_snapshots` is immutable structurally, not by convention — enforced by
 a trigger, not by an absent policy.** `unique (fight_id)` allows one row per
 fight, and `SELECT` is the only grant either `anon` or `authenticated` ever
@@ -614,7 +650,10 @@ src/
     job-health/        components/ (JobHealthBanner, RetryButton),
                        api.ts, actions.ts, evaluateJobHealth.ts,
                        types.ts — built B5
-    picks/             components/, api.ts, actions.ts, types.ts   [NEW]
+    picks/             components/ (QuickPick), api.ts
+                       (getMyPicksForFights), actions.ts
+                       (saveQuickPickAction), quickPickBands.ts, types.ts
+                       — built C3
     scoreboard/        components/, api.ts, types.ts               [NEW]
     rumours/           components/, api.ts, types.ts               [NEW]
     scouting-reports/  components/, api.ts, types.ts            [FROZEN]

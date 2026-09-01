@@ -1332,3 +1332,39 @@ them.
 
 **Status:** C2 done. Phase C now has its schema (C1) and its math (C2).
 Next: C3, the card view.
+
+## Phase 31 — C3: the card view now writes picks, not just displays fights (2026-09-01)
+
+Extended the existing `/events/[id]` route (not a new one -- docs/user-
+flows.md is explicit that a whole card gets worked in one pass, not a
+per-bout page) to add bout_order sorting, odds display, conflict holds,
+and the actual quick-pick interaction. New `features/picks/` (QuickPick,
+api.ts, actions.ts, quickPickBands.ts) and a small addition to
+features/conflicts/api.ts (getOpenDisputedFightIds).
+
+A real gap surfaced orienting on this before any code was written: the
+flow doc's "one tap picks a winner" can't satisfy estimated_probability's
+NOT NULL constraint without faking a number or asking for something
+real. Asked rather than guessed: tapping a fighter expands the row in
+place to 5 preset probability bands, deliberately independent of this
+fight's own price (a pick is opinion, not a bet -- that anchoring is
+C4's job). confidence defaults silently to 3 since it feeds no P&L/edge
+math, unlike probability.
+
+Auth branching collapses two states into one: logged-out and
+logged-in-but-not-owner both render the same read-only card, and
+conflict holds/the owner's own picks are only fetched on the confirmed-
+owner path, matching the flow diagram exactly rather than guessing at a
+simpler shape.
+
+Verified honestly: getCardView and getOpenDisputedFightIds both ran live
+against UFC 331's real card (bout_order sorts main-event-first, odds
+correctly show unpriced 19 days out). saveQuickPickAction was not
+exercised live -- its cookies()-based session can't run outside a real
+request, and unlike prior read-only live checks, faking a real pick
+would create fake opinion data under the owner's own name. Mitigated
+with a column-name cross-check against the real schema; the actual
+enforcement is C1's already-live-tested trigger.
+
+**Status:** C3 done. Next: C4, the expanded bet row (stake, estimated
+probability anchored to implied, live edge).

@@ -8,6 +8,11 @@
   color: var(--muted);
 }
 
+.gateNote {
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
 .fightList {
   display: flex;
   flex-direction: column;

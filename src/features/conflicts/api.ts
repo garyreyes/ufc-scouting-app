@@ -21,6 +21,35 @@ export async function getOpenConflictCount(): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * Which of the given fights currently have an open disputed_opponent
+ * conflict -- what the card view (C3) needs to hold a row and disable
+ * picking on it (ARCHITECTURE.md item #7). Deliberately does NOT check
+ * low_confidence_odds_match rows -- those have fight_id null at the
+ * source (B6) precisely so they never hold picking, only pricing.
+ *
+ * Caller-gated, not self-gated (matching getOpenConflictCount/
+ * getOpenConflicts above): the card view only calls this for a confirmed
+ * owner viewer, since a logged-out or non-owner visitor's read-only card
+ * doesn't show conflict holds at all (docs/user-flows.md Flow 1's own
+ * diagram only branches into the conflict check on the signed-in-owner
+ * path).
+ */
+export async function getOpenDisputedFightIds(fightIds: string[]): Promise<Set<string>> {
+  if (fightIds.length === 0) return new Set();
+
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("data_conflicts")
+    .select("fight_id")
+    .eq("kind", "disputed_opponent")
+    .is("resolved_at", null)
+    .in("fight_id", fightIds);
+  if (error) throw error;
+
+  return new Set((data ?? []).map((row) => row.fight_id as string));
+}
+
 interface ConflictRow {
   id: string;
   kind: "disputed_opponent" | "low_confidence_odds_match";
