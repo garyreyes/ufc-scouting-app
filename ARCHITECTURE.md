@@ -309,6 +309,35 @@ already-snapshotted fight was separately rejected by the unique constraint.
 See `supabase/migrations/0013_odds_snapshots.sql` and `supabase/tests/rls.sql`
 checks 7–12.
 
+**`data_conflicts` was created in B3, ahead of A2, on purpose.** B3 (the
+odds matcher) needs somewhere to write a low-confidence match; A2
+(disputed-opponent detection) needs the same table for the other kind. Fork
+5 already fully specified what each kind needs to represent, so the table
+didn't need A2's detection logic to exist first — only its shape needed
+deciding. A2's remaining scope is now just the `upsertFight.ts` change,
+writing into a table that already exists. Two kinds, one table:
+
+- `kind` — `'disputed_opponent'` or `'low_confidence_odds_match'`.
+- `fight_id`, **populated only for `disputed_opponent`.** That's the
+  existing kept row, and it's what the pick-lock trigger (C1) checks to
+  make a disputed fight unbettable and unpickable. Left **null** for
+  `low_confidence_odds_match`: an unmatched odds event doesn't identify a
+  specific fight with enough confidence to block anything — that fight
+  just stays `unpriced`, a state the app already handles, rather than
+  becoming a second kind of blocked state. Candidate fight ids, if any,
+  live in `details`.
+- `details jsonb` — the kind-specific payload (the raw odds event and its
+  confidence score, or the disputed candidate's source/fighter data).
+  jsonb rather than a wide nullable-column table, since a human review
+  queue doesn't need query-time structure the way a settled record would.
+- `resolved_at timestamptz` — null means open. An index exists on
+  `(fight_id) where resolved_at is null`, since "does this fight have an
+  open conflict" is exactly what the pick-lock trigger will ask.
+- **RLS: no policy at all for `anon`/`authenticated`, deliberately fail
+  closed.** This is an internal review queue (`docs/user-flows.md` gates
+  `/conflicts` behind the owner allowlist), and the allowlist itself (A3)
+  doesn't exist yet. Loosen this on purpose in A3, not by omission now.
+
 **`rumour_sources.excerpt` snapshots post text at scrape time**, so the
 evidence survives the post being deleted.
 
@@ -376,10 +405,14 @@ src/
     auth/              components/, api.ts
   shared/              components/, utils/
   lib/
-    supabase/          browser + server clients
+    supabase/          browser + server + admin clients (admin.ts: one
+                       service-role wrapper, shared — moved 2026-09-01
+                       from ufc-data-sync/supabaseAdmin.ts once lib/odds/
+                       needed the same client, rather than duplicate it)
     ufc-data-sync/     API-Sports + Wikipedia ingestion (existing)
     llm.ts             single Gemini wrapper — swappable in one file  [NEW]
-    odds/              The Odds API client + fuzzy fight matcher      [NEW]
+    odds/              client.ts, matchFights.ts, parseOutcomes.ts,
+                       similarity.ts, matchAndSnapshot.ts — built B3
     reddit/            Reddit OAuth client                           [NEW]
     intern/            clustering + pick generation (batch)          [NEW]
     scoring/           unit P&L math — pure functions, no I/O        [NEW]
@@ -433,7 +466,15 @@ never "this should pass now."
    Separately, **the client must select the two outcomes matching the fight's
    two fighters and discard `Draw`** — 1xBet's MMA `h2h` payload is
    three-outcome, confirmed live 2026-09-01, and a parser that assumes two
-   outcomes will silently misread the array
+   outcomes will silently misread the array. **Done in B3** —
+   `lib/odds/matchFights.ts`, `parseOutcomes.ts`, `similarity.ts`, 30 tests.
+   The Draw-discard test was checked by mutation: removing the filter made
+   the test fail with the actual Draw price (33.0) returned as a fighter's
+   price, confirming it catches the real regression rather than passing
+   for an unrelated reason. `matchAndSnapshot.ts` (the write-glue) has
+   **not** been run against production — a premature write is effectively
+   permanent given `odds_snapshots`' immutability; its first real run
+   belongs to B5's schedule or an explicit confirmed dry-run
 7. **Disputed-opponent detection** — a candidate sharing *exactly one* fighter
    must open a conflict, never insert a second row; and a fight with an open
    conflict must be rejected by the pick-lock trigger. Both halves need a test,

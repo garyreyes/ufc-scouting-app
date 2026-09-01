@@ -1,6 +1,6 @@
 import { fetchFightHistory, type FightHistoryEntry } from "./fetchFightHistory";
 import { fetchFighter } from "./fetchFighter";
-import { getSupabaseAdmin } from "./supabaseAdmin";
+import { getSupabaseAdmin } from "../supabase/admin";
 import { upsertFighter } from "./upsertFighter";
 import { upsertEvent } from "./upsertEvent";
 import { upsertFight } from "./upsertFight";

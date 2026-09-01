@@ -772,3 +772,54 @@ both updated with the trigger correction. B3 (odds client + fuzzy matcher)
 is next, and now carries three requirements found along the way: discard the
 `Draw` outcome, scope matching to a window around a known card date, and
 build against a verified 1xBet response rather than an assumed one.
+
+## Phase 18 — B3: odds client + fuzzy fight matcher (2026-09-01)
+
+**Added** `src/lib/odds/`: `similarity.ts` (hand-rolled Dice-coefficient
+name similarity, chosen over an external library since this is the
+correctness-critical core of matching and a small fully-tested
+implementation is a smaller risk surface than an unverified dependency),
+`parseOutcomes.ts` (extracts fighter prices, discards `Draw`),
+`matchFights.ts` (date-window scoping + confidence threshold),
+`client.ts` (thin fetch wrapper), `matchAndSnapshot.ts` (the write-glue
+tying all four together against real Supabase tables). 30 Vitest tests,
+all written before their implementations existed.
+
+**Pulled forward from A2:** `supabase/migrations/0014_data_conflicts.sql`
+— B3 needed somewhere to write low-confidence matches, and Fork 5 already
+fully specified the shared queue's shape, so the table didn't need A2's
+detection logic to exist first. Two kinds in one table (`disputed_opponent`,
+`low_confidence_odds_match`); `fight_id` is populated only for the former,
+since an unmatched odds event doesn't identify a fight confidently enough
+to block anything. RLS enabled with no policy for `anon`/`authenticated`
+at all — fails closed until A3's allowlist exists to gate it deliberately.
+
+**Real gate finding, not hypothetical:** the "never returns the Draw price"
+test originally used realistic fighter names (Manon Fiorot vs Alexa
+Grasso) and passed even after deleting the actual Draw-discard filter —
+name-similarity matching happened to reject "Draw" anyway for real names,
+so the test proved nothing about the filter it claimed to guard.
+Replaced with an adversarial case (a synthetic "fighter" named `Draw`,
+guaranteed to win the name-match if the filter is absent). Confirmed by
+mutation: the weak version stayed green with the bug present; the
+adversarial version failed correctly (`fighter2Price: 33` — the actual
+Draw price), then passed once the filter was restored.
+
+**Reused, not duplicated:** `getSupabaseAdmin` moved from
+`lib/ufc-data-sync/supabaseAdmin.ts` to `lib/supabase/admin.ts` — it was
+never sync-specific, `lib/odds/` needed the same service-role client, and
+the security-baseline rule is exactly one wrapper module per SDK, not one
+per feature. `syncJob.ts`/`syncSchedule.ts` updated to the new import
+path; lint and build both clean afterward.
+
+**Deliberately not done:** `matchAndSnapshot.ts` has not been executed
+against production. `odds_snapshots` is immutable by trigger
+(Phase 17), so a premature write against the wrong fights is effectively
+permanent — its first real run belongs to B5's T-12h schedule, or an
+explicit confirmed dry-run, not an ad hoc verification step here.
+
+**Status:** B3 done. A2's remaining scope is now just the `upsertFight.ts`
+disputed-opponent detection logic, writing into a table that already
+exists. Next: A1 (`events.starts_at`, `fights.bout_order`, FK indexes) or
+B4 (daily discovery pull populating `starts_at` from `commence_time`) —
+both still open, neither depends on B3.

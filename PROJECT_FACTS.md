@@ -114,6 +114,22 @@ Decided 2026-08-29, user-originated.
   final). The fuzzy fight matcher must scope to a window around a known
   card's date, not search by name across the full event list, or it risks a
   false match against a listing that never becomes a real fight.
+- **B3 implemented this, 2026-09-01.** `lib/odds/matchFights.ts` uses a
+  36-hour window (chosen from the real gap already observed: UFC 331's
+  `commence_time` is 28h after its Wikipedia `event_date`) and a 0.85
+  name-similarity threshold for auto-match; anything below opens a
+  `data_conflicts` row instead of writing a price. Confirmed against the
+  actual rumoured-matchup case (Gaethje listed against two different
+  opponents on the same date): the wrong pairing scores well under 0.6,
+  nowhere near the auto-match bar.
+- **`data_conflicts` is shared, and was created in B3 rather than A2** —
+  see `ARCHITECTURE.md`'s schema-decisions section for the shape. A2's
+  scope narrowed to just the `upsertFight.ts` detection logic.
+- **`matchAndSnapshot.ts` (the write-glue) has not been run against
+  production.** `odds_snapshots` is immutable, so a premature write
+  against the wrong fights is effectively permanent. Its first real run
+  belongs to B5's schedule, or an explicit confirmed dry-run — don't run
+  it ad hoc.
 
 ## Undocumented external limits, found empirically
 
