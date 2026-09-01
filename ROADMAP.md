@@ -114,6 +114,24 @@ dry-run. Also moved `getSupabaseAdmin` from `lib/ufc-data-sync/
 supabaseAdmin.ts` to `lib/supabase/admin.ts` — it was never sync-specific,
 and `lib/odds/` needed the same client rather than a second copy.
 
+**Bookmaker switched, 2026-09-01 (Phase 20), after B3 shipped.** A user
+question about adding DWCS ("Dana White's Contender Series") prompted a
+proper live check rather than an assumption. The first DWCS check (wrong
+week, wrong bookmaker only) found nothing; rechecked properly, DWCS is
+priced by several bookmakers — just not 1xBet. `betonlineag` covers 89% of
+the feed (vs 1xBet's 54%) and is the only book checked that prices both
+UFC and DWCS. `client.ts`/`parseOutcomes.ts` updated; test fixtures rebuilt
+from real BetOnline.ag payloads; the Draw-discard mutation test re-verified
+against the new bookmaker key. See `ARCHITECTURE.md` Fork 7,
+`PROJECT_FACTS.md`.
+
+**DWCS ingestion itself is still an open, unscoped question** — the odds
+half is resolved, but Wikipedia's DWCS pages are structured completely
+differently from UFC event pages (one page per season, plain-text dates,
+not category-tracked), and that cost is unchanged by the bookmaker switch.
+Not added to this roadmap as a sub-phase yet; would need its own scoping
+pass if pursued.
+
 **B5 note.** A missed snapshot silently voids a whole card's scoreboard, which
 the PRD calls the single highest-impact failure in the system. It must alert
 loudly and offer a manual late pull at the worse price.

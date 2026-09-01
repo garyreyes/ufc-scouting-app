@@ -261,9 +261,9 @@ it as success is the specific mistake this two-board split exists to prevent.
 | Single developer | Non-technical "vibe coder" building architecture judgement deliberately; structure and security beat delivery speed | `HANDOFF.md` |
 | API-Sports free tier | 100 req/day, ~3-day date window, ~10 req/min — all found empirically, none documented | `CHANGES.md` Phase 5 |
 | Odds free tier | ~500 credits/month, and credits cost **1 per region per market for the whole request**, not per event — so one card's pull is 1 credit. Budget is not the binding constraint; a second T-24h pull is affordable | verified in docs 2026-08-29 |
-| Odds source | **1xBet** (`onexbet`), **EU** region, **decimal** format (the API default) | verified live 2026-09-01 |
-| Odds coverage | **1xBet returns real MMA prices**, confirmed live — matched a real UFC 331 fighter pairing against the independently-sourced Wikipedia date. No fallback bookmaker needed | verified live 2026-09-01 |
-| `h2h` market shape | **Three outcomes for MMA on 1xBet** — Fighter A, Fighter B, `Draw` — not two. There is no separate `h2h_3_way` key for this sport (`422` if requested). The client keeps the two fighter outcomes and discards `Draw` | verified live 2026-09-01, corrects the 2026-08-29 assumption |
+| Odds source | **BetOnline.ag** (`betonlineag`), region `us`, **decimal** format (the API default) | switched 2026-09-01 from 1xBet — 89% feed coverage vs 1xBet's 54%, and the only bookmaker checked that also prices DWCS |
+| Odds coverage | **BetOnline.ag returns real MMA prices for both UFC and DWCS**, confirmed live — matched a real UFC 331 fighter pairing against the independently-sourced Wikipedia date, and priced a real DWCS card the same day. No fallback bookmaker needed | verified live 2026-09-01 |
+| `h2h` market shape | **Two outcomes on BetOnline.ag** — no `Draw` entry, confirmed on both a UFC and a DWCS fight. (1xBet's `h2h` was three-outcome; the client's Draw-discard is kept as a no-op safeguard regardless of which bookmaker is active) | verified live 2026-09-01 |
 | LLM free tier | Gemini Flash or Groq. **Must be verified empirically before anything is built on it**, and must sit behind one swappable wrapper module so a dead tier is a one-file change | see §9 |
 | Reddit API | Free at personal volume; needs a registered OAuth app | to verify |
 | Data ordering gap | No `bout_order` column exists; card ordering is currently unreliable | verified in schema |
@@ -427,7 +427,7 @@ and "done" means the test was run and observed passing.**
 
 | Layer | Choice | Status |
 |---|---|---|
-| Odds | **The Odds API** free tier — **1xBet** (`onexbet`), EU region, **decimal**, `h2h` 2-way market | Decimal is the API default, so no odds-format conversion exists. Whether 1xBet actually lists MMA is still unverified |
+| Odds | **The Odds API** free tier — **BetOnline.ag** (`betonlineag`), region `us`, **decimal**, `h2h` 2-way market | Decimal is the API default, so no odds-format conversion exists. Verified live: 89% feed coverage, prices both UFC and DWCS |
 | Social source | **Reddit API** (r/MMA), free tier | Needs a registered OAuth app |
 | LLM | **Gemini Flash or Groq**, free tier | Provider undecided; **must sit behind one wrapper module** (`lib/llm.ts`) so it's swappable |
 | Fuzzy matching | String-similarity library, TS side | Replaces today's exact `ilike` name match |
@@ -483,5 +483,7 @@ exactly one wrapper module.
 | Odds priced from 1xBet in decimal, 2-way `h2h` | user-originated 2026-08-29 |
 | Double chance / 1X2 hedging **rejected** | raised then dropped 2026-08-29 — hedging would shorten every price to insure a sub-1% event and would make the units board measure hedging rather than reads. Reasoning corrected 2026-09-01: MMA `h2h` on 1xBet is in fact three-outcome (verified live), but double chance is a distinct wrapper bet from the plain three-way price the market returns, so the rejection's real reasoning was unaffected |
 | 1xBet MMA coverage confirmed live; no fallback bookmaker needed | verified 2026-09-01, resolves the 2026-08-29 open risk |
+| Bookmaker switched to BetOnline.ag | decided 2026-09-01, prompted by a user question about adding DWCS — a proper live check (not the original, flawed one) found 1xBet has zero DWCS coverage while BetOnline.ag prices both UFC and DWCS, and covers more of the feed overall |
+| DWCS ingestion (Wikipedia parsing) — separate open question, not resolved by the bookmaker switch | 2026-09-01 — see `ARCHITECTURE.md` Fork 7 |
 | `h2h` for MMA is three-outcome, not two; client discards `Draw` | verified 2026-09-01 — corrects an unverified 2026-08-29 assumption |
 | Disputed fights blocked from **both** boards, not just bets | decided 2026-08-29 — a bout that may not exist can't score a pick either |

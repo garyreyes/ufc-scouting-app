@@ -78,27 +78,44 @@ Decided 2026-08-29, user-originated.
 
 ## Odds
 
-- **1xBet, decimal, 2-way `h2h`.** Bookmaker key `onexbet`, **EU** region.
-  Decimal is The Odds API's default format, so **no American-odds conversion
-  exists anywhere in the codebase and none should be added** — it's a
-  correctness risk that buys nothing.
+- **Bookmaker: BetOnline.ag (`betonlineag`), region `us`, decimal.** Switched
+  2026-09-01 from the original choice, 1xBet — see below. Decimal is The
+  Odds API's default format, so **no American-odds conversion exists
+  anywhere in the codebase and none should be added** — it's a correctness
+  risk that buys nothing.
+- **Why the switch: a real user question about DWCS led to a proper check.**
+  The first DWCS check searched for fighters from already-*concluded* weeks
+  and only against `onexbet` — found nothing, and was wrong on both counts.
+  Rechecked against the correct current week and every bookmaker in the
+  feed: DWCS **is** priced, just not by 1xBet. `betonlineag` covers 56/63
+  events (89%) vs `onexbet`'s 34/63 (54%), and was the only bookmaker
+  checked that cleanly priced both UFC 331 and a real DWCS card. `pinnacle`
+  covered DWCS but was absent from UFC 331, so it wasn't a clean
+  single-bookmaker replacement.
+- **`betonlineag`'s MMA `h2h` is a clean 2-way market** — no `Draw` entry,
+  confirmed on both a UFC and DWCS fight. The Draw-discard logic in
+  `parseOutcomes.ts` is kept anyway as a no-op safeguard, since it's
+  proven-correct by mutation testing and a future bookmaker change could
+  reintroduce a three-way shape.
+- **Region is empirically irrelevant once `bookmakers=` is explicit** —
+  identical coverage confirmed for `betonlineag` across `us`/`eu`/`uk`/`au`.
+- **DWCS odds coverage is resolved; DWCS *ingestion* is not.** Wikipedia
+  structures DWCS completely differently from UFC event pages: one page per
+  *season*, weeks as sections inside it, plain-text dates instead of the
+  `{{start date}}` template every parser here expects, and it isn't tracked
+  by the category `fetchSchedule.ts` already polls. Whether to actually
+  build DWCS ingestion is still an open, separate decision.
 - **Credits are 1 per region per market for the whole request**, not per
   event. One card's snapshot is 1 credit against ~500/month, so budget is not
   the binding constraint.
-- **1xBet MMA coverage verified live, 2026-09-01.** Real key, real response:
-  `onexbet` returns genuine UFC prices, confirmed against a real card (Joshua
-  Van vs Alexandre Pantoja, `commence_time` matching the Wikipedia-sourced
-  UFC 331 date). No fallback bookmaker needed. Credits confirmed 1 per
-  successful request via `x-requests-remaining` (500→499→498); a request for
-  an unsupported market returned `422` and cost 0.
-- **Correction, 2026-09-01: MMA `h2h` on 1xBet is three-outcome, not two.**
-  The 2026-08-29 double-chance discussion assumed `h2h` was a clean 2-way
-  market and that MMA doesn't normally offer three-way — that was asserted,
-  not checked, and the live response contradicts it: every payload returns
-  Fighter A, Fighter B, and `Draw` (~33–34.0 decimal). There is no separate
-  `h2h_3_way` key for this sport (`422 INVALID_MARKET` if requested) — the
-  third outcome is just how `h2h` is shaped here. **The odds client must keep
-  the two fighter outcomes and discard `Draw`.**
+- **Historical: 1xBet's `h2h` was three-outcome**, which is why the
+  Draw-discard code exists at all. The 2026-08-29 double-chance discussion
+  originally assumed `h2h` was a clean 2-way market and that MMA doesn't
+  normally offer three-way — that was asserted, not checked; the live
+  1xBet response contradicted it (every payload returned Fighter A,
+  Fighter B, and `Draw`, ~33–34.0 decimal, with no separate `h2h_3_way`
+  key — `422 INVALID_MARKET` if requested). Moot for the current bookmaker
+  (BetOnline.ag is 2-way), kept as context for why the filter is there.
 - **Double chance / 1X2 was raised and rejected** (2026-08-29), and the
   rejection still stands after the correction above — for a different reason
   than first given. Double chance is a wrapper bet ("Fighter A wins OR draw")

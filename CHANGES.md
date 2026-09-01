@@ -846,3 +846,61 @@ test-first scope (money/auth/counting, not layout).
 established pattern (`PROJECT_FACTS.md`: `db push` is unsafe until
 deliberately reconciled), it needs a manual run in the Dashboard SQL
 Editor before `bout_order` actually starts populating on the next sync.
+
+## Phase 20 — Corrected DWCS check; switched bookmaker to BetOnline.ag (2026-09-01)
+
+**Started from a user question:** "include DWCS and UFC." Investigated
+before building anything, per the project's standing rule.
+
+**First check was wrong, on two counts.** Searched the odds feed for
+fighters from DWCS season 10 Weeks 1–2, only against `onexbet` (1xBet),
+and found nothing — concluded DWCS had zero odds coverage. Both premises
+were flawed: Weeks 1–2 had already **concluded** by the check date (odds
+boards don't carry settled fights), and the search never looked past
+1xBet. The user pushed back, correctly, having seen DWCS odds in the
+1xBet app directly.
+
+**Rechecked properly**, live: the actual current week (Week 4, the day
+of the check) against every bookmaker in the feed. DWCS **is** priced —
+by Pinnacle, FanDuel, Unibet, BetOnline.ag, and others. `onexbet`
+specifically has zero DWCS coverage, which is what the first check
+happened to find, for the wrong reason.
+
+**Comparing bookmakers led to a broader finding than the DWCS question
+itself.** Across the full 63-event feed: `betonlineag` covers 56 (89%),
+`onexbet` covers 34 (54%), `pinnacle` covers 18 but is *absent* from UFC
+331. `betonlineag` is the only bookmaker checked that cleanly prices
+both UFC and DWCS, and beats 1xBet's coverage even for UFC alone. Its
+MMA `h2h` is a clean 2-way market (no `Draw`), confirmed on both a UFC
+and a DWCS fight. Region is empirically irrelevant once `bookmakers=` is
+explicit — identical results across `us`/`eu`/`uk`/`au`.
+
+**Switched the app's bookmaker to BetOnline.ag:**
+
+- `client.ts`: `BOOKMAKER` → `"betonlineag"`, `REGION` → `"us"`
+- `parseOutcomes.ts`: bookmaker-key check updated; the Draw-discard filter
+  is **kept** as a no-op safeguard rather than removed, since it's
+  proven-correct by mutation testing and a future bookmaker change could
+  reintroduce a three-way shape
+- `parseOutcomes.test.ts`: fixtures rebuilt from real BetOnline.ag
+  payloads (UFC 331, and a DWCS Week 4 fight); the adversarial
+  Draw-discard test re-verified by mutation against the new hardcoded
+  key — failed correctly with the bug present, passed once fixed
+- `supabase/migrations/0016_odds_snapshots_bookmaker_default.sql` — a new
+  migration, since `0013` is already applied live and is never edited
+  retroactively. No data to migrate: `matchAndSnapshot.ts` has still
+  never run against production.
+
+**DWCS odds coverage is resolved. DWCS ingestion is not — deliberately
+left open.** Investigated Wikipedia's actual DWCS structure: one page
+per *season* (not per event), each week as a section inside it using a
+plain-text date (`|date=August 11, 2026`) instead of the `{{start date}}`
+template every parser in this codebase expects, and not tracked by the
+category `fetchSchedule.ts` already polls. That cost is unrelated to
+which bookmaker prices the fights and is unchanged by this phase. Not
+scoped into the roadmap — a real decision for later, not decided here.
+
+**Status:** all 4 test files, 31 tests, pass; lint and build clean.
+`ARCHITECTURE.md` Fork 7, `docs/PRD.md`, `PROJECT_FACTS.md`, `ROADMAP.md`
+all updated — historical verification records for 1xBet kept intact and
+clearly dated, not rewritten.

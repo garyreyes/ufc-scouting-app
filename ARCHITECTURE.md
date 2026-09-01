@@ -37,7 +37,7 @@ The v1 group features (clans, invites, shared-report visibility) are
 | Auth | **Supabase Auth** — Google + GitHub OAuth | No passwords |
 | Fighter/event data | **API-Sports MMA** (free) + **Wikipedia** | API-Sports has no lookahead; Wikipedia has the schedule |
 | Results | **Wikipedia + API-Sports, cross-checked** | Two independent licensed sources — see Fork 1 |
-| Odds | **The Odds API**, free tier — **1xBet** (`onexbet`, EU region), **decimal** | One snapshot per card at T-12h. Decimal is the API default, so no odds-format conversion exists anywhere in the codebase |
+| Odds | **The Odds API**, free tier — **BetOnline.ag** (`betonlineag`, region `us`), **decimal** | One snapshot per card at T-12h. 89% feed coverage, the only book checked that also prices DWCS. Decimal is the API default, so no odds-format conversion exists anywhere in the codebase |
 | Social source | **Reddit API** (r/MMA), free tier | Needs a registered OAuth app |
 | LLM | **Gemini Flash**, free tier, behind `lib/llm.ts` | Large context means a whole card's posts in one call; the free tier caps *requests*, so fewer and bigger calls is the right shape |
 | Fuzzy matching | TS string-similarity, human-backstopped | Feeds a review queue, not a silent best guess |
@@ -153,7 +153,14 @@ more condition, no new enforcement surface.
 - **Only one source has reported after 24h** → settle on it, and record
   `settled_from` so single-source settlements stay visible on the scoreboard.
 
-### Fork 7 — odds source and format: **1xBet, decimal, `h2h`, drop the `Draw` outcome**
+### Fork 7 — odds source and format: **BetOnline.ag, decimal, `h2h`**
+
+**Current bookmaker: `betonlineag` (BetOnline.ag), region `us`.** Changed
+2026-09-01 from the original choice, 1xBet — see the dated update after the
+bullets below for why. The verification history that follows (1xBet's
+original selection, and the `h2h` three-outcome correction) is kept as the
+record of what was actually checked and when; the bookmaker name in it is
+historical, not current.
 
 Verified two ways: against The Odds API's documentation on 2026-08-29, then
 **against a live response with a real key on 2026-09-01** — B1's spike, done
@@ -199,6 +206,41 @@ about the double-chance rejection's actual reasoning (it insures a sub-1%
 event and would corrupt the units board into partly measuring hedging
 discipline) depended on the wrong "not offered three-way" claim, so that
 conclusion still stands — just not for the reason first given.
+
+**Bookmaker switched to BetOnline.ag, 2026-09-01 (CHANGES.md Phase 20).**
+Prompted by a real user question — "why not include DWCS?" — that led to a
+proper live check rather than an assumption. The first DWCS check (searching
+for fighters from already-*concluded* weeks, and only against `onexbet`)
+found nothing and was wrong on both counts: re-checked against the correct
+current week and every bookmaker in the feed, DWCS fights **are** priced —
+just not by 1xBet. Comparing bookmakers across the full 63-event feed:
+
+| Bookmaker | Coverage | UFC 331 | DWCS |
+|---|---|---|---|
+| `onexbet` (1xBet) | 34/63 (54%) | ✅ | ❌ zero |
+| `pinnacle` | 18/63 | ❌ absent from UFC 331 | ✅ |
+| `betonlineag` (BetOnline.ag) | **56/63 (89%)** | ✅ | ✅ |
+
+BetOnline.ag is the only bookmaker checked that cleanly prices **both**
+promotions, and covers more of the feed than 1xBet did even for UFC alone.
+Its MMA `h2h` market is a **clean 2-way** — confirmed live on both a UFC and
+a DWCS fight, no `Draw` entry — which simplifies nothing structurally (the
+Draw-discard code is kept, since it is a proven-correct no-op against a
+2-way market, and a future bookmaker change could reintroduce a three-way
+shape) but removes the one edge case this bookmaker could have hit.
+
+Region is empirically irrelevant once `bookmakers=` is explicit: identical
+coverage was confirmed for BetOnline.ag across `us`/`eu`/`uk`/`au`. `us` is
+used for readability, not because it changes what comes back.
+
+**This resolves the odds half of "should DWCS be supported" — it does not
+resolve the other half.** Wikipedia's DWCS coverage is structurally
+different from UFC event pages regardless of bookmaker: one page per
+*season*, each week as a section inside it, plain-text dates
+(`|date=August 11, 2026`) instead of the `{{start date}}` template every
+parser in this codebase expects, and not tracked by the category
+`fetchSchedule.ts` already polls. Actually ingesting DWCS still needs its
+own discovery/parsing path — a real, separate decision, not yet made.
 
 **New design note for B3 (fuzzy fight matching), found while reading the live
 response.** Several far-future events show the same fighter listed against
@@ -470,14 +512,18 @@ never "this should pass now."
    feed carries rumoured future matchups (same fighter against different
    opponents on the same date) that an unscoped search could false-match.
    Separately, **the client must select the two outcomes matching the fight's
-   two fighters and discard `Draw`** — 1xBet's MMA `h2h` payload is
-   three-outcome, confirmed live 2026-09-01, and a parser that assumes two
-   outcomes will silently misread the array. **Done in B3** —
-   `lib/odds/matchFights.ts`, `parseOutcomes.ts`, `similarity.ts`, 30 tests.
-   The Draw-discard test was checked by mutation: removing the filter made
-   the test fail with the actual Draw price (33.0) returned as a fighter's
-   price, confirming it catches the real regression rather than passing
-   for an unrelated reason. `matchAndSnapshot.ts` (the write-glue) has
+   two fighters and discard `Draw` if present** — the original bookmaker
+   (1xBet)'s MMA `h2h` payload was three-outcome, confirmed live 2026-09-01,
+   and a parser that assumes two outcomes will silently misread the array.
+   The current bookmaker (BetOnline.ag, switched the same day) is a clean
+   2-way market, but the filter stays as a no-op safeguard rather than
+   assuming that never changes again. **Done in B3** —
+   `lib/odds/matchFights.ts`, `parseOutcomes.ts`, `similarity.ts`, 31 tests.
+   The Draw-discard test was checked by mutation twice — once for each
+   bookmaker's hardcoded key — removing the filter both times made the test
+   fail with the actual Draw price (33.0) returned as a fighter's price,
+   confirming it catches the real regression rather than passing for an
+   unrelated reason. `matchAndSnapshot.ts` (the write-glue) has
    **not** been run against production — a premature write is effectively
    permanent given `odds_snapshots`' immutability; its first real run
    belongs to B5's schedule or an explicit confirmed dry-run

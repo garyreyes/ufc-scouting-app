@@ -2,12 +2,18 @@ import type { OddsEvent } from "./types";
 
 const BASE_URL = "https://api.the-odds-api.com/v4";
 
-// Verified live 2026-09-01 (CHANGES.md Phase 16): 1xBet is bookmaker key
-// `onexbet` in the EU region, decimal is the API default, and MMA h2h
-// returns three outcomes (see parseOutcomes.ts for the Draw handling).
+// Bookmaker chosen 2026-09-01 (CHANGES.md Phase 20), replacing the 1xBet
+// choice from Phase 16: verified live that BetOnline.ag covers 89% of the
+// MMA feed (56/63 events) against 1xBet's 54% (34/63), and is the only
+// book of those checked that cleanly prices both UFC and DWCS -- 1xBet
+// had zero DWCS coverage. Region is empirically irrelevant once
+// `bookmakers=` is explicit: identical event/coverage counts were
+// confirmed across all four (us/eu/uk/au). "us" is kept for
+// readability -- BetOnline.ag is a US-facing book, even though the
+// parameter doesn't change what comes back.
 const SPORT = "mma_mixed_martial_arts";
-const REGION = "eu";
-const BOOKMAKER = "onexbet";
+const REGION = "us";
+const BOOKMAKER = "betonlineag";
 
 /**
  * Fetches live MMA odds for the configured bookmaker. Costs 1 credit

@@ -11,20 +11,27 @@ const DRAW_OUTCOME_NAME = "draw";
 const OUTCOME_MATCH_THRESHOLD = 0.5;
 
 /**
- * Extracts this event's 1xBet h2h prices for the two given fighters,
- * discarding the `Draw` outcome -- MMA h2h on 1xBet is three-outcome
- * (verified live 2026-09-01, see ARCHITECTURE.md Fork 7), not the 2-way
- * market first assumed. Returns null rather than guessing if the event
- * has no onexbet h2h market, or if either fighter's price can't be
- * identified with reasonable confidence -- an unpriced fight is a known,
- * handled state; a silently wrong price is not.
+ * Extracts this event's h2h prices for the two given fighters, discarding
+ * a `Draw` outcome if one is present. Returns null rather than guessing
+ * if the event has no market from the configured bookmaker, or if either
+ * fighter's price can't be identified with reasonable confidence -- an
+ * unpriced fight is a known, handled state; a silently wrong price is not.
+ *
+ * The Draw-discard exists because MMA h2h from 1xBet (the original
+ * bookmaker choice) was three-outcome, verified live 2026-09-01. The
+ * current bookmaker, BetOnline.ag (chosen the same day, see
+ * ARCHITECTURE.md Fork 7), is a clean 2-way market with no Draw entry --
+ * confirmed live on both a UFC and a DWCS fight. The filter is kept
+ * anyway: it is a no-op against a 2-way market, it is already tested by
+ * mutation, and removing correct, proven code for a bookmaker-specific
+ * reason is not worth the churn.
  */
 export function parseFighterPrices(
   event: OddsEvent,
   fighter1Name: string,
   fighter2Name: string,
 ): FighterPrices | null {
-  const bookmaker = event.bookmakers.find((b) => b.key === "onexbet");
+  const bookmaker = event.bookmakers.find((b) => b.key === "betonlineag");
   if (!bookmaker) return null;
 
   const market = bookmaker.markets.find((m) => m.key === "h2h");
