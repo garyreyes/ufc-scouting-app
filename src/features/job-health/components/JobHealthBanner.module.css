@@ -1,7 +1,9 @@
 /* Restrained-colour rule (docs/user-flows.md): neutrals plus the one
-   existing accent, reused here rather than a second "warning" hue -- the
-   accent already carries "needs attention" everywhere else disputed/held/
-   degraded states show up. */
+   existing accent, reused here rather than a second "warning" hue. The
+   accent carries the "needs attention" meaning on the heading text itself
+   -- a plain neutral surface panel, matching the existing 1px --border
+   convention (see topbarFallback), rather than a colored side-border
+   stripe, which reads as decoration rather than meaning at this scale. */
 .banner {
   display: flex;
   align-items: flex-start;
@@ -10,7 +12,7 @@
   margin-bottom: 24px;
   padding: 14px 16px;
   background: var(--surface);
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border);
   border-radius: 4px;
 }
 
@@ -18,6 +20,7 @@
   display: block;
   margin-bottom: 4px;
   font-size: 0.95rem;
+  color: var(--accent);
 }
 
 .reasons ul {
