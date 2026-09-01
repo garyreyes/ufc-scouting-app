@@ -142,11 +142,11 @@ Decided 2026-08-29, user-originated.
 - **`data_conflicts` is shared, and was created in B3 rather than A2** —
   see `ARCHITECTURE.md`'s schema-decisions section for the shape. A2's
   scope narrowed to just the `upsertFight.ts` detection logic.
-- **`matchAndSnapshot.ts` (the write-glue) has not been run against
-  production.** `odds_snapshots` is immutable, so a premature write
-  against the wrong fights is effectively permanent. Its first real run
-  belongs to B5's schedule, or an explicit confirmed dry-run — don't run
-  it ad hoc.
+- **`matchAndSnapshot.ts` ran live for the first time in B5 (2026-09-01),
+  gated by the new T-12h check.** `odds_snapshots` is immutable, so a
+  premature write against the wrong fights would have been effectively
+  permanent — this run was safe by construction (no known card within
+  12h) and confirmed afterward by directly querying the table: 0 rows.
 - **`fetchMmaOdds()` had a real, live bug from B3 that shipped undetected
   until B4 first called it end-to-end, 2026-09-01.** `new URL(path, base)`
   treats a leading `/` in `path` as absolute-from-origin, silently
@@ -164,6 +164,22 @@ Decided 2026-08-29, user-originated.
   (single-argument `new URL(fullString)`, no base to silently resolve
   against) with its own test — mutation-verified, reverting to the broken
   form fails it.
+- **`cookies()` anywhere in a Server Component's render path marks that
+  whole page dynamic, even for a check as small as "who's logged in."**
+  Found in B5: `JobHealthBanner` originally called `createClient()` from
+  `lib/supabase/server.ts` (which calls `cookies()`) to decide whether to
+  show a retry button, and `next build`'s route table silently flipped
+  `/`, `/events/past`, and `/events/upcoming` from static+revalidated
+  (`○`) to server-rendered on every request (`ƒ`) — a page-wide cost for
+  one small piece of chrome, and it would have shipped unnoticed without
+  comparing the build output before and after. Fixed by moving the
+  ownership check out of the shared render path entirely: the button
+  always renders hidden, checks ownership itself via a client-triggered
+  server action after mount, and shows itself only once confirmed. **The
+  general lesson:** before adding an auth check to anything mounted in
+  shared layout chrome (a banner, a header widget), diff `next build`'s
+  route table — a regression here is silent and page-wide, not local to
+  the file that changed.
 
 ## Access control
 
@@ -185,9 +201,17 @@ Decided 2026-08-29, user-originated.
   trusting any future `SECURITY DEFINER` function against a stranger.
 - **`OWNER_USER_ID` must match the UUID hardcoded into `is_owner()`** in
   `supabase/migrations/0017_owner_allowlist.sql`, or the app-layer UI and
-  the actual RLS boundary disagree about who the owner is. The env var is
-  UX only and carries no security weight — RLS enforces this independent
-  of it.
+  the actual RLS boundary disagree about who the owner is. For any table a
+  client writes to directly, the env var is UX only and carries no
+  security weight — RLS enforces this independent of it. **Exception,
+  found in B5:** for a write that only exists through the service-role
+  admin client (no client INSERT grant exists at all for RLS to gate —
+  `odds_snapshots`, `job_runs`), `lib/auth.ts`'s `isOwner()` check, run
+  server-side against the real session, IS the actual boundary. Same
+  underlying lesson as the `SECURITY DEFINER` bullet above, a third
+  instance of it: whenever a code path reaches the database with elevated
+  privilege and RLS can't see it, something at the app layer has to be the
+  real gate, deliberately, not by assuming RLS already covers it.
 - **`supabase/tests/rls.sql`'s label `'a'` must be the owner account** for
   checks 13–16 (added in A3) to mean anything — the file's own header now
   says so.

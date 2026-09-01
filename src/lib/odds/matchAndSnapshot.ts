@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchMmaOdds } from "./client";
+import { fetchEligibleUnpricedFights } from "./eligibleUnpricedFights";
 import { decideMatch } from "./matchFights";
 import { parseFighterPrices } from "./parseOutcomes";
-import type { FightForMatching } from "./types";
+import type { OddsEvent } from "./types";
 
 export interface MatchAndSnapshotSummary {
   matched: number;
@@ -13,25 +13,27 @@ export interface MatchAndSnapshotSummary {
 }
 
 /**
- * One pass over live odds: fetch, match each event against fights that
- * don't already have a snapshot, and write the result. A confident match
- * becomes an odds_snapshots row; a low-confidence one opens a
- * data_conflicts row instead of guessing (ARCHITECTURE.md Fork 5/item #6).
+ * One pass over live odds: match each event against fights that are both
+ * unpriced AND past their card's T-12h snapshot window (snapshotWindow.ts),
+ * and write the result. A confident match becomes an odds_snapshots row; a
+ * low-confidence one opens a data_conflicts row instead of guessing
+ * (ARCHITECTURE.md Fork 5/item #6).
  *
- * This does not decide WHEN to run -- that is roadmap B5's T-12h cadence,
- * with job_runs bookkeeping and a loud-failure banner if it's missed. Safe
- * to call more than once: fights that already have a snapshot are excluded
- * from matching up front, so a re-run can't attempt (and fail against) an
- * immutable row -- see 0013_odds_snapshots.sql's trigger.
+ * Takes `oddsEvents` as a parameter rather than fetching them itself, so
+ * B5's combined runner can share one fetchMmaOdds() call with
+ * discoverStartTimes rather than doubling the daily credit spend.
  *
- * Deliberately not run against production as part of building this --
- * odds_snapshots is immutable, so a premature write for the wrong fights
- * can't be undone except through the documented drop-trigger escape hatch.
- * The first real run belongs to B5, on its own schedule, or an explicit
- * confirmed dry-run.
+ * Safe to call more than once: fights that already have a snapshot are
+ * excluded from matching up front, so a re-run can't attempt (and fail
+ * against) an immutable row -- see 0013_odds_snapshots.sql's trigger. The
+ * T-12h gate is the other half of that safety: without it, the very first
+ * run after B4 discovers a card's starts_at would freeze a price weeks
+ * early, which is just as permanent as an overwrite.
  */
 export async function matchAndSnapshot(
   supabase: SupabaseClient,
+  oddsEvents: OddsEvent[],
+  now: Date = new Date(),
 ): Promise<MatchAndSnapshotSummary> {
   const summary: MatchAndSnapshotSummary = {
     matched: 0,
@@ -41,8 +43,7 @@ export async function matchAndSnapshot(
     noCandidates: 0,
   };
 
-  const candidates = await fetchUnpricedFights(supabase);
-  const oddsEvents = await fetchMmaOdds();
+  const candidates = await fetchEligibleUnpricedFights(supabase, now);
 
   for (const oddsEvent of oddsEvents) {
     const decision = decideMatch(oddsEvent, candidates);
@@ -90,36 +91,4 @@ export async function matchAndSnapshot(
   }
 
   return summary;
-}
-
-async function fetchUnpricedFights(supabase: SupabaseClient): Promise<FightForMatching[]> {
-  const { data: alreadyPriced, error: pricedError } = await supabase
-    .from("odds_snapshots")
-    .select("fight_id");
-  if (pricedError) throw pricedError;
-  const pricedIds = new Set((alreadyPriced ?? []).map((row) => row.fight_id as string));
-
-  // Same PostgREST FK-embed pattern as features/fights/api.ts.
-  const { data: fights, error: fightsError } = await supabase
-    .from("fights")
-    .select(
-      "id, fighter1:fighter1_id(name), fighter2:fighter2_id(name), event:event_id(event_date)",
-    );
-  if (fightsError) throw fightsError;
-
-  type EmbeddedFight = {
-    id: string;
-    fighter1: { name: string };
-    fighter2: { name: string };
-    event: { event_date: string };
-  };
-
-  return ((fights ?? []) as unknown as EmbeddedFight[])
-    .filter((f) => !pricedIds.has(f.id))
-    .map((f) => ({
-      id: f.id,
-      eventDate: f.event.event_date,
-      fighter1Name: f.fighter1.name,
-      fighter2Name: f.fighter2.name,
-    }));
 }

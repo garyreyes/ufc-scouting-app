@@ -1,0 +1,37 @@
+name: Odds job
+
+on:
+  schedule:
+    # Every 2 hours. Trades a worst-case 2h delay past the true T-12h mark
+    # for staying well under The Odds API's ~500 credit/month free-tier
+    # budget: this cadence is ~360/month (one shared fetch per run, see
+    # runScheduledOddsJob.ts), leaving headroom for manual re-pulls and the
+    # PRD's mooted future T-24h line-movement pull.
+    - cron: "0 */2 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  odds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Discovers events.starts_at from commence_time (B4), then -- for
+      # any card whose confirmed start is within 12h -- freezes the one
+      # odds_snapshots price per fight (B3). Both runs are recorded in
+      # job_runs; a failure here fails this step loudly too, which is the
+      # other half of the "never silent" design (see job-health banner).
+      - name: Discover start times + T-12h snapshot pass
+        run: npx tsx src/lib/odds/runScheduledOddsJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}

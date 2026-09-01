@@ -1164,3 +1164,45 @@ correctly finds the card's earliest fight, not the main event's time.
 **Status:** B4 done, verified live with real data, not just passing
 tests. Not yet wired to a schedule — that's B5, alongside the T-12h
 snapshot job and `job_runs`.
+
+## Phase 27 — B5: T-12h snapshot job, `job_runs`, and the loud degraded banner (2026-09-01)
+
+Built the piece B3/B4 both deferred: deciding *when* the odds jobs run,
+tracking every run, and surfacing a broken or stale run loudly instead of
+silently. `.github/workflows/odds.yml` runs every 2 hours (user-confirmed
+cadence, weighed against The Odds API's ~500 credit/month budget — one
+shared `fetchMmaOdds()` call per run feeds both jobs rather than fetching
+twice).
+
+Found and fixed the real gap `matchAndSnapshot` had carried since B3:
+`odds_snapshots`' immutability trigger stops a second write, but nothing
+stopped a too-early *first* write. `lib/odds/snapshotWindow.ts`'s
+`isPastSnapshotWindow` — the T-12h gate — closes that, test-first,
+mutation-verified.
+
+`lib/odds/runOddsJobsOnce.ts` is the one real implementation of "run both
+jobs," called identically by the scheduled cron and by the owner's manual
+"retry now" button, so a manual late-pull (accepting the current, worse
+price) is never a second code path that could drift from the scheduled
+one. That button needed a real security decision: `odds_snapshots` and
+`job_runs` have no client write grant at all, so `retryOddsJobAction`'s
+own `isOwner()` check — run server-side against the real session — is the
+actual boundary here, not RLS. Added a test for `isOwner()` itself for
+exactly that reason.
+
+Caught a real regression before it shipped: the first version of the
+banner checked ownership via `cookies()`-based auth directly in its
+server render, and `next build`'s route table showed `/`, `/events/past`,
+and `/events/upcoming` had silently flipped from static+revalidated to
+server-rendered on every request. Fixed by moving that check into a
+client-triggered server action instead — confirmed by re-running the
+build and seeing the same three routes back to static.
+
+**`matchAndSnapshot.ts` ran live for the first time**, alongside
+`discoverStartTimes`, with explicit confirmation. Safe by construction —
+no known card was within 12h of starting — and verified afterward by
+querying the actual tables, not trusting the console output:
+`odds_snapshots` stayed at 0 rows, `job_runs` recorded both jobs'
+real success rows.
+
+**Status:** B5 done. Next: B6, the `/conflicts` screen.

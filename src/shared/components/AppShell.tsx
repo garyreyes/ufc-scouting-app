@@ -7,7 +7,17 @@ import styles from "./AppShell.module.css";
 
 const COLLAPSE_STORAGE_KEY = "sidebar-collapsed";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  banner,
+}: {
+  children: React.ReactNode;
+  // A Server Component instance created by layout.tsx and passed down as
+  // a prop -- AppShell is a Client Component ("use client" above) and
+  // can't import/render a Server Component (JobHealthBanner) directly
+  // itself; this is the standard children-slot composition for that.
+  banner?: React.ReactNode;
+}) {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -39,6 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           marginLeft: collapsed ? "var(--sidebar-width-collapsed)" : "var(--sidebar-width)",
         }}
       >
+        {banner}
         {children}
       </main>
     </div>
