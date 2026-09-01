@@ -322,7 +322,7 @@ First point where the app is genuinely usable: a card you can work end to end.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| C1 | ⚠️ `picks` table + pick-lock trigger + the check that each fighter belongs to that fight | not started |
+| C1 | ⚠️ `picks` table + pick-lock trigger + the check that each fighter belongs to that fight | **done** (2026-09-01) |
 | C2 | ⚠️ `lib/scoring` — implied probability, edge, unit P&L. Pure functions, no I/O | not started |
 | C3 | Card view: bouts in `bout_order`, odds, conflict holds, quick pick (collapsed row) | not started |
 | C4 | Expanded bet row: stake, estimated probability anchored to implied, live edge | not started |
@@ -337,6 +337,45 @@ row must show implied probability as the anchor and compute edge live, so the
 judgment being made is "is the market too high or low, and by how much."
 Without it `estimated_probability` is noise and the calibration check in G3 is
 meaningless.
+
+**C1 result.** Getting oriented surfaced a real gap: `ARCHITECTURE.md`'s own
+schema-decisions text never named three fields docs/PRD.md's UC-3/§9 both
+list for every pick -- `confidence`, `predicted_method`, `reasoning`. Asked
+before building rather than guessing: `confidence` is a separate 1-5
+gut-check, distinct from `estimated_probability`'s precise number
+(user-confirmed); `reasoning` is optional, not required on every pick
+(user-confirmed -- required free text on every pick fails the
+no-learning-curve UX floor); and `picks` itself is **owner-only, not
+public** -- the user's own words, "for now just me until I prove the picks
+are actually reliable," a real product decision recorded as a fact, not a
+permanent one.
+
+Test-first, matching the established SQL-test convention
+(`supabase/tests/rls.sql`, not a new pattern): checks 17-25 were written
+*before* `0019_picks.sql` existed, then run live against production with
+real sessions (`db query -f`, the same trusted mechanism established in
+A3). Two real bugs came out of actually running them, not just reading the
+migration:
+
+1. **A test-fixture bug of this phase's own making** -- checks 18/19/21/
+   22/23 were accidentally written against the same *locked* fixture fight
+   built for check 24, so the lock check fired first and shadowed the one
+   actually being tested. Fixed with a third, dedicated unlocked fixture.
+2. **A real production bug**: `check_pick_constraints()`'s open-conflict
+   read of `data_conflicts` hit `permission denied` the moment an
+   `authenticated` session actually triggered it -- that table has no
+   grant for `authenticated` at all (0014). Same fix as `accept_clan_
+   invite` (0017): `SECURITY DEFINER`. Since `0019` was already applied
+   live by the time this was found, the fix is a new migration (`0020`),
+   not an edit -- same discipline that fixed the `data_conflicts`
+   incident in B6.
+
+All 25 checks (16 pre-existing + 9 new) pass live: `All RLS checks
+passed.` Confirmed via `information_schema` (not just the migration
+tracker) that `picks` has the exact columns designed.
+
+**Scope note:** C1 is schema + trigger only, no application code -- no
+`features/picks/` yet. That's C3 (card view) and C4 (bet row)'s job.
 
 ---
 

@@ -54,6 +54,16 @@ Decided 2026-08-29, user-originated.
 - **Accuracy must never stand in for the units board.** High pick accuracy
   with negative P&L is coherent and common — good reads at bad prices — and
   reading it as success is the exact mistake the two-board split prevents.
+- **`picks` is owner-only, not public — deliberately, and not permanently.**
+  Decided 2026-09-01 (C1), user-originated: "for now just me until I prove
+  the picks are actually reliable." A real product reason to record, not
+  derivable from the RLS policy alone — revisit making `/scoreboard`/`picks`
+  public once there's a track record worth showing. Also carries two PRD
+  fields `ARCHITECTURE.md`'s original schema-decisions text never named:
+  `confidence` (a separate 1-5 gut-check, distinct from
+  `estimated_probability`'s precise number) and `predicted_method`/
+  `reasoning` (both nullable — required free text on every pick would fail
+  the no-learning-curve UX floor).
 
 ## Data sources
 
@@ -191,14 +201,27 @@ Decided 2026-08-29, user-originated.
   deliberately — it will never happen by accident.** A brand-new table with
   only ordinary permissive policies (`user_id = auth.uid()`, etc.) is
   writable by *any* signed-in stranger, not just the owner, until an
-  `as restrictive ... using (is_owner())` policy is added for it too. This
-  is the first thing to check when C1 builds `picks`.
-- **A `SECURITY DEFINER` function needs its own `is_owner()` guard inside
-  the function body — a table's RLS policy does not reach it.** Confirmed
-  with `accept_clan_invite`: it bypasses `clan_members`' restrictive policy
-  entirely via the same mechanism already found for `service_role` and
-  `odds_snapshots`' immutability (Fork 7). Check for this pattern before
-  trusting any future `SECURITY DEFINER` function against a stranger.
+  `is_owner()`-scoped policy is added for it too. **Applied in C1**:
+  `picks`' own policies check `is_owner()` directly (no separate
+  permissive-then-restrictive split was needed, unlike 0017's tables —
+  those were retrofitting restriction onto existing permissive policies
+  without touching them; `picks` was brand new, so it could just be
+  written correctly from the start).
+- **`SECURITY DEFINER` cuts both ways, and both directions have now bitten
+  this project once.** A `SECURITY DEFINER` function needs its own
+  `is_owner()` guard inside the function body — a table's RLS policy does
+  not reach it (confirmed with `accept_clan_invite`, A3, bypassing
+  `clan_members`' restrictive policy). The inverse also happens: a
+  **regular, non-`SECURITY DEFINER` trigger function needs to become one**
+  if it reads a table the *calling* role has no grant on at all — found
+  live in C1, the first time an `authenticated` insert actually ran
+  `check_pick_constraints()`: its open-conflict read of `data_conflicts`
+  hit `permission denied` (that table has no `authenticated` grant,
+  deliberately, 0014). Fixed with `SECURITY DEFINER` + `set search_path =
+  public`, in a new migration (`0020`) since `0019` was already applied —
+  never edit an applied migration. Check for both directions by default in
+  any new privileged function or any new trigger that reads a
+  service-role-only table.
 - **`OWNER_USER_ID` must match the UUID hardcoded into `is_owner()`** in
   `supabase/migrations/0017_owner_allowlist.sql`, or the app-layer UI and
   the actual RLS boundary disagree about who the owner is. For any table a
