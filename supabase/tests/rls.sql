@@ -384,6 +384,205 @@ begin
 end $$;
 reset role;
 
+-- ---- C1: picks table + pick-lock trigger ----
+-- Written before 0019_picks.sql exists -- test-first for a correctness-
+-- critical table (ARCHITECTURE.md item #4/#7). A third fighter, not part
+-- of the fixture fight, is needed for the fighter-membership checks.
+
+insert into fighters (id, name) values
+  ('aaaaaaaa-0000-0000-0000-000000000003', 'Test Fighter Three (not in the fixture fight)');
+
+-- A second card, already started, for the pick-lock check ONLY -- kept
+-- separate so the lock doesn't shadow every other check below it.
+insert into events (id, name, event_date, starts_at) values
+  ('bbbbbbbb-0000-0000-0000-000000000002', 'Test Event (locked)', '2020-01-01', '2020-01-01T00:00:00Z');
+insert into fights (id, event_id, fighter1_id, fighter2_id) values
+  ('cccccccc-0000-0000-0000-000000000002',
+   'bbbbbbbb-0000-0000-0000-000000000002',
+   'aaaaaaaa-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002');
+
+-- A third fight, on the same UNLOCKED card as the main fixture (event
+-- 0001), for every check below that needs a clean, unlocked fight but
+-- must not collide with fight 0001's own unique(fight_id, author) row
+-- from check 17.
+insert into fights (id, event_id, fighter1_id, fighter2_id) values
+  ('cccccccc-0000-0000-0000-000000000003',
+   'bbbbbbbb-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002');
+
+-- 17. The owner ('a') can log their own USER pick on an unlocked,
+--     undisputed fight. Plain top-level statement -- success proves
+--     itself, same lesson as check 14.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence)
+  values ('cccccccc-0000-0000-0000-000000000001', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000001', 0.65, 4);
+reset role;
+
+-- 18. predicted_fighter_id must be one of the fight's own two fighters --
+--     a plain FK to fighters can't express this, the trigger must.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence)
+      values ('cccccccc-0000-0000-0000-000000000003', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000003', 0.6, 3);
+    raise exception 'FAIL (18): predicted_fighter_id outside the fight''s two fighters should be rejected';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then raise; end if;
+      if sqlerrm not like '%predicted_fighter_id%' then
+        raise exception 'FAIL (18): rejected, but not by the fighter-membership check -- got: %', sqlerrm;
+      end if;
+  end;
+end $$;
+reset role;
+
+-- 19. Same rule for bet_fighter_id -- a bet backing a fighter who isn't
+--     actually in this fight must be rejected too.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence, bet_fighter_id, stake_units)
+      values ('cccccccc-0000-0000-0000-000000000003', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000001', 0.6, 3, 'aaaaaaaa-0000-0000-0000-000000000003', 1);
+    raise exception 'FAIL (19): bet_fighter_id outside the fight''s two fighters should be rejected';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then raise; end if;
+      if sqlerrm not like '%bet_fighter_id%' then
+        raise exception 'FAIL (19): rejected, but not by the fighter-membership check -- got: %', sqlerrm;
+      end if;
+  end;
+end $$;
+reset role;
+
+-- 20. unique(fight_id, author): a second USER pick on the same fight
+--     check 17 already picked must be rejected -- one row per fight per
+--     author.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence)
+      values ('cccccccc-0000-0000-0000-000000000001', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000002', 0.55, 2);
+    raise exception 'FAIL (20): a second USER pick on the same fight should not be insertable';
+  exception
+    when unique_violation then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
+-- 21. Non-owner ('b') cannot log a pick at all, even entirely under their
+--     own authorship -- same restrictive-policy shape as checks 13/15.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'b'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence)
+      values ('cccccccc-0000-0000-0000-000000000003', 'USER', (select id from test_users where label = 'b'), 'aaaaaaaa-0000-0000-0000-000000000001', 0.6, 3);
+    raise exception 'FAIL (21): a non-owner should not be able to log a pick';
+  exception
+    when insufficient_privilege then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
+-- 22. The owner cannot insert an INTERN-authored pick via their own
+--     authenticated session, even though they pass is_owner() -- INTERN
+--     rows are written exclusively by the service-role batch job
+--     (Phase G), never by any client. user_id must be null for INTERN
+--     per the table's own check constraint.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, predicted_fighter_id, estimated_probability, confidence)
+      values ('cccccccc-0000-0000-0000-000000000003', 'INTERN', 'aaaaaaaa-0000-0000-0000-000000000001', 0.6, 3);
+    raise exception 'FAIL (22): the owner should not be able to insert an INTERN pick from their own session';
+  exception
+    when insufficient_privilege then
+      null; -- expected
+  end;
+end $$;
+reset role;
+
+-- 23. pick_correct/pnl_units are settlement-only fields -- Phase D
+--     doesn't exist yet, so nothing may set them, for any role.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence, pick_correct)
+      values ('cccccccc-0000-0000-0000-000000000003', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000001', 0.6, 3, true);
+    raise exception 'FAIL (23): pick_correct should not be settable outside settlement';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then raise; end if;
+      if sqlerrm not like '%settlement%' then
+        raise exception 'FAIL (23): rejected, but not by the settlement-field guard -- got: %', sqlerrm;
+      end if;
+  end;
+end $$;
+reset role;
+
+-- 24. Pick lock: the second card (fixture above) already started --
+--     nothing may be picked on it, regardless of how valid the rest of
+--     the row is.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence)
+      values ('cccccccc-0000-0000-0000-000000000002', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000001', 0.6, 3);
+    raise exception 'FAIL (24): a pick on an already-started card should be rejected';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then raise; end if;
+      if sqlerrm not like '%locked%' then
+        raise exception 'FAIL (24): rejected, but not by the pick-lock check -- got: %', sqlerrm;
+      end if;
+  end;
+end $$;
+reset role;
+
+-- 25. Disputed-opponent block: an open conflict on the MAIN fixture
+--     fight (already validated clean in checks 17/20 above) must reject
+--     any new pick on it -- the second half of ARCHITECTURE.md item #7,
+--     "a fight with an open conflict must be rejected by the pick-lock
+--     trigger." Run last among the picks checks so it doesn't shadow
+--     the earlier ones that need this fight to still be clean.
+insert into data_conflicts (kind, fight_id, details) values
+  ('disputed_opponent', 'cccccccc-0000-0000-0000-000000000001', '{}'::jsonb);
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence)
+      values ('cccccccc-0000-0000-0000-000000000001', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000002', 0.5, 3);
+    raise exception 'FAIL (25): a pick on a fight with an open disputed-opponent conflict should be rejected';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then raise; end if;
+      if sqlerrm not like '%conflict%' then
+        raise exception 'FAIL (25): rejected, but not by the conflict check -- got: %', sqlerrm;
+      end if;
+  end;
+end $$;
+reset role;
+
 rollback;
 
 select 'All RLS checks passed.' as result;

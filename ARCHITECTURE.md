@@ -449,6 +449,56 @@ per fight per author. **`predicted_fighter_id` and `bet_fighter_id` must each
 be one of that fight's two fighters** — a plain FK to `fighters` cannot express
 this, so it goes in the same trigger as the pick lock.
 
+**C1 result — `picks` built** (`0019_picks.sql`, `0020_picks_check_
+security_definer.sql`). Two gaps found closing this out, both against the
+schema-decisions text above:
+
+- **The PRD lists three more pick fields this section never named:**
+  `confidence`, `predicted_method`, `reasoning` (docs/PRD.md §UC-3/§9).
+  Added all three — `confidence smallint` (1-5, user-confirmed: a
+  separate coarse gut-check distinct from `estimated_probability`'s
+  precise number, simple for both a UI control and the intern's future
+  LLM output), `predicted_method`/`reasoning` both nullable text
+  (user-confirmed: required free-text reasoning on every pick is real
+  friction against the no-learning-curve UX floor).
+- **`picks` is owner-only, not public** — a real, deliberate divergence
+  from `odds_snapshots`/`fights`' public-read posture. User's own words:
+  "for now just me until I prove the picks are actually reliable." Not a
+  permanent decision — revisit if the scoreboard is ever made public.
+  SELECT is author-agnostic (the owner reads both their own USER rows and
+  the INTERN's, which is the entire point of the two-board comparison);
+  INSERT/UPDATE is scoped to `author = 'USER' and user_id = auth.uid()` on
+  top of `is_owner()` — INTERN rows are service-role-only, written
+  exclusively by Phase G's batch job, never by any client including the
+  owner's own session.
+
+**The pick-lock trigger (`check_pick_constraints()`) is `SECURITY
+DEFINER`** — found live, the first time `supabase/tests/rls.sql`'s new
+checks actually ran an `authenticated` insert against it: the open-
+conflict check reads `data_conflicts`, which has no grant for
+`authenticated` at all (deliberately, 0014), so the trigger itself hit
+`permission denied` running as its caller. Same fix, same reason, as
+`accept_clan_invite` in 0017: `security definer` + `set search_path =
+public`, so the trigger runs with the function owner's privileges
+regardless of who's inserting. Third confirmed instance of this exact
+class of bug in this codebase (`service_role` bypassing RLS on
+`odds_snapshots`, `accept_clan_invite`'s own insert, now this) — worth
+checking for by default in any new trigger/function that reads a
+service-role-only table.
+
+One trigger enforces all of the following, in order — pick lock, then
+fighter membership (predicted, then bet), then the open-conflict check
+(item #7's second half, closed by this phase), then a blanket rejection
+of any client attempt to set `pick_correct`/`pnl_units` (Phase D's job,
+not built yet, so nothing may touch them regardless of role until D's own
+migration deliberately reopens that door). All 9 new checks
+(`supabase/tests/rls.sql` 17–25) run live and pass, including two the
+test-writing process itself caught before they ever reached the live run:
+a test-fixture bug (checks 18/19/21/22/23 were accidentally written
+against the same *locked* fixture fight built for check 24, so the lock
+check fired before the one actually being tested — fixed with a third,
+dedicated unlocked fixture fight) and the `SECURITY DEFINER` gap above.
+
 **`odds_snapshots` is immutable structurally, not by convention — enforced by
 a trigger, not by an absent policy.** `unique (fight_id)` allows one row per
 fight, and `SELECT` is the only grant either `anon` or `authenticated` ever
@@ -632,7 +682,9 @@ never "this should pass now."
    The case that must be explicitly tested: prediction right, bet on the other
    fighter, bet wins. Both lines must record the truth rather than one
    overwriting the other
-4. **Pick lock** — a pick cannot be created or edited after `events.starts_at`
+4. **Pick lock** — a pick cannot be created or edited after `events.starts_at`.
+   **Done in C1** — `check_pick_constraints()`, a `BEFORE INSERT OR UPDATE`
+   trigger, `supabase/tests/rls.sql` checks 17/24, live-verified
 5. **Odds snapshot immutability** — a later sync must not overwrite a price
    that is already pending or settled. **A second half, found while building
    B5:** a too-early write is just as permanent as an overwrite — the
@@ -671,9 +723,9 @@ never "this should pass now."
    **First half done in A2** — `sharesExactlyOneFighter.ts`, 5 tests,
    mutation-verified. **Third half (resolving a conflict once a human looks)
    done in B6** — see the `data_conflicts` entry below. **Second half (the
-   pick-lock trigger rejecting an open conflict) is still C1's job**, not yet
-   built — B6 only clears blockers before picking begins, it doesn't enforce
-   the block itself
+   pick-lock trigger rejecting an open conflict) done in C1** —
+   `check_pick_constraints()`, `supabase/tests/rls.sql` check 25,
+   live-verified. All three halves of this item are now closed
 8. **Settlement** — void, draw, and no-contest return the stake **and void
    both lines**: with no winner, "who wins" has no correct answer, so scoring
    the pick as wrong would be a bug, not a harsh call. Disagreement between

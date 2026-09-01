@@ -1255,3 +1255,47 @@ by actual execution.
 **Status:** B6 done. Phase B complete. Next: Phase C (picks and bets),
 starting with C1's pick-lock trigger -- the second half of item #7 this
 phase's own bug fix was protecting.
+
+## Phase 29 — C1: the picks table and its pick-lock trigger (2026-09-01)
+
+Built `picks` -- one row per (fight, author), the entity the whole v2
+pivot is built around. One table for both USER and INTERN authors, not
+two, per ARCHITECTURE.md's Entities section. Orienting on this surfaced a
+real documentation gap: docs/PRD.md lists three pick fields
+(`confidence`, `predicted_method`, `reasoning`) that ARCHITECTURE.md's own
+schema-decisions text never named. Asked before guessing: `confidence` is
+a separate 1-5 gut-check distinct from `estimated_probability`;
+`reasoning` is optional, not required (required free text on every pick
+fails the no-learning-curve UX floor); and `picks` itself is owner-only,
+not public -- "for now just me until I prove the picks are actually
+reliable," a real product decision now recorded in PROJECT_FACTS.md.
+
+Test-first, using the established SQL-test convention
+(supabase/tests/rls.sql) rather than inventing a new pattern: checks
+17-25 were written before the migration existed, then run live against
+production with real sessions. Running them for real -- not just reading
+the migration -- caught two real bugs:
+
+1. A test-fixture mistake of this phase's own making: five checks were
+   accidentally written against the same *locked* fixture fight built
+   for the pick-lock check, so the lock fired first and shadowed the
+   check actually being tested. Fixed with a dedicated unlocked fixture.
+2. A real bug: check_pick_constraints()'s open-conflict read of
+   data_conflicts hit "permission denied" the moment an authenticated
+   session actually triggered it -- that table has no grant for
+   authenticated at all. Same fix, same underlying reason, as
+   accept_clan_invite in A3: SECURITY DEFINER. Since the original
+   migration (0019) was already applied live by the time this was found,
+   the fix is a new migration (0020), not an edit -- the same discipline
+   that fixed the data_conflicts incident in B6.
+
+All 25 checks (16 pre-existing + 9 new) pass live: "All RLS checks
+passed." Verified via information_schema, not just the migration
+tracker, that `picks` has the exact columns designed -- the same
+discipline B6's missing-table incident established.
+
+C1 is schema and trigger only, no application code -- no features/picks/
+yet. That's C3 (card view) and C4 (bet row)'s job.
+
+**Status:** C1 done. Next: C2 (lib/scoring -- implied probability, edge,
+unit P&L, pure functions).
