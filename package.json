@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "sync:recent": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncJob.ts",
     "sync:schedule": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncSchedule.ts",
-    "sync": "npm run sync:recent && npm run sync:schedule"
+    "sync": "npm run sync:recent && npm run sync:schedule",
+    "odds:discover-start-times": "dotenv -e .env.local -- tsx src/lib/odds/runDiscoverStartTimes.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

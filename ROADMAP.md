@@ -108,7 +108,7 @@ and it now also owns `starts_at`.
 | B1 | Verification spike — does 1xBet actually return MMA, real free-tier limits, `commence_time` shape, and a named fallback bookmaker | **done** (2026-09-01) |
 | B2 | ⚠️ `odds_snapshots` table, immutable via a trigger (not absent policy — corrected, see below) | **done** (2026-09-01) |
 | B3 | ⚠️ Odds client + fuzzy fight matcher, scoped to a window around the known card date; low-confidence matches open a `data_conflicts` row instead of guessing; client keeps the two fighter outcomes and discards `Draw` | **done** (2026-09-01) |
-| B4 | Daily discovery pull populating `events.starts_at` from `commence_time` | not started |
+| B4 | Daily discovery pull populating `events.starts_at` from `commence_time` | **done** (2026-09-01) |
 | B5 | T-12h snapshot job (GitHub Actions) + `job_runs` + loud degraded banner | not started |
 | B6 | `/conflicts` screen — resolves both conflict types, so blockers can be cleared before picking begins | not started |
 
@@ -165,6 +165,47 @@ differently from UFC event pages (one page per season, plain-text dates,
 not category-tracked), and that cost is unchanged by the bookmaker switch.
 Not added to this roadmap as a sub-phase yet; would need its own scoping
 pass if pursued.
+
+**B4 result.** Reused B3's matching rather than inventing new logic:
+`matchFights.ts` gained `scoreOddsEventMatch` — the inverse direction of
+B3's `scoreFightMatch` (given one fight, find its best odds event, rather
+than given one odds event, find its best fight) — sharing the same
+name-similarity scoring via an extracted `fightNameSimilarity` helper, a
+pure refactor that left every existing test passing unchanged. New pure
+function `earliestConfirmedStartTime` (`discoverStartTimes.ts`) picks the
+earliest **confidently-matched** fight's `commence_time` per card — not
+the main event's own time, since prelims start hours earlier and that's
+what "the card has started" means for the pick lock. Confidence-threshold
+filtering mutation-tested: removing it broke exactly the two tests built
+to catch that. Unlike `odds_snapshots`, this **overwrites on every run**
+rather than write-once — cheap to correct if wrong, and needed for the
+PRD's postponement-recompute case. Runnable via `npm run
+odds:discover-start-times` (`runDiscoverStartTimes.ts`, matching the
+existing `sync:*` script convention) — not yet wired to a schedule, that's
+B5.
+
+**Run live, with explicit confirmation first** (a different category of
+action from the migrations already approved — real application code
+against production, not schema DDL): found a real bug on the very first
+invocation. `client.ts`'s `fetchMmaOdds()` had never actually been called
+end-to-end before this moment — B1's verification was raw `curl`, B3's
+tests only covered the pure matching logic. `new URL(path, base)` treats
+a leading `/` in `path` as absolute-from-origin, silently dropping
+`BASE_URL`'s own `/v4` instead of appending to it — every real request
+was 404ing. Fixed with a single-argument `new URL(fullString)`, which has
+no base to resolve against and so nothing to drop; added `buildOddsUrl`
+as a pure, tested function precisely because this class of bug hides
+until the untested boundary is actually exercised. Mutation-verified:
+reverting to the broken form failed exactly the new test built to catch
+it.
+
+**Real result, verified by querying the actual data, not trusting the
+summary line:** 6 real upcoming events updated, 3 left `null` (further
+out, no confident odds match yet — expected). UFC 331 shows
+`2026-09-20T00:00:00Z`, earlier than its own main event's
+`2026-09-20T04:00:00Z` — confirmation on real data that this correctly
+picks up the card's earliest confident fight, not the main event's own
+time.
 
 **B5 note.** A missed snapshot silently voids a whole card's scoreboard, which
 the PRD calls the single highest-impact failure in the system. It must alert

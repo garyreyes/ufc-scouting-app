@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideMatch, isWithinCardWindow, scoreFightMatch } from "./matchFights";
+import { decideMatch, isWithinCardWindow, scoreFightMatch, scoreOddsEventMatch } from "./matchFights";
 import type { FightForMatching, OddsEvent } from "./types";
 
 function oddsEvent(overrides: Partial<OddsEvent> = {}): OddsEvent {
@@ -94,5 +94,38 @@ describe("decideMatch", () => {
   it("reports no_candidates, not a conflict, when nothing is in the window at all", () => {
     const decision = decideMatch(oddsEvent(), [fight({ eventDate: "2027-01-01" })]);
     expect(decision.kind).toBe("no_candidates");
+  });
+});
+
+// The inverse direction, built for B4: given one local fight, find its
+// best-matching odds event among many. Same underlying scoring as
+// scoreFightMatch (shared via fightNameSimilarity), so these tests focus
+// on the direction actually being reversed correctly rather than
+// re-testing name-similarity edge cases already covered above.
+describe("scoreOddsEventMatch", () => {
+  it("finds the matching odds event among several candidates", () => {
+    const decoy1 = oddsEvent({ id: "decoy-1", home_team: "Nobody Relevant", away_team: "Also Nobody" });
+    const decoy2 = oddsEvent({ id: "decoy-2", home_team: "Someone Else", away_team: "Another Person" });
+    const real = oddsEvent(); // exact match for the default fight fixture
+    const result = scoreOddsEventMatch(fight(), [decoy1, decoy2, real]);
+    expect(result).not.toBeNull();
+    expect(result?.oddsEvent.id).toBe(real.id);
+    expect(result?.confidence).toBe(1);
+  });
+
+  it("returns null when no odds event falls within the fight's date window", () => {
+    const farEvent = oddsEvent({ commence_time: "2027-01-01T00:00:00Z" });
+    expect(scoreOddsEventMatch(fight(), [farEvent])).toBeNull();
+  });
+
+  it("returns null when given an empty odds event list", () => {
+    expect(scoreOddsEventMatch(fight(), [])).toBeNull();
+  });
+
+  it("picks the higher-confidence odds event when more than one falls in the window", () => {
+    const weak = oddsEvent({ id: "weak", home_team: "Nobody Relevant", away_team: "Also Nobody" });
+    const strong = oddsEvent({ id: "strong" });
+    const result = scoreOddsEventMatch(fight(), [weak, strong]);
+    expect(result?.oddsEvent.id).toBe("strong");
   });
 });
