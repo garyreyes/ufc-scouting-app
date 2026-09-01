@@ -366,8 +366,15 @@ yet:**
   no time, and `fights` carries no time at all. Both the **T-12h odds
   snapshot** and the **pick lock** are defined in terms of a clock, so neither
   was implementable against the original schema. **Column added in A1**,
-  nullable, **not yet populated** — that's B4's job, from The Odds API's
-  `commence_time`.
+  **populated in B4**: the earliest `commence_time` among the card's own
+  fights that B4 can confidently match (same `AUTO_MATCH_THRESHOLD` as B3's
+  pricing — a wrong start time undermines the pick lock the same way a
+  wrong price undermines the units board). Not the main event's own time —
+  a card's prelims start hours earlier, and that earlier moment is what
+  "the card has started" means for the pick lock. **Deliberately
+  overwritten on every run, not write-once**: the PRD's "card postponed →
+  picks carry to the new date, locks recompute" needs `starts_at` to track
+  the freshest odds data, unlike `odds_snapshots`' immutability.
 
 **Pick lock is enforced at the card, not the bout.** Per-fight start times are
 not reliably available from either source, so picks lock at
@@ -534,7 +541,9 @@ src/
     ufc-data-sync/     API-Sports + Wikipedia ingestion (existing)
     llm.ts             single Gemini wrapper — swappable in one file  [NEW]
     odds/              client.ts, matchFights.ts, parseOutcomes.ts,
-                       similarity.ts, matchAndSnapshot.ts — built B3
+                       similarity.ts, matchAndSnapshot.ts — built B3;
+                       discoverStartTimes.ts, runDiscoverStartTimes.ts —
+                       built B4 (`npm run odds:discover-start-times`)
     reddit/            Reddit OAuth client                           [NEW]
     intern/            clustering + pick generation (batch)          [NEW]
     scoring/           unit P&L math — pure functions, no I/O        [NEW]

@@ -1117,3 +1117,50 @@ checks that need to *catch* something need one.
 **Status:** A3 is done — applied and verified live, not just applied.
 No further action needed on it. `PROJECT_FACTS.md` carries the rule for
 future checks added to `rls.sql`.
+
+## Phase 26 — B4: discover events.starts_at from commence_time; fixed a real live bug (2026-09-01)
+
+**Added** `src/lib/odds/discoverStartTimes.ts` (`earliestConfirmedStartTime`,
+a pure function, plus the DB-glue `discoverStartTimes`) and
+`runDiscoverStartTimes.ts` (a runnable script, `npm run
+odds:discover-start-times`, matching the existing `sync:*` convention).
+`matchFights.ts` gained `scoreOddsEventMatch` — B3's `scoreFightMatch` in
+reverse (fight seeks odds event, not odds event seeks fight) — sharing
+its scoring via an extracted `fightNameSimilarity` helper. Pure refactor,
+confirmed by running the existing 36 tests unchanged before writing
+anything new.
+
+**`starts_at` is the card's *earliest* confidently-matched fight**, not
+the main event's own time — a card's prelims start hours before the main
+card, and that earlier moment is what "the card has started" means for
+the pick lock. Confidence-gated at the same `AUTO_MATCH_THRESHOLD` as
+B3's pricing, mutation-verified: removing the threshold check broke
+exactly the two tests built to catch it. Unlike `odds_snapshots`, this
+column is **overwritten on every run**, not write-once — the PRD's "card
+postponed → picks carry to the new date, locks recompute" needs it to
+track the freshest odds data.
+
+**Asked before running it live**, since executing real TypeScript
+against production is a different category of action from the schema
+migrations already approved. Confirmed, then run — and the very first
+live invocation surfaced a real bug that had shipped in B3 undetected:
+`fetchMmaOdds()`'s `new URL(path, base)` treats a leading `/` in `path`
+as absolute-from-origin, silently dropping `BASE_URL`'s own `/v4` instead
+of appending to it. Every real request had been 404ing. Neither B1's
+`curl` checks (used the full URL directly) nor B3's Vitest coverage
+(only the pure logic downstream of the fetch) ever exercised this exact
+code path — recorded in `PROJECT_FACTS.md` as a general lesson, not just
+this one bug. Fixed with `buildOddsUrl`, a pure exported function using
+single-argument `new URL(fullString)` (nothing to silently drop), with
+its own test — mutation-verified, reverting to the broken form fails it.
+
+**Re-ran live after the fix, verified against the actual data, not the
+summary line:** 6 real upcoming events updated, 3 left `null` (further
+out, no confident match yet — expected, not a bug). UFC 331 shows
+`2026-09-20T00:00:00Z`, earlier than its own main event's
+`2026-09-20T04:00:00Z` — confirms on real production data that this
+correctly finds the card's earliest fight, not the main event's time.
+
+**Status:** B4 done, verified live with real data, not just passing
+tests. Not yet wired to a schedule — that's B5, alongside the T-12h
+snapshot job and `job_runs`.

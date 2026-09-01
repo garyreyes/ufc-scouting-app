@@ -32,12 +32,30 @@ export interface FightMatchScore {
 }
 
 /**
+ * Name-similarity confidence between one odds event and one fight, tried
+ * in both fighter-order pairings (home~fighter1/away~fighter2 and the
+ * swap) since the API's home/away order isn't guaranteed to align with
+ * which fighter is stored as fighter1/fighter2 locally. Does not apply
+ * the date-window check -- callers scope candidates themselves, since B3
+ * scopes "which fights" per odds event and B4 scopes "which odds events"
+ * per fight, and the direction of iteration differs between the two.
+ */
+function fightNameSimilarity(oddsEvent: OddsEvent, fight: FightForMatching): number {
+  const straight =
+    (nameSimilarity(oddsEvent.home_team, fight.fighter1Name) +
+      nameSimilarity(oddsEvent.away_team, fight.fighter2Name)) /
+    2;
+  const swapped =
+    (nameSimilarity(oddsEvent.home_team, fight.fighter2Name) +
+      nameSimilarity(oddsEvent.away_team, fight.fighter1Name)) /
+    2;
+  return Math.max(straight, swapped);
+}
+
+/**
  * Scores one Odds API event against every candidate fight already scoped
  * to its date window, returning the best match and its confidence, or
- * null if no fight fell within the window at all. Both fighter-order
- * pairings are tried (home~fighter1/away~fighter2 and the swap), since
- * the API's home/away order isn't guaranteed to align with which fighter
- * is stored as fighter1/fighter2 locally.
+ * null if no fight fell within the window at all.
  */
 export function scoreFightMatch(
   oddsEvent: OddsEvent,
@@ -48,18 +66,41 @@ export function scoreFightMatch(
   for (const fight of candidates) {
     if (!isWithinCardWindow(oddsEvent.commence_time, fight.eventDate)) continue;
 
-    const straight =
-      (nameSimilarity(oddsEvent.home_team, fight.fighter1Name) +
-        nameSimilarity(oddsEvent.away_team, fight.fighter2Name)) /
-      2;
-    const swapped =
-      (nameSimilarity(oddsEvent.home_team, fight.fighter2Name) +
-        nameSimilarity(oddsEvent.away_team, fight.fighter1Name)) /
-      2;
-    const confidence = Math.max(straight, swapped);
-
+    const confidence = fightNameSimilarity(oddsEvent, fight);
     if (!best || confidence > best.confidence) {
       best = { fightId: fight.id, confidence };
+    }
+  }
+
+  return best;
+}
+
+export interface OddsEventMatchScore {
+  oddsEvent: OddsEvent;
+  confidence: number;
+}
+
+/**
+ * The inverse direction of scoreFightMatch: given one local fight, finds
+ * its best-matching Odds API event among many, scoped to the same date
+ * window. Built for B4 (discovering events.starts_at from commence_time)
+ * -- B3's matchAndSnapshot.ts goes odds-event-to-fight because it's
+ * iterating a fetched batch of odds events; this goes fight-to-odds-event
+ * because B4 is iterating a card's own fights looking for the earliest
+ * confirmed start time among them.
+ */
+export function scoreOddsEventMatch(
+  fight: FightForMatching,
+  oddsEvents: OddsEvent[],
+): OddsEventMatchScore | null {
+  let best: OddsEventMatchScore | null = null;
+
+  for (const oddsEvent of oddsEvents) {
+    if (!isWithinCardWindow(oddsEvent.commence_time, fight.eventDate)) continue;
+
+    const confidence = fightNameSimilarity(oddsEvent, fight);
+    if (!best || confidence > best.confidence) {
+      best = { oddsEvent, confidence };
     }
   }
 

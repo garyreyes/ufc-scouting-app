@@ -147,6 +147,23 @@ Decided 2026-08-29, user-originated.
   against the wrong fights is effectively permanent. Its first real run
   belongs to B5's schedule, or an explicit confirmed dry-run — don't run
   it ad hoc.
+- **`fetchMmaOdds()` had a real, live bug from B3 that shipped undetected
+  until B4 first called it end-to-end, 2026-09-01.** `new URL(path, base)`
+  treats a leading `/` in `path` as absolute-from-origin, silently
+  dropping `BASE_URL`'s own `/v4` instead of appending to it — every real
+  request 404'd. Neither B1's `curl` checks nor B3's Vitest coverage ever
+  exercised this exact code path: `curl` used the full URL string
+  directly, and the tests only covered the pure matching/parsing logic
+  downstream of the fetch, never the fetch itself. **The general lesson,
+  not just this one bug:** an I/O boundary (`fetch`, a client's URL
+  construction) needs either a real invocation or a pure, tested builder
+  function around it — pure-function unit tests plus an unrelated manual
+  `curl` check are not the same as exercising the actual code path. Apply
+  this before trusting `lib/reddit/` or `lib/llm.ts` the first time either
+  is built. Fixed here via `buildOddsUrl`, a pure exported function
+  (single-argument `new URL(fullString)`, no base to silently resolve
+  against) with its own test — mutation-verified, reverting to the broken
+  form fails it.
 
 ## Access control
 
