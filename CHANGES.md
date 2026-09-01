@@ -937,3 +937,61 @@ half (a fight with an open conflict must be rejected by the pick-lock
 trigger) is C1's job, not yet built. `data_conflicts`' RLS already grants
 `service_role` full access via `0005`'s `ALTER DEFAULT PRIVILEGES`, so no
 new grants migration was needed.
+
+## Phase 22 — A3: owner allowlist (2026-09-01)
+
+**Closes a real gap** found during `user-flow-mapper` (2026-08-29): the
+app is publicly deployed with open Google/GitHub signup, so any stranger
+could sign in and write real rows to the frozen v1 tables — clans,
+scouting reports — consuming quota on data never meant to be
+multi-tenant. RLS already kept a stranger's rows separate from the
+owner's, so this was never a breach, but it was an unintended door.
+
+**Added** `supabase/migrations/0017_owner_allowlist.sql`: an `is_owner()`
+function, and one **restrictive** RLS policy per writable table (`clans`,
+`clan_members`, `clan_invites`, `scouting_reports`, `report_clan_shares`,
+`fighter_scouting_reports`, `fighter_report_clan_shares`) rather than
+rewriting the many existing permissive ones. Postgres RLS policies for
+the same command are permissive by default and OR'd together — a new
+permissive policy can only widen access, never narrow it. Restrictive
+policies AND on top of whatever the permissive ones already allow, so one
+`as restrictive for all using (is_owner())` per table does the whole job
+without touching a single existing policy.
+
+**Found a second, different gap while writing this:** `accept_clan_invite`
+(from `0004`) is `SECURITY DEFINER`, so its internal `insert into
+clan_members` runs with the function owner's privileges — the restrictive
+policy on `clan_members` never reaches inside it. Same class of mistake
+as `odds_snapshots`' original "absent policy" immutability plan (Phase
+17): RLS doesn't govern elevated-privilege code paths. Fixed with an
+explicit `if not is_owner() then raise exception` guard inside the
+function itself, redefined via `create or replace function` in the new
+migration rather than editing `0004`.
+
+**Added** `src/lib/auth.ts` (`isOwner()`) — the one wrapper module per
+CLAUDE.md's hard-halts. Carries no security weight of its own: it exists
+to decide what the UI shows, while `is_owner()` in Postgres is the actual,
+independent boundary.
+
+**Test-first**, extending `supabase/tests/rls.sql` (checks 13–16) rather
+than Vitest, matching this project's established pattern for RLS behaviour
+that can only be verified against real Postgres:
+
+- a non-owner cannot create a clan under their own authorship (previously
+  allowed by the permissive policy alone)
+- the owner's own access is unregressed
+- a non-owner cannot create a scouting report under their own authorship
+- a non-owner is rejected from `accept_clan_invite` **specifically by the
+  `is_owner()` guard** — checked via the error message containing "Not
+  available," not just any rejection, so a pass can't mask an unrelated
+  failure
+
+The test file's header now requires label `'a'` to be the same account as
+the migration's hardcoded owner id, since checks 13–16 only mean anything
+if it is.
+
+**Status:** code merged. **Migration not yet applied** — needs the
+placeholder UUID replaced with the real owner id before running in the
+Dashboard SQL Editor, then `rls.sql` run to verify live, matching the B2
+workflow. `ARCHITECTURE.md` Fork 8, `PROJECT_FACTS.md`, `ROADMAP.md`, and
+`docs/user-flows.md`'s security checklist all updated.

@@ -52,7 +52,7 @@ Not preferences. Each comes from `docs/user-flows.md` or a verified fact.
 |---|---|---|
 | A1 | Add `events.starts_at` (nullable), `fights.bout_order`, and the missing FK indexes; populate `bout_order` from the Wikipedia sync | **done** (2026-09-01, migration applied live) |
 | A2 | ⚠️ Disputed-opponent detection in `upsertFight` (the `data_conflicts` table itself was created in B3, ahead of schedule — B3 needed it too. A2 is now just the detection logic, writing into a table that already exists) | **done** (2026-09-01) |
-| A3 | ⚠️ Owner allowlist — `lib/auth.ts` wrapper, enforced in RLS and not only in the UI | not started |
+| A3 | ⚠️ Owner allowlist — `lib/auth.ts` wrapper, enforced in RLS and not only in the UI | **done** (code merged; migration awaiting Dashboard SQL Editor run, requires editing the placeholder UUID first) |
 
 **A1 note.** `bout_order` is nearly free — `fetchSchedule.ts` already walks
 Wikipedia's `{{MMAevent bout}}` templates in document order and discards the
@@ -72,6 +72,21 @@ repeat sync finding the same ongoing dispute reuses the existing open
 `data_conflicts` row instead of piling up duplicates on every twice-daily
 run. The second half of correctness item #7 — the pick-lock trigger
 actually rejecting a fight with an open conflict — is C1's job.
+
+**A3 result.** One `as restrictive` RLS policy per writable v1 table
+(`clans`, `clan_members`, `clan_invites`, `scouting_reports`,
+`report_clan_shares`, `fighter_scouting_reports`,
+`fighter_report_clan_shares`), rather than rewriting the many existing
+permissive ones — restrictive policies AND on top instead of needing to
+touch anything already there. `accept_clan_invite` needed a second,
+different fix: it's `SECURITY DEFINER`, so the restrictive policy doesn't
+reach its internal insert (same class of gap as `odds_snapshots`'
+original immutability mistake) — fixed with an explicit `is_owner()`
+guard inside the function. `lib/auth.ts` (`isOwner()`) is UX only; the
+real boundary is `is_owner()` in Postgres. See `ARCHITECTURE.md` Fork 8.
+**Migration not yet applied** — needs the owner's real user id substituted
+for the placeholder before running, then the Dashboard SQL Editor, then
+`supabase/tests/rls.sql` (new checks 13–16) to verify live.
 
 ---
 
