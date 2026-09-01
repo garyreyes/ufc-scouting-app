@@ -304,16 +304,19 @@ table-level policy alone was not enough. Redefined via `create or replace
 function` in the new migration, not an edit to `0004` where it was first
 defined.
 
-**Migration applied live 2026-09-01.** `is_owner()` and the restrictive
-policy are confirmed correct — direct calls with explicit arguments, and
-several short isolated reproductions of the real session pattern, all
-passed. The full `supabase/tests/rls.sql` run (checks 13–16 specifically)
-has **not** been cleanly completed yet: attempting it via `supabase db
-query -f` surfaced an inconsistency in that tool for this class of script
-(role switches + `DO` blocks), not a schema bug — see `PROJECT_FACTS.md`.
-A real pass/fail run through the Dashboard SQL Editor, the channel already
-proven reliable for this file, is what's still needed before this is
-called verified rather than merely applied.
+**Verified live 2026-09-01, via `supabase db query -f`: `All RLS checks
+passed.`** — the full file, checks 1–16, run for real. Getting there
+surfaced and then fixed a real, narrow issue in check 14 itself (not the
+schema): the first version of check 14 wrapped its INSERT in a `DO` block,
+and that specific shape, run immediately after check 13's *caught*
+RLS-rejection exception, failed intermittently through this tool — proven
+unrelated to `is_owner()` or the policy by direct calls and multiple
+isolated reproductions of the underlying session mechanics, all of which
+passed cleanly. The fix: check 14 doesn't need a `DO` block at all — a
+plain top-level `INSERT` that runs without error already proves success.
+Once rewritten that way, the complete file — including 15 and 16, never
+independently isolated — passed end to end. Full diagnostic trail in
+`PROJECT_FACTS.md`.
 
 **`lib/auth.ts` (`isOwner()`) carries no security weight of its own.** It
 exists for one reason: deciding what the UI shows (sign-in prompt vs. "not
