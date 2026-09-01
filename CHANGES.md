@@ -1368,3 +1368,46 @@ enforcement is C1's already-live-tested trigger.
 
 **Status:** C3 done. Next: C4, the expanded bet row (stake, estimated
 probability anchored to implied, live edge).
+
+## Phase 32 — C4: the expanded bet row, and the fields C3 left un-exposed (2026-09-01)
+
+Two forks asked and resolved before building: the anchored-probability
+control reuses C3's own band interaction, reframed relative to implied
+("well below market" .. "well above market") rather than a slider;
+stake is a free numeric field, not preset chips, since sizing itself is
+the signal E1's units board measures. Also closed a gap C3's own code
+comments flagged: `confidence`, `predicted_method`, `reasoning` -- named
+by docs/PRD.md UC-2, present in the schema since C1, never exposed in
+any UI until now.
+
+Three new pure, mutation-verified functions in `lib/scoring/`:
+`probabilityForFighter` (a bet may back a fighter other than the pick,
+so live edge needs `1 - estimated_probability` when they diverge, never
+the stored number verbatim), `priceForFighter` (the wrong side's price
+flips edge's sign), `applyProbabilityDelta` (turns a band's delta into
+the stored value, clamped inside the schema's strict `(0, 1)` check).
+
+A real data-merging bug caught before it could happen: C3's
+`saveQuickPickAction` sent a *partial* upsert payload, relying on
+Supabase's merge-duplicates behaviour to leave other columns alone --
+untested third-party behaviour this project's own working style says
+not to trust blind. Rebuilt both save actions around an explicit
+read-merge-write (`mergePickFields.ts`, test-first, mutation-verified)
+that always writes the complete row -- also fixes a retap of the quick
+pick from silently reverting an already-set `confidence` back to its
+default.
+
+The bet row requires a priced fight and an existing pick (UC-2: "log a
+pick, and *separately* decide whether to bet it") -- `saveBetAction`
+enforces this server-side, not just in the UI. `getMyPicksForFights`
+widened to the full row (`MyQuickPick` renamed `MyPick`) so reopening
+the bet row prefills what was last saved.
+
+Verified live, safely: the expanded column list checked against the
+real `picks` table via a throwaway read-only script, then deleted.
+Neither save action was exercised live -- same reasoning as C3,
+fabricating a real bet would be fabricating money/opinion data under
+the owner's own name. The real enforcement remains C1's trigger and RLS.
+
+**Status:** C4 done. Phase C (picks and bets) is complete. Next: Phase D
+(settlement).

@@ -535,6 +535,63 @@ real schema, and the actual enforcement (lock, membership, conflict) is
 C1's already-live-tested trigger — this action does not re-implement any
 of it.
 
+**C4 result — the expanded bet row, and the fields C3 left un-exposed.**
+Two forks asked before building: the anchored-probability control is
+C3's own band interaction, reframed *relative to* implied probability
+("well below market" … "well above market") rather than a slider —
+user-confirmed, keeps the interaction cost identical to what's already
+shipped while still satisfying "anchored to implied." Stake is a free
+numeric field, not preset chips — user-confirmed, since stake *size*
+itself is the signal E1's units board measures (a 0.5u chalk read vs a
+2.5u underdog read), and presets would cap the one place sizing skill
+shows up. Also closed a gap C3's own code comments left open:
+`confidence`, `predicted_method`, `reasoning` — all three named in
+docs/PRD.md UC-2, present in the schema since C1, never exposed in any
+UI — become editable here, since no other roadmap phase claims that
+scope.
+
+New pure functions, `lib/scoring/` — `probabilityForFighter` (a bet may
+back a fighter other than the pick, so live edge needs
+`1 - estimated_probability` when they diverge, never the stored number
+verbatim — the PRD's own "underdog I think loses can still be the
+correct bet" case), `priceForFighter` (the wrong side's decimal price
+silently flips edge's sign), `applyProbabilityDelta` (turns a band's
+relative delta into the actual stored value, clamped inside
+0019_picks.sql's strict `(0, 1)` check — the PRD's own -6000 example
+overflows past 1 unclamped). All three correctness-critical (item #2's
+dependency chain) and mutation-verified.
+
+**A data-merging bug caught before it could happen, not after.** C3's
+`saveQuickPickAction` sent a *partial* upsert payload. Trusting
+Supabase's `resolution=merge-duplicates` upsert to leave every other
+column alone on conflict, without checking, is exactly what this
+project's working style says not to do with third-party behaviour — so
+both save actions were rebuilt around an explicit read-merge-write
+(`mergePickFields.ts`, a data-merging rule per the correctness-critical
+list, test-first and mutation-verified) that always writes the complete
+row. This also caught a second, related issue: a quick-pick retap after
+`confidence` was already set to something real via the expanded row
+must not silently revert it to the neutral default — `saveQuickPickAction`
+now only applies that default when no row exists yet.
+
+The bet row requires both a priced fight (ordering constraint #5) *and*
+an existing pick — UC-2's own framing is "log a pick, and *separately*
+decide whether to bet it," so a bet can never create a pick from
+nothing; `saveBetAction` enforces this server-side, not just hides the
+control in the UI. `getMyPicksForFights` widened from C3's
+`predictedFighterId`-only slice to the full row (`MyQuickPick` renamed
+`MyPick`) so reopening the bet row prefills the last-saved values —
+recognition over recall, not re-derivation.
+
+**Verified live, safely:** the expanded column list ran against the real
+`picks` table via a throwaway read-only script (admin client, real fight
+ids, 0 rows back as expected since no real pick exists yet), then
+deleted before commit. Neither save action was exercised live — same
+`cookies()`-outside-a-real-request limitation as C3, and fabricating a
+real bet would be fabricating money/opinion data under the owner's own
+name. The real enforcement remains C1's already-live-tested trigger and
+RLS policies.
+
 **`odds_snapshots` is immutable structurally, not by convention — enforced by
 a trigger, not by an absent policy.** `unique (fight_id)` allows one row per
 fight, and `SELECT` is the only grant either `anon` or `authenticated` ever
@@ -650,10 +707,15 @@ src/
     job-health/        components/ (JobHealthBanner, RetryButton),
                        api.ts, actions.ts, evaluateJobHealth.ts,
                        types.ts — built B5
-    picks/             components/ (QuickPick), api.ts
-                       (getMyPicksForFights), actions.ts
-                       (saveQuickPickAction), quickPickBands.ts, types.ts
-                       — built C3
+    picks/             components/ (QuickPick, BetRow), api.ts
+                       (getMyPicksForFights, full MyPick row), actions.ts
+                       (saveQuickPickAction, saveBetAction),
+                       quickPickBands.ts, betProbabilityBands.ts,
+                       mergePickFields.ts (pure, mutation-tested — the
+                       read-merge-write both actions funnel through),
+                       types.ts — QuickPick/api.ts/actions.ts/types.ts
+                       built C3, BetRow/betProbabilityBands.ts/
+                       mergePickFields.ts/saveBetAction built C4
     scoreboard/        components/, api.ts, types.ts               [NEW]
     rumours/           components/, api.ts, types.ts               [NEW]
     scouting-reports/  components/, api.ts, types.ts            [FROZEN]
@@ -684,7 +746,10 @@ src/
     intern/            clustering + pick generation (batch)          [NEW]
     scoring/           impliedProbability.ts, edge.ts,
                        scorePickCorrect.ts, scoreBetPnl.ts, types.ts
-                       (FightOutcome) — built C2, pure functions, no I/O
+                       (FightOutcome) — built C2; probabilityForFighter.ts,
+                       priceForFighter.ts, applyProbabilityDelta.ts — built
+                       C4, for the bet row's live edge. Pure functions,
+                       no I/O
   app/                 routing/pages — thin
 ```
 
@@ -725,7 +790,10 @@ never "this should pass now."
    conversion: prices are stored exactly as the API returns them. **Done in
    C2** — `lib/scoring/impliedProbability.ts`, `edge.ts`, tested against
    the PRD's own -6000-favourite example (decimal 1.0167 → 98.4% implied,
-   edge ≈ 0 when the estimate exactly matches the market)
+   edge ≈ 0 when the estimate exactly matches the market). **Extended in
+   C4** for the case C2 didn't need to handle yet — a bet backing a
+   different fighter than the pick — via `probabilityForFighter.ts` and
+   `priceForFighter.ts`, both mutation-verified
 3. **Dual settlement** — `pick_correct` and `pnl_units` settle independently.
    The case that must be explicitly tested: prediction right, bet on the other
    fighter, bet wins. Both lines must record the truth rather than one

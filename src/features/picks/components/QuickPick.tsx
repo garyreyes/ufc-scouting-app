@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { saveQuickPickAction } from "../actions";
 import { QUICK_PICK_BANDS } from "../quickPickBands";
-import type { MyQuickPick } from "../types";
+import type { MyPick } from "../types";
 import styles from "./QuickPick.module.css";
 
 interface FighterOption {
@@ -22,7 +22,7 @@ export function QuickPick({
   fightId: string;
   fighter1: FighterOption;
   fighter2: FighterOption;
-  existingPick: MyQuickPick | null;
+  existingPick: MyPick | null;
   locked: boolean;
   disputed: boolean;
 }) {

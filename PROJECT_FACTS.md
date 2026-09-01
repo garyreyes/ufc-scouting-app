@@ -351,6 +351,25 @@ Decided 2026-08-29, user-originated.
   `package.json`'s module type) setting `resolve.alias` to match
   `tsconfig.json` manually. Any future test whose dependency graph reaches
   a `@/`-importing module needs this to already be in place — it now is.
+- **Never send a partial object to `.upsert()` on a row multiple
+  independent surfaces write to — read-merge-write instead.** Found in
+  C4: C3's `saveQuickPickAction` sent
+  `{predicted_fighter_id, estimated_probability, confidence}` only,
+  relying on Supabase's `resolution=merge-duplicates` upsert to leave
+  every other column (`bet_fighter_id`, `stake_units`, `reasoning`, ...)
+  untouched on conflict. That reliance was never verified against this
+  project's own working style ("don't trust third-party docs over what
+  the API actually does" — same rule that caught the API-Sports and
+  `matchAndSnapshot.ts` bugs earlier), and a wrong assumption here would
+  silently erase a real bet the moment its pick got edited, with no UI
+  action that looks like "delete my bet." Fixed by routing both
+  `picks` actions through an explicit read-merge-write
+  (`features/picks/mergePickFields.ts`, pure, test-first, mutation-
+  verified) that always writes the complete row, rather than trusting
+  PostgREST's upsert diffing. **Standing lesson:** any future table two
+  or more separate actions write partial updates to needs the same
+  pattern — a `.upsert(partialObject)` call is only safe when exactly one
+  code path ever writes that row.
 
 ## Deliberate non-decisions
 
