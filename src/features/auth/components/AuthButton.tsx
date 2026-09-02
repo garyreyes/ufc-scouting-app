@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { useDismissableOpen } from "@/shared/utils/useDismissableOpen";
 import { signInWithOAuth, signOut } from "../api";
 import styles from "./AuthButton.module.css";
 
@@ -22,6 +23,7 @@ export function AuthButton() {
   const [user, setUser] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -34,23 +36,17 @@ export function AuthButton() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  useDismissableOpen(open, () => setOpen(false), containerRef, triggerRef);
 
   return (
     <div className={styles.container} ref={containerRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={styles.trigger}
         onClick={() => setOpen((o) => !o)}
         aria-label={user ? "Account menu" : "Sign in"}
+        aria-expanded={open}
       >
         {user ? (
           avatarUrl(user) ? (

@@ -6,12 +6,17 @@ import { usePathname } from "next/navigation";
 import { getConflictsBadgeAction } from "@/features/conflicts/actions";
 import styles from "./Sidebar.module.css";
 
+// Clans deliberately absent (H1, ROADMAP.md): the PRD's own "Should have"
+// item is "retire or clearly hide the frozen clan surface from
+// navigation" -- roadmap-planning already chose the hide option, routes
+// stay reachable (/clans, /clans/[id], /invite/[token] all still resolve,
+// unlinked), matching CLAUDE.md's "frozen, not deleted" posture for the
+// whole v1 group feature set.
 const NAV_ITEMS = [
   { href: "/events/upcoming", label: "Upcoming Events", icon: "\u{1F4C5}" },
   { href: "/events/past", label: "Past Events", icon: "\u{1F551}" },
   { href: "/fighters", label: "Fighters", icon: "\u{1F94A}" },
   { href: "/scoreboard", label: "Scoreboard", icon: "\u{1F4CA}" },
-  { href: "/clans", label: "Clans", icon: "\u{1F465}" },
 ] as const;
 
 export function Sidebar({ collapsed }: { collapsed: boolean }) {

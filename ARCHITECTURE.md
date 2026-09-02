@@ -1241,7 +1241,12 @@ src/
                        after the 2026-09-02 outage), utils/
                        (weightClasses.ts, evaluateJobHealth.ts +
                        JobRunRow — moved from features/job-health/ in
-                       F3, shared with features/rumours)
+                       F3, shared with features/rumours;
+                       useDismissableOpen.ts — built H2, the outside-
+                       click/Escape/focus-return logic WeightClassFilter
+                       and AuthButton had each built in isolation,
+                       extracted the moment a second component needed
+                       the identical fix)
   lib/
     supabase/          browser + server + admin clients (admin.ts: one
                        service-role wrapper, shared — moved 2026-09-01
@@ -1556,6 +1561,12 @@ Clans, clan invites, clan membership, shared scouting reports, and the
 tables stay, routes stay reachable, no further development.** They should be
 hidden from navigation (PRD Should-have), not deleted. If the group idea ever
 returns, the work is intact.
+
+**Hidden from navigation in H1** (2026-09-03) — `Sidebar.tsx`'s `NAV_ITEMS`
+no longer lists `/clans`. `/clans`, `/clans/[id]`, and `/invite/[token]`
+all still build and resolve; the internal clan-sharing controls inside the
+frozen `scouting-reports` feature are untouched, since that's the feature
+working as designed, not a nav surface to hide.
 
 ---
 

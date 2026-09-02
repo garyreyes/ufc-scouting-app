@@ -1165,8 +1165,82 @@ this app.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| H1 | Remove Clans from nav and hide the frozen surface (routes stay reachable) | not started |
-| H2 | Full-app accessibility and responsive audit | not started |
+| H1 | Remove Clans from nav and hide the frozen surface (routes stay reachable) | **done** (2026-09-03) |
+| H2 | Full-app accessibility and responsive audit | **done** (2026-09-03) |
+
+**H1 result.** One-line change: `Sidebar.tsx`'s `NAV_ITEMS` no longer lists
+`/clans` — the PRD's own "Should have" item names two options ("retire or
+clearly hide... from navigation"), and this roadmap had already picked
+the hide option when H1 was first scoped. `/clans`, `/clans/[id]`, and
+`/invite/[token]` all still build and resolve, confirmed via `next
+build`'s own route table. No other nav surface referenced `/clans`
+(checked directly, not assumed) — the internal clan-sharing controls
+inside the frozen `scouting-reports` feature stay untouched, since that's
+the feature working as designed, not a nav link to hide.
+
+**H2 result.** Mechanical detector (`detect.mjs`) run across the whole
+in-scope tree (`src/app`, `src/features` excluding the frozen `clans`/
+`scouting-reports`, `src/shared`) plus a manual pass over the app shell
+and every remaining unaudited surface (`TopBar`, `WeightClassFilter`,
+`AuthButton`, the fighters/events grids, `/conflicts`) — C3/C4, E1/E2,
+and Phase F's own surfaces were already covered by their per-phase
+audits and not re-walked here.
+
+Three real, verified findings, fixed in this pass:
+- **A repeated pattern, not a one-off**: `WeightClassFilter` and
+  `AuthButton` are both hand-built trigger+panel disclosure widgets that
+  closed on outside click but never on Escape, and never returned focus
+  to the trigger — a real keyboard-navigation gap in both, found by
+  reading each rather than assumed from the other. Extracted into one
+  shared `useDismissableOpen.ts` (`shared/utils/`) the moment a second
+  component needed the identical fix, per `CLAUDE.md`'s layer-boundary
+  rule — fixes both at once and closes the door on a third copy later.
+  `AuthButton`'s trigger was also missing `aria-expanded` entirely
+  (`WeightClassFilter`'s already had it); added.
+- **The fighter-search input had no accessible name** — a placeholder
+  alone doesn't reliably stand in for a label. Added `aria-label="Search
+  fighters"` directly, matching the icon-only buttons right beside it in
+  the same component, which already used the same pattern.
+- **The search input's focus indicator was thin and asymmetric** — a 1px
+  border-color change only, and the input's right edge carries no border
+  at all by design (it visually merges with the search button), so focus
+  showed on three sides at most. Added a `box-shadow` ring, which follows
+  the pill's own `border-radius` and covers all four sides without
+  changing the shape.
+
+One finding reported, deliberately not fixed: `AppShell`'s and
+`Sidebar`'s collapse-toggle transitions animate `margin-left`/`width`
+(real layout-thrash properties, flagged by the detector). A like-for-like
+fix would mean redesigning the sidebar as an overlay rather than a
+push-layout — a real UX pattern change, not a bug fix — and the actual
+cost is one 150ms reflow on a two-node tree, triggered only by a manual
+toggle click, not a scroll- or route-linked animation. Left as a P3,
+named rather than silently dropped.
+
+One finding reported as a false positive, verified before dismissing:
+the detector's `overused-font` rule flagged `body`'s `font-family: Arial,
+Helvetica, sans-serif` in `globals.css` — this is the plain system-font
+fallback stack shipped since v1, not one of the rule's own named
+AI-slop faces (Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, Space
+Grotesk), and the visual world itself was decided in v1 and is out of
+this audit's scope regardless (see Design cadence below).
+
+Full gate chain green after every fix (lint, 265/265 tests, clean build,
+route table unchanged), and the detector re-run afterward returned the
+same 3 findings — no regressions introduced, the two remaining ones
+exactly the two deliberately left as-is above.
+
+**Audit Health Score: 18/20 (Excellent)** — Accessibility 3/4 (real gaps
+found and fixed this pass), Performance 3/4 (the two known, low-impact
+transition items), Theming 4/4 (full token system, no hard-coded colours
+found anywhere in scope), Responsive 4/4 (fluid grids, deliberate
+horizontal-scroll tables, no fixed-width overflow risk found), 
+Implementation Integrity 4/4 (coherent, product-specific throughout —
+every `onClick` in the entire in-scope tree is on a real `<button>`,
+confirmed by a direct search, never a hand-rolled clickable `div`).
+
+v2 is now feature-complete per this roadmap — Phases A through H are all
+done.
 
 ---
 

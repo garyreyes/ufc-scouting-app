@@ -71,6 +71,12 @@
 .searchInput:focus {
   outline: none;
   border-color: var(--accent);
+  /* A 1px border-color change alone is a thin, easy-to-miss focus
+     indicator, and this input's right edge has no border at all
+     (merges visually with .searchButton) -- a full-perimeter ring
+     found in H2's audit fixes both at once without disturbing the
+     pill shape, since box-shadow follows border-radius. */
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .searchButton {

@@ -47,6 +47,7 @@ export function TopBar({
         <input
           type="search"
           placeholder="Search fighters"
+          aria-label="Search fighters"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className={styles.searchInput}
