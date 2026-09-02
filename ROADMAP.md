@@ -4,8 +4,8 @@
 `user-flow-mapper`.
 
 **Sources:** [docs/PRD.md](docs/PRD.md) (product truth, MoSCoW),
-[ARCHITECTURE.md](ARCHITECTURE.md) (9 resolved forks as of F1, 8
-correctness-critical items), [docs/user-flows.md](docs/user-flows.md)
+[ARCHITECTURE.md](ARCHITECTURE.md) (9 resolved forks as of F1, 9
+correctness-critical items as of F2), [docs/user-flows.md](docs/user-flows.md)
 (screens and ordering constraints).
 
 **How to use this file.** One sub-phase is one `feature-planner` pass. Kick
@@ -728,7 +728,7 @@ Independent of A–E. Can move earlier — UC-1 works with no odds and no picks.
 | # | Sub-phase | Status |
 |---|---|---|
 | F1 | Verification spike + `lib/llm.ts` (Gemini Flash) and social client wrapper | **done** (2026-09-02) |
-| F2 | Clustering → `rumour_flags` + `rumour_sources`, with a degrade-loudly fallback | not started |
+| F2 | Clustering → `rumour_flags` + `rumour_sources`, with a degrade-loudly fallback | **done** (2026-09-02) |
 | F3 | Flags on card rows + full sources with links on `/fights/[id]` | not started |
 | F4 | Rumour outcome marking on settled cards (UC-5) | not started |
 
@@ -739,6 +739,55 @@ counts **independent claims**, not raw post volume.
 
 **F4 note.** This is what makes the PRD's rumour precision metric measurable
 at all. Without it that metric cannot be reported.
+
+**F2 result.** `rumour_flags`/`rumour_sources` schema (`0024`, corrected by
+`0025` — see `ARCHITECTURE.md`'s Schema decisions for the real bug found
+live and fixed same-day), plus the full pipeline: `lib/rumours/` searches
+Bluesky per fighter on the nearest upcoming card, clusters via Gemini
+(`buildClusterPrompt.ts` + `parseClusterResponse.ts`, which never trusts
+the model's output at face value — fighter attribution, category, and
+every source uri are all independently validated), falls back to a
+keyword + fuzzy-name heuristic (`heuristicCluster.ts`) on any LLM
+failure, and upserts by `(fight, fighter, category)` so corroboration
+accumulates across runs instead of resetting. One user decision needed:
+confirmed adding an `'other'` category bucket alongside the PRD's four
+named types, so a real concern that doesn't fit the four named shapes
+still surfaces rather than being dropped.
+
+Test-first, mutation-verified: `heuristicCluster.ts`,
+`collapseNearDuplicates.ts` (the actual "corroboration counts independent
+claims, not raw volume" rule), `matchFighterMention.ts`, and
+`parseClusterResponse.ts` (the LLM-output validator — hallucinated source
+uris, hallucinated fighter names, and invalid categories are all
+independently caught and mutation-confirmed).
+
+Run live against production three times in a row (2026-09-02, real
+upcoming card — UFC Fight Night: Hooker vs. Parnasse): 11 real fights,
+real Bluesky search, real Gemini clustering. First run wrote a flag with
+**zero** attached sources — the bug behind `0025` above, found only
+because this ran for real rather than being assumed correct from the
+unit tests. Fixed and re-verified: the second and third runs confirmed
+the fix (every flag carries real sources) and confirmed the actual
+degrade-loudly path fires for real too — one fight genuinely fell back to
+heuristic clustering mid-run (a live LLM hiccup, not simulated), and
+`job_runs` recorded it correctly. A third immediate re-run confirmed
+idempotency: one flag's corroboration grew from 1 to 3 sources as new
+posts appeared, with zero duplicate `(flag_id, post_uri)` rows — checked
+directly against the table, not assumed from the code.
+
+One live prompt-quality gap found and fixed the same pass:
+`buildClusterPrompt.ts` was pulling in past-fight result recaps ("secured
+a first-round knockout victory...") as if they were pre-fight concerns.
+Added an explicit rule excluding anything that isn't a live risk to the
+*upcoming* bout.
+
+**Scope note, stated rather than silently skipped:** PRD UC-1 wants
+sourcing to distinguish a named journalist, the camp, or the fighter.
+Only the first is built — there's no stored mapping from a fighter to
+their own or their camp's Bluesky handle anywhere in this schema, so that
+part of UC-1 is honestly out of scope for now rather than faked.
+
+Not built in F2, deliberately: no UI reads this data yet — that's F3.
 
 **F1 result.** Started as a verification spike for the originally-planned
 source (Reddit) and ended up re-deciding the social source entirely —

@@ -1,0 +1,38 @@
+name: Rumour scan job
+
+on:
+  schedule:
+    # Every 6 hours. One Gemini call per fight (buildClusterPrompt.ts), so
+    # a ~12-15 fight card at this cadence is ~48-60 calls/day -- well
+    # under the free tier's 500 requests/day (lib/llm.ts), leaving room
+    # for a manual re-run and more than one upcoming card overlapping.
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  rumours:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Searches Bluesky for every fighter on the nearest upcoming card,
+      # clusters into rumour_flags/rumour_sources (Gemini first, heuristic
+      # fallback on any failure -- see scanFightForRumours.ts). Recorded
+      # in job_runs as "rumour_scan"; a failed or degraded run is what the
+      # job-health banner (F3) will surface.
+      - name: Scan upcoming card for rumours
+        run: npx tsx src/lib/rumours/runScheduledRumourJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BLUESKY_IDENTIFIER: ${{ secrets.BLUESKY_IDENTIFIER }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

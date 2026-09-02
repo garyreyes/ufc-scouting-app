@@ -874,8 +874,49 @@ writing into a table that already exists. Two kinds, one table:
   read it (that's B6), so there's nothing to loosen this for yet. Add the
   policy when B6 actually needs it, not speculatively now.
 
-**`rumour_sources.excerpt` snapshots post text at scrape time**, so the
-evidence survives the post being deleted.
+**`rumour_flags`/`rumour_sources` — built F2** (`0024_rumour_flags_and_sources.sql`,
+corrected by `0025_rumour_sources_unique_per_flag.sql`).
+`rumour_sources.excerpt` snapshots post text at scrape time, so the
+evidence survives the post being deleted. `category` includes an `'other'`
+bucket alongside the PRD's four named concern types — confirmed with the
+user 2026-09-02 — so a real, corroborated concern that doesn't fit those
+four still gets surfaced rather than dropped. `rumour_flags` is
+`unique(fight_id, fighter_id, category)`, the upsert target that lets
+corroboration accumulate across job runs instead of fragmenting into a
+fresh duplicate flag each time. **Corroboration count is never a stored
+column** — `count(*)` on `rumour_sources` at read time, the same
+"computed, never stored" rule the scoreboard's chalk line already
+follows, so it can never drift from the rows that justify it.
+
+`rumour_sources.post_uri` is unique **per flag** (`unique(flag_id,
+post_uri)`), not globally — 0024's original global `unique(post_uri)` was
+found live, running the real job against production (2026-09-02), to
+silently produce a **flag with zero attached sources**: a single real
+post often supports more than one distinct concern about the same
+fighter (a short-notice-replacement post that also mentions the
+fighter's weight-cut history), so the second flag's insert of that same
+post lost the unique-constraint race against the first, and a real flag
+("Mairon Santos withdrew...") was written with no evidence behind it —
+exactly the false-flag failure mode PRD's edge cases warn against, just
+produced by a schema bug. Fixed same-day by 0025, re-verified live
+against the corrected schema: the same flag correctly carried its source
+afterward, and corroboration was confirmed to accumulate correctly
+across repeated runs (re-running the job three times against the same
+real card grew one flag's source count from 1 to 3, with zero duplicate
+`(flag_id, post_uri)` rows — checked directly against the table).
+
+**`is_named_source` covers only known-outlet bridge accounts
+(`.web.brid.gy`, F1's finding) plus a hand-maintained allowlist, not
+"the camp" or "the fighter" self-attribution** — PRD UC-1 asks for all
+three, but there is no stored mapping anywhere from a fighter to their
+own or their camp's Bluesky handle, so building that honestly is out of
+scope for F2 rather than faked.
+
+**The clustering prompt (`buildClusterPrompt.ts`) explicitly excludes
+past-fight recaps**, added after the same live run surfaced flags that
+were really just result summaries ("secured a first-round knockout
+victory...") with no bearing on the *upcoming* bout — a real prompt gap
+found by reading actual output, not assumed.
 
 **Keys:** `uuid` primary keys with `gen_random_uuid()`, matching the existing
 schema — not guessable, and they do not leak row counts.
@@ -988,6 +1029,16 @@ src/
     bluesky.ts         single Bluesky wrapper (searchMmaPosts) —
                        switched from a planned reddit/ folder, Fork 9 —
                        built F1
+    rumours/           matchFighterMention.ts, collapseNearDuplicates.ts,
+                       heuristicCluster.ts, isNamedSource.ts (pure,
+                       mutation-tested), concernKeywords.ts,
+                       parseClusterResponse.ts (pure, mutation-tested —
+                       validates the LLM's own output before it's
+                       trusted), buildClusterPrompt.ts,
+                       scanFightForRumours.ts, runRumourScanJob.ts,
+                       runScheduledRumourJob.ts (`npm run
+                       rumours:scheduled-job`, and
+                       .github/workflows/rumours.yml every 6h) — built F2
     intern/            clustering + pick generation (batch)          [NEW]
     settlement/        evaluateFightSettlement.ts (pure, mutation-
                        tested), settleFights.ts — built D1; settlePicks.ts
@@ -1138,6 +1189,24 @@ never "this should pass now."
    is what actually detects agreement/disagreement/draw-NC and produces
    the outcome C2's functions consume; C2 only ever covered what to do
    with an outcome already known. See Fork 6 above for the full result
+9. **Rumour corroboration counting** — PRD's edge case names it exactly:
+   "corroboration counts independent claims, not raw post volume;
+   near-duplicates collapse." A wrong count here undermines UC-1's entire
+   premise (I judge the rumour myself; the count is the input to that
+   judgment) and the rumour precision success metric it feeds. Extends to
+   trusting an LLM's output at all: a hallucinated source, a hallucinated
+   fighter name, or a guessed category is a false flag, worse than a
+   missing one (PRD, explicitly). **Done in F2** —
+   `collapseNearDuplicates.ts` (shared by both the heuristic and LLM
+   paths, since the LLM's own dedup can't be assumed reliable either),
+   `matchFighterMention.ts`, `heuristicCluster.ts`, and
+   `parseClusterResponse.ts` (the LLM-output validator — every fighter
+   attribution, category, and source uri is independently re-checked
+   against ground truth, never trusted from the model's own words), all
+   mutation-verified. Also verified live against production, which found
+   a real bug the unit tests couldn't (a schema-level source/flag
+   attribution collision, not a counting-logic bug) — see the
+   `rumour_flags`/`rumour_sources` entry under Schema decisions above
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.

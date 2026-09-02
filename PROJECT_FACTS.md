@@ -461,3 +461,27 @@ Decided 2026-08-29, user-originated.
   that's a real reason to revisit — but don't re-attempt either from a
   hunch that "surely it's easier now" without checking fresh, the way this
   session had to.
+- **Rumour concern categories include an `'other'` bucket — confirmed with
+  the user 2026-09-02 (F2), not silently decided.** The PRD names exactly
+  four (weight cut, injury, camp change, short-notice replacement); a real
+  concern that doesn't fit those four (a drug-test flag, a coaching
+  change, a legal issue) still gets surfaced under `'other'` rather than
+  dropped. The heuristic fallback (`heuristicCluster.ts`) can never
+  produce `'other'` itself, deliberately — a keyword matcher has no way to
+  recognise a *novel* kind of concern, only the LLM path can actually read
+  the sentence, so letting the fallback reach for `'other'` on anything it
+  doesn't recognise would turn it into a catch-all for random chatter.
+- **`rumour_sources.post_uri` is unique per flag, not globally — found by
+  running the real job live, not designed that way from the start
+  (F2, `0025_rumour_sources_unique_per_flag.sql`).** A single real post
+  commonly supports more than one distinct concern about the same
+  fighter, so a global unique constraint silently produced a flag with
+  zero attached sources the first time this ran against production. If a
+  future session is tempted to "simplify" this back to a global unique
+  constraint, don't — it's the exact bug this migration exists to fix.
+- **Rumour sourcing only detects named-outlet accounts, not "the camp" or
+  "the fighter" self-attribution (F2), and this is a real, current
+  limitation, not an oversight.** PRD UC-1 asks for all three, but no
+  schema anywhere maps a fighter to their own or their camp's Bluesky
+  handle. Building that honestly needs new columns + a way to populate
+  them — a real, separate scope item, not something F3 can fake in the UI.
