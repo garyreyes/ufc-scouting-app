@@ -2,6 +2,7 @@ import Link from "next/link";
 import { QuickPick } from "@/features/picks/components/QuickPick";
 import { BetRow } from "@/features/picks/components/BetRow";
 import { RumourBadge } from "@/features/rumours/components/RumourBadge";
+import { RumourOutcomeMarking } from "@/features/rumours/components/RumourOutcomeMarking";
 import type { RumourFlagSummary } from "@/features/rumours/types";
 import type { MyPick } from "@/features/picks/types";
 import type { CardBout } from "../types";
@@ -96,6 +97,26 @@ export function BoutRow({
             ) : (
               <p className={styles.betPending}>Betting opens once priced (T-12h before the card).</p>
             ))}
+        </div>
+      )}
+
+      {/* UC-5: only once the fight has settled -- "was this real" has no
+          answer before then. winner_id, not a separate settled flag: the
+          settlement job always sets both together (settleFights.ts), and
+          this is the same signal the row's own "Final"/"Upcoming" label
+          above already uses. markRumourOutcomeAction re-checks settled_at
+          server-side regardless -- this is just the UI gate. */}
+      {viewerState === "owner" && fight.winner_id !== null && rumourFlags.length > 0 && (
+        <div className={styles.rumourOutcomeArea}>
+          <RumourOutcomeMarking
+            flags={rumourFlags}
+            fighterNameById={
+              new Map([
+                [fight.fighter1.id, fight.fighter1.name],
+                [fight.fighter2.id, fight.fighter2.name],
+              ])
+            }
+          />
         </div>
       )}
     </div>

@@ -32,7 +32,7 @@ export async function getRumourFlagSummaries(
 
   const { data: flags, error: flagsError } = await supabase
     .from("rumour_flags")
-    .select("id, fight_id, fighter_id, category, summary, last_corroborated_at")
+    .select("id, fight_id, fighter_id, category, summary, last_corroborated_at, outcome")
     .in("fight_id", fightIds);
   if (flagsError) throw flagsError;
   if (!flags || flags.length === 0) return new Map();
@@ -50,6 +50,7 @@ export async function getRumourFlagSummaries(
       summary: f.summary as string,
       corroborationCount: countByFlagId.get(f.id as string) ?? 0,
       lastCorroboratedAt: f.last_corroborated_at as string,
+      outcome: f.outcome as RumourFlagSummary["outcome"],
     });
     byFightId.set(fightId, list);
   }
@@ -64,7 +65,7 @@ export async function getRumourFlagSummaries(
 export async function getRumourFlagsForFight(fightId: string): Promise<RumourFlagDetail[]> {
   const { data: flags, error: flagsError } = await supabase
     .from("rumour_flags")
-    .select("id, fighter_id, category, summary, last_corroborated_at")
+    .select("id, fighter_id, category, summary, last_corroborated_at, outcome, outcome_marked_at")
     .eq("fight_id", fightId);
   if (flagsError) throw flagsError;
   if (!flags || flags.length === 0) return [];
@@ -102,6 +103,8 @@ export async function getRumourFlagsForFight(fightId: string): Promise<RumourFla
       lastCorroboratedAt: f.last_corroborated_at as string,
       corroborationCount: flagSources.length,
       sources: flagSources,
+      outcome: f.outcome as RumourFlagDetail["outcome"],
+      outcomeMarkedAt: f.outcome_marked_at as string | null,
     };
   });
 }

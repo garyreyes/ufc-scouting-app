@@ -7,6 +7,10 @@ import type { RumourCategory } from "@/lib/rumours/types";
 
 export type { RumourCategory };
 
+// UC-5: null means "not yet marked" -- same null-means-pending pattern
+// data_conflicts.resolved_at already established, not a new convention.
+export type RumourOutcome = "confirmed" | "refuted" | "unknown";
+
 // Card-view badge data (BoutRow): enough to show a flag exists and what
 // kind, without every source link -- that's RumourFlagDetail's job, for
 // /fights/[id]. corroborationCount is always computed from real
@@ -20,6 +24,7 @@ export interface RumourFlagSummary {
   summary: string;
   corroborationCount: number;
   lastCorroboratedAt: string;
+  outcome: RumourOutcome | null;
 }
 
 export interface RumourSourceDetail {
@@ -35,4 +40,5 @@ export interface RumourSourceDetail {
 // links included -- PRD UC-1's "direct links to each post" requirement.
 export interface RumourFlagDetail extends RumourFlagSummary {
   sources: RumourSourceDetail[];
+  outcomeMarkedAt: string | null;
 }

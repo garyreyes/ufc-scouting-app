@@ -503,3 +503,18 @@ Decided 2026-08-29, user-originated.
   hand-maintained allowlist exists for exactly this — add a handle to it
   only once it's actually been observed posting real MMA content, the
   way `bloodyelbow.com` was, never guessed from a plausible-looking name.
+- **Rumour outcome marking (F4, UC-5) is enforced in the server action,
+  not a DB trigger — a deliberate proportionality call, not a gap to
+  "fix" later.** `markRumourOutcomeAction` is the only write path to
+  `rumour_flags.outcome` (no client grant on the table at all), and it
+  already re-checks `fights.settled_at` itself before writing. This is a
+  data-quality guard on a secondary analytics field, not a money or
+  auth path — matches `resolveLowConfidenceAction`'s existing in-action
+  check, not the pick-lock/`odds_snapshots` trigger machinery reserved
+  for genuinely correctness-critical, money-adjacent guarantees.
+- **F4's happy path (marking succeeds once a fight has actually settled)
+  is not yet live-verified against production — only the settled-check
+  rejection path is, since nothing has settled since F2 shipped.** Worth
+  a real check the first time a card the intern is watching finishes,
+  rather than assuming it works because the logic mirrors already-proven
+  patterns.

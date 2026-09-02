@@ -80,6 +80,12 @@
   color: var(--muted);
 }
 
+.rumourOutcomeArea {
+  grid-column: 1 / -1;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
 @media (max-width: 640px) {
   .row {
     grid-template-columns: 1fr;

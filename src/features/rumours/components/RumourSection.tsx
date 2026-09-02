@@ -1,5 +1,7 @@
 import { CATEGORY_LABELS } from "@/lib/rumours/concernKeywords";
 import { postUriToWebUrl } from "../postUriToWebUrl";
+import { RumourOutcomeMarking } from "./RumourOutcomeMarking";
+import { RumourOutcomeTag } from "./RumourOutcomeTag";
 import type { RumourFlagDetail } from "../types";
 import styles from "./RumourSection.module.css";
 
@@ -27,10 +29,14 @@ export function RumourSection({
   fighter1,
   fighter2,
   flags,
+  settled,
+  viewerIsOwner,
 }: {
   fighter1: { id: string; name: string };
   fighter2: { id: string; name: string };
   flags: RumourFlagDetail[];
+  settled: boolean;
+  viewerIsOwner: boolean;
 }) {
   if (flags.length === 0) return null;
 
@@ -48,7 +54,12 @@ export function RumourSection({
             <div key={fighter.id} className={styles.fighterGroup}>
               <h3>{fighter.name}</h3>
               {fighterFlags.map((flag) => (
-                <FlagCard key={flag.id} flag={flag} />
+                <FlagCard
+                  key={flag.id}
+                  flag={flag}
+                  fighterName={fighter.name}
+                  canMark={settled && viewerIsOwner}
+                />
               ))}
             </div>
           ),
@@ -57,7 +68,15 @@ export function RumourSection({
   );
 }
 
-function FlagCard({ flag }: { flag: RumourFlagDetail }) {
+function FlagCard({
+  flag,
+  fighterName,
+  canMark,
+}: {
+  flag: RumourFlagDetail;
+  fighterName: string;
+  canMark: boolean;
+}) {
   return (
     <article className={styles.flagCard}>
       <div className={styles.flagHeader}>
@@ -65,8 +84,12 @@ function FlagCard({ flag }: { flag: RumourFlagDetail }) {
         <span className={styles.corroboration}>
           {flag.corroborationCount} independent source{flag.corroborationCount === 1 ? "" : "s"}
         </span>
+        <RumourOutcomeTag outcome={flag.outcome} />
       </div>
       <p className={styles.summary}>{flag.summary}</p>
+      {canMark && (
+        <RumourOutcomeMarking flags={[flag]} fighterNameById={new Map([[flag.fighterId, fighterName]])} />
+      )}
       <ul className={styles.sourceList}>
         {flag.sources.map((source) => {
           const webUrl = postUriToWebUrl(source.uri, source.authorHandle);

@@ -4,6 +4,7 @@ import { getFightById } from "@/features/fights/api";
 import { getReportsForFight, getReportsForFighter } from "@/features/scouting-reports/api";
 import { getMyClans } from "@/features/clans/api";
 import { createClient } from "@/lib/supabase/server";
+import { isOwner } from "@/lib/auth";
 import { ReportForm } from "@/features/scouting-reports/components/ReportForm";
 import { ReportList } from "@/features/scouting-reports/components/ReportList";
 import { FighterReportColumn } from "@/features/scouting-reports/components/FighterReportColumn";
@@ -56,7 +57,13 @@ export default async function FightDetailPage({ params }: PageProps<"/fights/[id
         {fight.method ? ` · ${fight.method}${fight.round ? ` · R${fight.round}` : ""}` : ""}
       </p>
 
-      <RumourSection fighter1={fight.fighter1} fighter2={fight.fighter2} flags={rumourFlags} />
+      <RumourSection
+        fighter1={fight.fighter1}
+        fighter2={fight.fighter2}
+        flags={rumourFlags}
+        settled={fight.winner_id !== null}
+        viewerIsOwner={isOwner(user?.id)}
+      />
 
       {!user && <p className={styles.signInPrompt}>Sign in to read and write scouting reports.</p>}
 

@@ -730,7 +730,7 @@ Independent of A–E. Can move earlier — UC-1 works with no odds and no picks.
 | F1 | Verification spike + `lib/llm.ts` (Gemini Flash) and social client wrapper | **done** (2026-09-02) |
 | F2 | Clustering → `rumour_flags` + `rumour_sources`, with a degrade-loudly fallback | **done** (2026-09-02) |
 | F3 | Flags on card rows + full sources with links on `/fights/[id]` | **done** (2026-09-02) |
-| F4 | Rumour outcome marking on settled cards (UC-5) | not started |
+| F4 | Rumour outcome marking on settled cards (UC-5) | **done** (2026-09-02) |
 
 **F2 note.** An exhausted LLM tier returning zero flags is indistinguishable
 from "nothing to report" and is the worst failure shape in the system. The
@@ -832,6 +832,44 @@ feature area with no narrow-viewport handling) and fixed both before
 shipping. Accessibility, theming, and performance all came back clean —
 this is server-rendered read content with no new client JS, and every
 colour already comes from the existing token set.
+
+**F4 result.** `rumour_flags.outcome`/`outcome_marked_at`
+(`0026_rumour_flag_outcomes.sql`) plus a shared `markRumourOutcomeAction` —
+one write path, rendered in two places: inline on `/events/[id]`'s bout
+row (Flow 2's "beside the flag, on the card you already have open," no
+click-through required) and on `/fights/[id]`'s full rumour section,
+since a viewer already reading the sourcing there is just as natural a
+moment to mark it. Both reuse the identical `RumourOutcomeMarking`
+component. A plain read-only `RumourOutcomeTag` shows the marked state to
+every visitor once set — outcomes are public, matching the rest of
+rumour data's posture; only the marking buttons are owner-gated.
+
+Settled-only, owner-only, enforced server-side against real `fights.
+settled_at` (never trusted from the caller), the same `requireOwner`
+pattern `features/conflicts/actions.ts` already established for a table
+with no client write grant at all. Deliberately an in-action check, not a
+cross-table DB trigger — see `ARCHITECTURE.md`'s Schema decisions for the
+proportionality reasoning.
+
+Verified live: rather than fabricate a fake settled fight or a fake flag
+row on production to exercise the happy path (real data, not something
+to corrupt for a test), the settled-check logic itself was run against a
+real, currently-unsettled flag from F2's own data via the admin client
+directly — confirmed it correctly identifies the fight as unsettled and
+would reject the mark, and confirmed the new `outcome`/`outcome_marked_at`
+columns exist and read as `null` on a real row. The happy path (marking
+succeeds once a fight has actually settled) isn't independently live-
+verified yet — nothing in this app has settled since F2 shipped — so
+this is worth a first real check once a card the intern is watching
+actually finishes.
+
+Lightweight `/impeccable audit`: mechanical detector clean; manual review
+found no new issues — the toggle buttons reuse `QuickPick`'s exact
+button styling and `useTransition` shape, add `aria-pressed` for the
+toggle state, and introduce no new colour hue (the ✓/✗/? symbols and
+words already distinguish the three outcomes without one).
+
+Phase F is now fully done — F1 through F4 all shipped.
 
 **F1 result.** Started as a verification spike for the originally-planned
 source (Reddit) and ended up re-deciding the social source entirely —

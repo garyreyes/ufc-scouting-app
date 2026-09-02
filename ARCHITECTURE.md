@@ -918,6 +918,19 @@ were really just result summaries ("secured a first-round knockout
 victory...") with no bearing on the *upcoming* bout — a real prompt gap
 found by reading actual output, not assumed.
 
+**`rumour_flags.outcome`/`outcome_marked_at` — built F4** (UC-5,
+`0026_rumour_flag_outcomes.sql`). `null` outcome means "not yet marked,"
+the same null-means-pending pattern `data_conflicts.resolved_at` already
+established. Deliberately **not** a cross-table DB trigger enforcing
+"only settable once the fight has settled" — the write already funnels
+through exactly one server action (`markRumourOutcomeAction`, no client
+write grant on `rumour_flags` to bypass), which re-checks
+`fights.settled_at` itself before writing. A data-quality guard on a
+secondary analytics field is proportionate to `resolveLowConfidenceAction`'s
+own in-action `no_price` check, not to the heavier trigger machinery
+`odds_snapshots`/the pick-lock use for genuinely money-adjacent
+guarantees.
+
 **Keys:** `uuid` primary keys with `gen_random_uuid()`, matching the existing
 schema — not guessable, and they do not leak row counts.
 
@@ -1002,7 +1015,12 @@ src/
                        RumourSection), api.ts (getRumourFlagSummaries,
                        getRumourFlagsForFight, getRumourScanHealth),
                        postUriToWebUrl.ts (pure, mutation-tested — AT-URI
-                       -> browsable bsky.app link), types.ts — built F3
+                       -> browsable bsky.app link), types.ts — built F3;
+                       components/ (RumourOutcomeTag, RumourOutcomeMarking),
+                       actions.ts (markRumourOutcomeAction) — built F4
+                       (UC-5), owner-only via the same requireOwner
+                       pattern as features/conflicts/actions.ts (no
+                       client write grant on rumour_flags to lean on)
     scouting-reports/  components/, api.ts, types.ts            [FROZEN]
     clans/             components/, api.ts, types.ts            [FROZEN]
     auth/              components/, api.ts

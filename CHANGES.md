@@ -1696,3 +1696,41 @@ siblings all have). Accessibility, theming, and performance all clean.
 
 **Status:** F3 done. Next: F4, rumour outcome marking on settled cards
 (UC-5) -- what makes the PRD's rumour precision metric measurable.
+
+## Phase 40 — F4: rumour outcome marking, Phase F complete (2026-09-02)
+
+`rumour_flags.outcome`/`outcome_marked_at` (`0026`), null-means-pending
+like `data_conflicts.resolved_at`. One `markRumourOutcomeAction`
+(owner-only, settled-fight-only, both re-checked server-side against the
+real session and the real `fights.settled_at` -- never trusted from the
+caller) rendered in two places: inline on `/events/[id]`'s bout row (no
+click-through needed, matching docs/user-flows.md's "beside the flag, on
+the card you already have open") and on `/fights/[id]`'s full rumour
+section. A read-only outcome tag shows the marked state to every
+visitor once set; only the marking buttons are owner-gated.
+
+Caught two real bugs in my own draft before they shipped: the outcome-
+marking wrapper div rendered an empty bordered box on every settled fight
+with zero flags (missing a `rumourFlags.length > 0` gate), and a leftover
+CSS-module reference (`styles[outcome]`) pointed at classes that no
+longer existed after deciding not to color-code the three outcomes.
+
+Deliberately no DB trigger enforcing the settled-only rule -- an
+in-action check is proportionate here, matching `resolveLowConfidenceAction`'s
+own precedent, not the heavier trigger machinery reserved for money-
+adjacent guarantees.
+
+Verified live against real production data without fabricating fake
+settled/flag rows to do it: exercised the settled-check logic directly
+via the admin client against a real, still-unsettled F2 flag, confirming
+it correctly identifies the fight as unsettled and that the new columns
+read as `null`. The happy path isn't independently live-verified yet --
+nothing has settled since F2 shipped -- worth a first real check once a
+watched card actually finishes.
+
+Lightweight `/impeccable audit`: clean, no fixes needed.
+
+**Phase F (the rumour engine) is now fully done, F1 through F4.**
+
+**Status:** F4 done. Next: Phase G, the intern -- market-anchored,
+rumour-adjusted picks on every fight.
