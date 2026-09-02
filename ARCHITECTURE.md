@@ -886,8 +886,11 @@ src/
                        types.ts — QuickPick/api.ts/actions.ts/types.ts
                        built C3, BetRow/betProbabilityBands.ts/
                        mergePickFields.ts/saveBetAction built C4
-    scoreboard/        components/ (UnitsBoard, AccuracyBoard), api.ts
-                       (getScoreboardData), types.ts — built E1
+    scoreboard/        components/ (UnitsBoard, AccuracyBoard,
+                       PickHistoryTable), api.ts (getScoreboardData),
+                       types.ts — UnitsBoard/AccuracyBoard/api.ts/
+                       types.ts built E1, PickHistoryTable + api.ts's
+                       pick-history query built E2
     rumours/           components/, api.ts, types.ts               [NEW]
     scouting-reports/  components/, api.ts, types.ts            [FROZEN]
     clans/             components/, api.ts, types.ts            [FROZEN]
@@ -936,7 +939,9 @@ src/
                        FightOutcome; determineFavorite.ts,
                        aggregateUnitsLine.ts, aggregateAccuracyLine.ts —
                        built E1, the scoreboard's chalk line and its
-                       three-line reductions. Pure functions, no I/O
+                       three-line reductions; describeStanceMatchup.ts —
+                       built E2, the pick table's stance/style breakdown.
+                       Pure functions, no I/O
   app/                 routing/pages — thin
 ```
 

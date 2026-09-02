@@ -3,6 +3,7 @@ import { isOwner } from "@/lib/auth";
 import { getScoreboardData } from "@/features/scoreboard/api";
 import { UnitsBoard } from "@/features/scoreboard/components/UnitsBoard";
 import { AccuracyBoard } from "@/features/scoreboard/components/AccuracyBoard";
+import { PickHistoryTable } from "@/features/scoreboard/components/PickHistoryTable";
 import styles from "./page.module.css";
 
 const SMALL_SAMPLE_THRESHOLD = 10;
@@ -72,6 +73,8 @@ export default async function ScoreboardPage() {
         <UnitsBoard me={data.units.me} intern={data.units.intern} chalk={data.units.chalk} />
         <AccuracyBoard me={data.accuracy.me} intern={data.accuracy.intern} chalk={data.accuracy.chalk} />
       </div>
+
+      <PickHistoryTable rows={data.pickHistory} />
     </div>
   );
 }
