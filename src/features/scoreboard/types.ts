@@ -14,6 +14,33 @@ export interface InternAccuracyLine extends AccuracyLine {
   headToHead: AccuracyLine;
 }
 
+// E2's own row shape: pick history lives on /scoreboard as a filterable
+// table under the two boards, not its own route (docs/user-flows.md).
+// USER picks only -- "pick history" reads naturally as the owner's own
+// log, and the intern has no rows to show yet regardless (Phase G).
+export interface PickTableRow {
+  pickId: string;
+  fightId: string;
+  eventName: string;
+  eventDate: string;
+  fighter1Name: string;
+  fighter2Name: string;
+  weightClass: string | null;
+  predictedFighterName: string;
+  pickCorrect: boolean | null; // null = void (no correct answer to score)
+  betFighterName: string | null; // null = no bet placed
+  stakeUnits: number | null;
+  pnlUnits: number | null;
+  // null when the fight was never priced -- can't tell favourite from
+  // underdog without a market to read.
+  favoriteOrUnderdog: "favorite" | "underdog" | null;
+  stanceMatchup: string; // "Unknown" when either fighter's stance is unsynced
+  // Always false until Phase F (the rumour engine) ships -- not omitted,
+  // so the filter control can exist now and simply say so, rather than
+  // needing to be added to this shape later.
+  flagPresent: boolean;
+}
+
 export interface ScoreboardData {
   units: {
     me: UnitsLine;
@@ -34,4 +61,5 @@ export interface ScoreboardData {
   // should be rare). Counted in accuracy, excluded from units, and said
   // so on screen (docs/user-flows.md).
   unpricedSettledPickCount: number;
+  pickHistory: PickTableRow[];
 }

@@ -611,7 +611,7 @@ just the console output.
 | # | Sub-phase | Status |
 |---|---|---|
 | E1 | Two boards — units and accuracy — three lines each, chalk computed not stored | **done** (2026-09-02) |
-| E2 | Filterable pick table with the PRD's breakdowns (weight class, stance matchup, favourite vs underdog, flag present) | not started |
+| E2 | Filterable pick table with the PRD's breakdowns (weight class, stance matchup, favourite vs underdog, flag present) | **done** (2026-09-02) |
 
 **E1 note.** Both boards always show all three lines. A line that disappears
 when it has no data reads as a bug and hides the control you most need. Below
@@ -669,6 +669,55 @@ D1/D2's own live runs exactly. The page's own empty-state branch
 (`accuracy.me.total === 0`) is therefore what a real visit renders right
 now, which is the correct, honest state -- deleted the script before
 commit.
+
+**E2 result.** Lives on `/scoreboard` itself, under the two boards --
+`docs/user-flows.md` had already ruled out a separate route ("pick
+history... not its own route"), so this extended the existing page and
+`getScoreboardData` rather than adding new surfaces. USER picks only:
+"pick history" reads naturally as the owner's own log, and the intern
+has no rows regardless until Phase G.
+
+One new pure, mutation-verified function: `describeStanceMatchup`
+(`lib/scoring/`) -- canonicalizes a stance pairing by sorting, so
+"Orthodox vs Southpaw" and "Southpaw vs Orthodox" are always the same
+bucket rather than silently fragmenting into two depending on which
+fighter happened to sync as fighter1. Verified live that this matters in
+practice, not just in theory: a real production sample of fighters came
+back with `stance: null` on all three checked, confirming the "Unknown"
+fallback is a real, common case, not defensive code for an edge case
+that never happens.
+
+Favourite/underdog reuses E1's `determineFavorite` directly against each
+pick's own `predicted_fighter_id` -- one definition of "favourite,"
+matching chalk's own. `flag_present` ships as a real, visible filter
+control now, disabled with "Arrives with the rumour engine (Phase F)"
+rather than omitted -- the same "state the control, don't hide it"
+principle the Intern line and the small-sample banner already apply,
+extended to a filter for the first time. Filtering itself is client-side
+(the whole pick history is realistically a few hundred rows at most, so
+a live re-fetch per filter would only add latency); the summary line
+above the table reuses `aggregateAccuracyLine`/`aggregateUnitsLine`
+directly on the filtered subset, the identical reduction the boards
+themselves use, rather than a second one built for filtering.
+
+**Verified live, safely:** the two new queries E2 needed beyond what the
+boards already fetched (`events` for names/dates, `fighters` for
+names/stance) ran against production -- both resolve, and the real
+sampled stance data is what caught the null-stance case above before it
+could surprise a future reader.
+
+**`/impeccable audit` run on the full surface**, per this file's own
+"Design cadence" section calling out E1/E2 as the checkpoint. The
+mechanical detector found nothing both before and after; a manual pass
+over the 5 dimensions caught two real, if minor, accessibility gaps the
+detector doesn't check for -- a `title` attribute (unreliable for screen
+readers and touch) explaining the disabled "Flag present" filter,
+replaced with visible text plus `aria-describedby`; and the pick table
+missing a `<caption>`, added, reporting the filtered/total count.
+18/20 (Excellent) after the fixes -- full token system already inherited
+correctly, no custom widgets (native `<select>`s throughout, so no
+hand-rolled keyboard/ARIA risk), horizontal table scroll on narrow
+viewports by design, not a bug.
 
 ---
 

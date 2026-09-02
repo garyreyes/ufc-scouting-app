@@ -1524,3 +1524,41 @@ is genuinely what a real visit renders right now.
 **Status:** E1 done. Next: E2, the filterable pick table with the PRD's
 breakdowns (weight class, stance matchup, favourite vs underdog, flag
 present).
+
+## Phase 36 — E2: the filterable pick table (2026-09-02)
+
+Lives on `/scoreboard` itself, under the two boards -- `docs/user-flows.md`
+had already ruled out a separate route ("pick history... not its own
+route"). USER picks only: "pick history" reads as the owner's own log,
+and the intern has no rows regardless until Phase G.
+
+One new pure, mutation-verified function: `describeStanceMatchup`
+(`lib/scoring/`) -- canonicalizes a stance pairing by sorting, so
+"Orthodox vs Southpaw" and "Southpaw vs Orthodox" are always the same
+bucket. Verified live that this matters in practice: a real production
+sample of fighters came back with `stance: null` on all three checked,
+confirming the "Unknown" fallback is a real, common case.
+
+Favourite/underdog reuses E1's `determineFavorite` directly. `flag
+present` ships as a real, visible filter control, disabled with a stated
+reason ("arrives with the rumour engine, Phase F") rather than omitted --
+the same "state the control, don't hide it" principle the Intern line
+already applies, extended to a filter for the first time. Filtering is
+client-side; the summary line above the table reuses
+`aggregateAccuracyLine`/`aggregateUnitsLine` on the filtered subset, the
+identical reduction the boards themselves use.
+
+`/impeccable audit` run on the full E1/E2 surface, per ROADMAP.md's own
+design cadence. Mechanical detector clean both before and after; a
+manual pass caught two real accessibility gaps -- a `title` attribute
+(unreliable for screen readers/touch) replaced with visible text plus
+`aria-describedby`, and a missing `<caption>` on the pick table, added.
+18/20 (Excellent) after the fixes.
+
+Verified live, safely: the two new queries (`events`, `fighters`) ran
+against production -- both resolve, and the real sampled stance data is
+what caught the null-stance case above before it could surprise anyone.
+
+**Status:** E2 done. Phase E (the scoreboard) is complete. Next: Phase F
+(the rumour engine) or Phase G (the intern) -- both are independent of
+what's shipped so far; worth confirming which one to take next.
