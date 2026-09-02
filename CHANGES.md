@@ -1771,3 +1771,53 @@ just the summary counts.
 **Status:** G1 done. Not yet decided: whether the intern's pick shows on
 the card view row (Flow 1 shows one) as part of G1/G3 or its own step.
 Next: G2, edge-gated betting.
+
+## Phase 42 — Production outage: OWNER_USER_ID never set on Vercel (2026-09-02)
+
+`/events/[id]` and `/scoreboard` both hard-crashed in production the
+first time the real owner (signed in as gary_reyes@dlsu.edu.ph) opened
+them. Root cause: `OWNER_USER_ID` was never configured on Vercel --
+present on GitHub Actions (for the batch jobs) but nobody had added the
+app's own separate copy. `isOwner()` short-circuits to `false` for a
+logged-out visitor before ever touching the env var (which is why every
+page loaded fine logged out, and why this hid from every check this
+session ran), but a genuinely logged-in owner hit `requireEnv`'s hard
+throw with no explanation beyond a generic Vercel error digest.
+
+Confirmed the real fix has two independent parts, live against
+production: `OWNER_USER_ID=80ae2af8-4f13-42fc-b9b3-3e07d13e762b`
+(gary_reyes@dlsu.edu.ph -- confirmed with the user directly; the other
+real account on this app, garyludelq@gmail.com, is not the owner) added
+on Vercel, and `SUPABASE_SERVICE_ROLE_KEY` confirmed present. Also fixed
+a second, separate drift found while confirming `is_owner()`'s live
+value: `0017_owner_allowlist.sql` in git still contains the literal
+`'REPLACE_WITH_OWNER_USER_ID'` placeholder its own comment told the
+original author to substitute by hand -- the live database has been
+correct this whole time (verified directly via `pg_get_functiondef`),
+but a from-scratch rebuild from migrations alone would produce a
+completely broken `is_owner()`. Fixed with a new no-op migration
+(`0028_is_owner_real_id.sql`) rather than editing the applied one,
+confirmed byte-for-byte identical against the live function body, and
+re-verified live in a rolled-back transaction that the real owner id
+still resolves `is_owner() = true` and the other real account resolves
+`false`.
+
+**A deliberate hardening decision, confirmed with the user rather than
+just shipped:** a missing `OWNER_USER_ID` or `SUPABASE_SERVICE_ROLE_KEY`
+now degrades every owner-gated page to its existing read-only/"Not
+available" view instead of crashing, plus a specific on-page notice
+(`OwnerConfigNotice`) naming exactly what's missing -- loud, but no
+longer a blank page. `describeOwnerConfigError.ts` narrowly recognizes
+only these two known failure messages and rethrows anything else
+unrecognized, so a real, unrelated bug can never get silently
+reclassified as "just a config gap" -- test-first, mutation-verified
+against exactly that risk. Reproduced the real incident directly (env
+var deliberately unset, the actual owner's real user id, the actual
+production code path) and confirmed it now degrades correctly instead
+of throwing, for both the `OWNER_USER_ID` and `SUPABASE_SERVICE_ROLE_KEY`
+cases independently.
+
+**Lesson for next time, recorded in `.env.local.example`:** `.env.local`
+only reaches the local machine. A value filled in there does nothing for
+the deployed site -- Vercel needs its own separate copy in its own
+dashboard, and this is exactly the mistake that caused the outage.

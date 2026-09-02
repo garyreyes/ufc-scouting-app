@@ -547,3 +547,41 @@ Decided 2026-08-29, user-originated.
   which already had intern support since E1 — it does not obviously
   cover the card-view row. Decide explicitly which sub-phase owns this
   before assuming G3 already will.
+- **The owner is `gary_reyes@dlsu.edu.ph`, id `80ae2af8-4f13-42fc-
+  b9b3-3e07d13e762b` — confirmed directly with the user 2026-09-02, not
+  guessed from which account signed in most recently.** A second real
+  account exists on this app, `garyludelq@gmail.com`
+  (`6f8d802d-5fb2-40ff-8bb9-d4e07636ea9d`) — it is explicitly NOT the
+  owner. `is_owner()` in the live database already matched this before
+  the incident below; only the app's own `OWNER_USER_ID` env var was
+  wrong/missing.
+- **`OWNER_USER_ID` was never set on Vercel, and it caused a real
+  production outage (2026-09-02) — every owner-gated page hard-crashed
+  the first time the real owner opened one.** `.env.local` only reaches
+  the local machine; Vercel needs its own separate copy of every server
+  env var, and this is exactly the class of mistake that slips past
+  local testing (a logged-out check, or any check this session ran
+  before that day, would never have caught it — `isOwner()` never
+  touches the env var for a logged-out visitor at all). Check Vercel's
+  own Environment Variables page directly when debugging a
+  production-only issue on an owner-gated page — don't assume parity
+  with `.env.local` or with GitHub Actions secrets, which are three
+  separate places that do not sync with each other.
+- **A missing `OWNER_USER_ID`/`SUPABASE_SERVICE_ROLE_KEY` degrades to
+  the existing read-only view plus an on-page notice, rather than
+  crashing — a deliberate decision confirmed with the user, not a
+  silent softening of "fail loudly."** `describeOwnerConfigError.ts` is
+  the one place allowed to make this call, and only for these two exact,
+  recognized failure messages — any other thrown error still crashes
+  loudly, on purpose. Don't widen this pattern to swallow other
+  `requireEnv` failures (Gemini, Bluesky, Odds API) without the same
+  explicit confirmation — those are job/action contexts where a hard
+  throw is still the right behavior.
+- **`0017_owner_allowlist.sql` in git still contains the literal
+  `'REPLACE_WITH_OWNER_USER_ID'` placeholder — the live database has
+  always had the real id (confirmed live, `pg_get_functiondef`), fixed
+  going forward by `0028_is_owner_real_id.sql`, a no-op against the
+  live database.** If this project is ever rebuilt from migrations
+  alone on a fresh Supabase project, `0028` is what makes `is_owner()`
+  actually work instead of throwing on every call — don't assume `0017`
+  alone is sufficient just because production has been fine.

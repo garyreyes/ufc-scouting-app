@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { isOwner } from "@/lib/auth";
+import { describeOwnerConfigError } from "@/lib/describeOwnerConfigError";
+import { OwnerConfigNotice } from "@/shared/components/OwnerConfigNotice";
 import { getOpenConflicts } from "@/features/conflicts/api";
 import { ConflictCard } from "@/features/conflicts/components/ConflictCard";
 
@@ -21,16 +23,34 @@ export default async function ConflictsPage() {
     );
   }
 
-  if (!isOwner(user.id)) {
+  // A missing OWNER_USER_ID or SUPABASE_SERVICE_ROLE_KEY (found live
+  // 2026-09-02) previously crashed this whole page with an opaque error.
+  // This is an owner-only page with no meaningful content for anyone
+  // else, so falling back reaches the same "Not available" branch that
+  // already exists for a real non-owner -- plus a loud, specific notice
+  // explaining why. Any other thrown error is a real bug and still
+  // rethrows.
+  let ownerConfigError: string | null = null;
+  let conflicts: Awaited<ReturnType<typeof getOpenConflicts>> = [];
+  let isRealOwner = false;
+  try {
+    isRealOwner = isOwner(user.id);
+    if (isRealOwner) conflicts = await getOpenConflicts();
+  } catch (err) {
+    const described = describeOwnerConfigError(err);
+    if (!described) throw err;
+    ownerConfigError = described;
+  }
+
+  if (!isRealOwner) {
     return (
       <div>
         <h1>Conflicts</h1>
+        {ownerConfigError && <OwnerConfigNotice message={ownerConfigError} />}
         <p>Not available.</p>
       </div>
     );
   }
-
-  const conflicts = await getOpenConflicts();
 
   if (conflicts.length === 0) {
     return (

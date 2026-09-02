@@ -1,0 +1,12 @@
+/* Restrained-colour rule: the accent carries "needs attention" on the
+   text itself, a neutral surface underneath -- same pattern as
+   job-health's JobHealthBanner and features/rumours' RumourHealthNotice. */
+.notice {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--accent);
+}

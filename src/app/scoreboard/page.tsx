@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { isOwner } from "@/lib/auth";
+import { describeOwnerConfigError } from "@/lib/describeOwnerConfigError";
+import { OwnerConfigNotice } from "@/shared/components/OwnerConfigNotice";
 import { getScoreboardData } from "@/features/scoreboard/api";
 import { UnitsBoard } from "@/features/scoreboard/components/UnitsBoard";
 import { AccuracyBoard } from "@/features/scoreboard/components/AccuracyBoard";
@@ -26,10 +28,27 @@ export default async function ScoreboardPage() {
     );
   }
 
-  if (!isOwner(user.id)) {
+  // A missing OWNER_USER_ID (found live 2026-09-02) previously crashed
+  // this whole page with an opaque error before it even reached the
+  // "Not available" branch below. Now it reaches that same branch --
+  // this page has no meaningful content for a non-owner anyway -- plus a
+  // loud, specific notice explaining why. Any other thrown error is a
+  // real bug and still rethrows.
+  let ownerConfigError: string | null = null;
+  let isRealOwner = false;
+  try {
+    isRealOwner = isOwner(user.id);
+  } catch (err) {
+    const described = describeOwnerConfigError(err);
+    if (!described) throw err;
+    ownerConfigError = described;
+  }
+
+  if (!isRealOwner) {
     return (
       <div>
         <h1>Scoreboard</h1>
+        {ownerConfigError && <OwnerConfigNotice message={ownerConfigError} />}
         <p>Not available.</p>
       </div>
     );
