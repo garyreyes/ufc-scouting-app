@@ -1,11 +1,16 @@
 import { supabase } from "@/lib/db";
 import { fetchEligibleUnpricedFights } from "@/lib/odds/eligibleUnpricedFights";
-import type { JobRunRow } from "./types";
+import type { JobRunRow } from "@/shared/utils/evaluateJobHealth";
 
 // The two job_runs job_name values written by runScheduledOddsJob.ts
-// (B5). Phase F's rumour engine will add its own value later -- add it
-// here too when that job exists, not before, since an untracked name
-// would otherwise never trip the "has never run yet" reason.
+// (B5). Deliberately NOT joined by "rumour_scan" (F2/F3) -- decided in
+// F3: this banner is global app-shell chrome with odds-specific wording
+// ("Odds job degraded"), but rumour flags only ever appear on
+// /events/[id] and /fights/[id], so a site-wide banner for it (e.g. on
+// /fighters) would be irrelevant chrome. features/rumours/api.ts's
+// getRumourScanHealth + RumourHealthNotice cover the equivalent state
+// as a separate, page-scoped notice instead, reusing evaluateJobHealth
+// (shared/utils/) rather than this list.
 export const TRACKED_JOB_NAMES = ["discover_start_times", "odds_snapshot"] as const;
 
 /**

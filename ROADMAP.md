@@ -729,7 +729,7 @@ Independent of A–E. Can move earlier — UC-1 works with no odds and no picks.
 |---|---|---|
 | F1 | Verification spike + `lib/llm.ts` (Gemini Flash) and social client wrapper | **done** (2026-09-02) |
 | F2 | Clustering → `rumour_flags` + `rumour_sources`, with a degrade-loudly fallback | **done** (2026-09-02) |
-| F3 | Flags on card rows + full sources with links on `/fights/[id]` | not started |
+| F3 | Flags on card rows + full sources with links on `/fights/[id]` | **done** (2026-09-02) |
 | F4 | Rumour outcome marking on settled cards (UC-5) | not started |
 
 **F2 note.** An exhausted LLM tier returning zero flags is indistinguishable
@@ -788,6 +788,50 @@ their own or their camp's Bluesky handle anywhere in this schema, so that
 part of UC-1 is honestly out of scope for now rather than faked.
 
 Not built in F2, deliberately: no UI reads this data yet — that's F3.
+
+**F3 result.** A rumour-flag badge on each fighter in `/events/[id]`'s
+bout rows (collapsed, one tap through to the full detail — progressive
+disclosure, matching the card view's own convention), a full rumour
+section grouped by fighter with every source and a real clickable link
+on `/fights/[id]`, and a page-scoped "Flags unavailable, last scraped X" /
+"Rumours last scraped X" notice on `/events/[id]` — the third state
+`docs/user-flows.md`'s table names, distinct from the healthy-but-aging
+"Bluesky stale" state (flags still shown, just stamped with their age).
+Deliberately a **separate, page-scoped notice**, not folded into
+`features/job-health`'s existing global `JobHealthBanner`: that banner is
+app-shell chrome with odds-specific wording, but rumour flags only ever
+appear on two routes, so a site-wide banner would be irrelevant chrome
+everywhere else. `evaluateJobHealth` (the pure health-decision function)
+moved from `features/job-health/` to `shared/utils/` so both features
+reuse the same logic instead of one feature importing from another —
+`CLAUDE.md`'s layer-boundary rule, applied the moment a second feature
+actually needed it.
+
+One test-first addition: `postUriToWebUrl.ts`, converting the stored
+AT-URI into a real, clickable `bsky.app` link — an ID/redirect-resolution
+concern (`CLAUDE.md`'s test-first list names this class explicitly), since
+a wrong extraction is a silently dead or wrong link, worse than showing
+no link. Mutation-verified.
+
+Verified live against the real F2 data (not just types checked by the
+build): a throwaway script exercised `getRumourFlagSummaries`,
+`getRumourFlagsForFight`, and `getRumourScanHealth` against production,
+confirming real flags, real grouped sources, real named-source detection,
+and a real "healthy" job status all render correctly end-to-end. That
+live check caught one more real gap: Bloody Elbow posts under **both** a
+`.web.brid.gy` bridge account and a separate native `bloodyelbow.com`
+handle, and only the bridge one was recognised as a named source.
+`lib/rumours/isNamedSource.ts`'s allowlist now includes the real,
+confirmed handle, and the two already-written production rows under that
+handle were corrected (an `UPDATE`, not a delete — no evidence lost).
+
+Lightweight `/impeccable audit` run per the design cadence: the mechanical
+detector found nothing; manual review found two real responsive gaps
+(`RumourSection.module.css` was the only sibling stylesheet in this
+feature area with no narrow-viewport handling) and fixed both before
+shipping. Accessibility, theming, and performance all came back clean —
+this is server-rendered read content with no new client JS, and every
+colour already comes from the existing token set.
 
 **F1 result.** Started as a verification spike for the originally-planned
 source (Reddit) and ended up re-deciding the social source entirely —

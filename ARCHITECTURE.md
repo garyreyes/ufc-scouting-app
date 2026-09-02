@@ -980,8 +980,10 @@ src/
                        resolveLowConfidence.ts (pure, mutation-tested),
                        types.ts — built B6
     job-health/        components/ (JobHealthBanner, RetryButton),
-                       api.ts, actions.ts, evaluateJobHealth.ts,
-                       types.ts — built B5
+                       api.ts, actions.ts — built B5;
+                       evaluateJobHealth.ts + types.ts moved to
+                       shared/utils/ in F3 once features/rumours needed
+                       the same evaluation, per the layer-boundary rule
     picks/             components/ (QuickPick, BetRow), api.ts
                        (getMyPicksForFights, full MyPick row), actions.ts
                        (saveQuickPickAction, saveBetAction),
@@ -996,11 +998,18 @@ src/
                        types.ts — UnitsBoard/AccuracyBoard/api.ts/
                        types.ts built E1, PickHistoryTable + api.ts's
                        pick-history query built E2
-    rumours/           components/, api.ts, types.ts               [NEW]
+    rumours/           components/ (RumourBadge, RumourHealthNotice,
+                       RumourSection), api.ts (getRumourFlagSummaries,
+                       getRumourFlagsForFight, getRumourScanHealth),
+                       postUriToWebUrl.ts (pure, mutation-tested — AT-URI
+                       -> browsable bsky.app link), types.ts — built F3
     scouting-reports/  components/, api.ts, types.ts            [FROZEN]
     clans/             components/, api.ts, types.ts            [FROZEN]
     auth/              components/, api.ts
-  shared/              components/, utils/
+  shared/              components/, utils/ (weightClasses.ts,
+                       evaluateJobHealth.ts + JobRunRow — moved from
+                       features/job-health/ in F3, shared with
+                       features/rumours)
   lib/
     supabase/          browser + server + admin clients (admin.ts: one
                        service-role wrapper, shared — moved 2026-09-01

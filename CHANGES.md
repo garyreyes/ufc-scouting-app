@@ -1661,3 +1661,38 @@ never displayed) alongside the existing `ODDS_API_KEY`.
 
 **Status:** F2 done. No UI reads this data yet — that's F3: flags on
 card rows + full sources with links on `/fights/[id]`.
+
+## Phase 39 — F3: flags on card rows, full sources on the fight page (2026-09-02)
+
+`features/rumours/` UI: a terse rumour-flag badge per fighter on
+`/events/[id]`'s bout rows (one tap through to full detail), a grouped
+full rumour section with every source and a real clickable link on
+`/fights/[id]`, and a page-scoped "last scraped X" / "Flags unavailable"
+notice covering both states `docs/user-flows.md` names for the card view.
+Kept deliberately separate from the existing global `JobHealthBanner`
+(odds-specific app-shell chrome) rather than folded into it, since
+rumour flags only ever appear on two routes.
+
+Moved `evaluateJobHealth` from `features/job-health/` to `shared/utils/`
+the moment `features/rumours` needed the same logic too, per the
+layer-boundary rule -- a small, mechanical relocation, not a rewrite.
+
+Test-first: `postUriToWebUrl.ts`, resolving the stored AT-URI into a
+real, clickable `bsky.app` link -- an ID/redirect-resolution concern
+(CLAUDE.md's test-first list), mutation-verified.
+
+**Verified live against real F2 production data, not just type-checked.**
+A throwaway script exercised the actual API functions the pages call and
+caught one more real gap: Bloody Elbow posts under both a `.web.brid.gy`
+bridge account and a separate native `bloodyelbow.com` handle, and only
+the bridge one was recognised as a named source. Fixed the allowlist and
+corrected the two already-written production rows (an update, not a
+delete).
+
+Lightweight `/impeccable audit` per the design cadence: mechanical
+detector clean; manual review found and fixed two real responsive gaps
+(one new stylesheet was missing the narrow-viewport handling its
+siblings all have). Accessibility, theming, and performance all clean.
+
+**Status:** F3 done. Next: F4, rumour outcome marking on settled cards
+(UC-5) -- what makes the PRD's rumour precision metric measurable.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateJobHealth, STALE_THRESHOLD_HOURS } from "./evaluateJobHealth";
-import type { JobRunRow } from "./types";
+import type { JobRunRow } from "./evaluateJobHealth";
 
 const TRACKED = ["discover_start_times", "odds_snapshot"] as const;
 const NOW = new Date("2026-09-20T00:00:00Z");
@@ -79,5 +79,19 @@ describe("evaluateJobHealth", () => {
     if (result.kind === "degraded") {
       expect(result.reasons.some((r) => r.includes("2"))).toBe(true);
     }
+  });
+
+  // F3: features/rumours passes its own threshold (3x its 6h cron cadence)
+  // instead of the odds job's 6h default -- a run stale by the odds
+  // job's own standard must not be flagged degraded under a caller that
+  // explicitly asked for more headroom.
+  it("honours a caller-supplied staleThresholdHours instead of the default", () => {
+    const eightHoursStale = new Date(NOW.getTime() - 8 * 3_600_000).toISOString();
+    const runs = [run({ jobName: "rumour_scan", finishedAt: eightHoursStale })];
+    const healthyUnderLooserThreshold = evaluateJobHealth(runs, ["rumour_scan"], 0, NOW, 18);
+    expect(healthyUnderLooserThreshold.kind).toBe("healthy");
+
+    const degradedUnderDefault = evaluateJobHealth(runs, ["rumour_scan"], 0, NOW);
+    expect(degradedUnderDefault.kind).toBe("degraded");
   });
 });

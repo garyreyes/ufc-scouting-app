@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { QuickPick } from "@/features/picks/components/QuickPick";
 import { BetRow } from "@/features/picks/components/BetRow";
+import { RumourBadge } from "@/features/rumours/components/RumourBadge";
+import type { RumourFlagSummary } from "@/features/rumours/types";
 import type { MyPick } from "@/features/picks/types";
 import type { CardBout } from "../types";
 import styles from "./BoutRow.module.css";
@@ -19,12 +21,14 @@ export function BoutRow({
   myPick,
   locked,
   disputed,
+  rumourFlags,
 }: {
   fight: CardBout;
   viewerState: CardViewerState;
   myPick: MyPick | null;
   locked: boolean;
   disputed: boolean;
+  rumourFlags: RumourFlagSummary[];
 }) {
   // C4's bet row is additive on top of a quick pick, and only makes sense
   // once the fight is priced -- ROADMAP.md ordering constraint #5, "the
@@ -43,12 +47,16 @@ export function BoutRow({
           fighter={fight.fighter1}
           isWinner={fight.winner_id === fight.fighter1.id}
           price={fight.odds?.fighter1_price ?? null}
+          fightId={fight.id}
+          flags={rumourFlags.filter((f) => f.fighterId === fight.fighter1.id)}
         />
         <span className={styles.vs}>vs</span>
         <FighterName
           fighter={fight.fighter2}
           isWinner={fight.winner_id === fight.fighter2.id}
           price={fight.odds?.fighter2_price ?? null}
+          fightId={fight.id}
+          flags={rumourFlags.filter((f) => f.fighterId === fight.fighter2.id)}
         />
       </div>
       <span className={styles.result}>
@@ -98,10 +106,14 @@ function FighterName({
   fighter,
   isWinner,
   price,
+  fightId,
+  flags,
 }: {
   fighter: { id: string; name: string };
   isWinner: boolean;
   price: number | null;
+  fightId: string;
+  flags: RumourFlagSummary[];
 }) {
   return (
     <span className={styles.fighterWithPrice}>
@@ -109,6 +121,7 @@ function FighterName({
         {fighter.name}
       </Link>
       <span className={styles.price}>{price !== null ? price.toFixed(2) : "Unpriced"}</span>
+      <RumourBadge fightId={fightId} flags={flags} />
     </span>
   );
 }
