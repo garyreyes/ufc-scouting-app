@@ -105,6 +105,23 @@ Decided 2026-08-29, user-originated.
   exactly one fighter opens a conflict instead of inserting a second row. The
   fight is excluded from **both boards** while open. It clears on source
   convergence (usually days before the card) or on a confirmed result.
+- **Never key a synced row's identity on its POSITION in the source.**
+  Learned the expensive way 2026-09-03: Wikipedia bouts used
+  `external_id = wiki:<title>:<index>`, so when the page gained two bouts
+  higher up the card, every row below shifted and `upsertFight` matched
+  the wrong fight by id — stamping one bout's weight class onto another
+  (a heavyweight bout showed as "Welterweight") and silently swallowing
+  three of the card's fourteen bouts, because the collided update
+  returned "upserted" and the real bout never got inserted. Card
+  position is the *least* stable attribute a bout has; MMA cards gain,
+  lose and reorder fights constantly. Identity is the fighter pair
+  (`buildWikiFightExternalId.ts`); position lives in `bout_order`, which
+  is *supposed* to change. Applies to any future source: identify a row
+  by what it IS, never by where it appeared.
+- **A weight class in this database is the bout's contracted weight, from
+  Wikipedia — not either fighter's home division.** Worth knowing before
+  "fixing" a catchweight or short-notice bout that looks wrong for the
+  fighters involved.
 
 ## Odds
 

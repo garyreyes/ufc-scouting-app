@@ -104,6 +104,15 @@ export async function upsertFight(
   if (match) {
     const updatePayload = {
       ...directPayload,
+      // Adopt the incoming external_id when a row is found by fighter
+      // pair rather than by id. This is what migrates rows still
+      // carrying the old position-based wiki key
+      // (buildWikiFightExternalId.ts) onto the stable one: the pair
+      // fallback finds them once, and from then on they resolve by id
+      // again. Safe against the unique constraint because a pair is
+      // unique within an event -- the fallback above just proved no
+      // other row holds this pairing.
+      external_id,
       ...sourceReport(
         fight,
         { wikipediaReportedAt: match.wikipedia_reported_at, apiSportsReportedAt: match.api_sports_reported_at },

@@ -1983,3 +1983,47 @@ Full gate chain green after every fix. Audit Health Score: 18/20
 
 **Status:** H1 + H2 done. v2 is now feature-complete -- Phases A through
 H are all done.
+
+## Phase 47 — Bout identity keyed on fighters, not card position (2026-09-03)
+
+Found from a user report that Mario Pinto vs Ryan Spann (a heavyweight
+bout) displayed as "Welterweight".
+
+Root cause: a Wikipedia bout's external_id was `wiki:<title>:<index in
+the wikitext>` -- a fight's identity was its POSITION on the card. When
+Wikipedia added two bouts higher up the card, everything below shifted,
+so index 3 stopped meaning "Pinto vs Spann" and started meaning
+"Donchenko vs Soriano". upsertFight matched the OLD row by that id and
+wrote the NEW bout's weight_class onto it (the update payload carries
+weight_class/bout_order, never the fighters), then returned "upserted" --
+so the incoming bout was never inserted either.
+
+Three symptoms, one bug: 4 of 11 stored bouts carried another fight's
+weight class; 3 of the card's 14 bouts were missing from the app
+entirely (never picked by the intern, never rendered); and E2's
+weight-class breakdown was silently grouping on corrupt data.
+
+Fixed with buildWikiFightExternalId.ts -- keyed on the sorted fighter
+pair, the one attribute of a bout that doesn't move when the card is
+reshuffled. Test-first, mutation-verified (dropping the sort, and
+dropping the second fighter from the key, each broke exactly the test
+built to catch it). upsertFight now also adopts the incoming external_id
+when it matches by fighter pair, so rows carrying the old positional key
+migrate themselves on the next sync.
+
+Ran the schedule sync live against production with confirmation, then
+verified by re-querying rather than trusting the summary: 0 wrong weight
+classes (was 4), 14 of 14 Wikipedia bouts present (was 11), every row on
+the stable key. Pinto vs Spann now reads Heavyweight.
+
+One self-correction worth recording: I first reported that the missing
+Wood vs Andrusca bout had failed to open a disputed-opponent conflict.
+That was wrong -- my throwaway diagnostic selected a non-existent column
+(`created_at`; the real one is `detected_at`) and, because it
+destructured only `data` and never checked `error`, the failed query
+printed as "0 conflicts". The app had behaved correctly all along and
+opened the conflict. Checked afterward: no real code in src/ makes that
+mistake -- every actual Supabase query checks its error.
+
+**Status:** Bug fixed and live data repaired. Phase I (fighter
+enrichment + history backfill) is planned and confirmed, not started.

@@ -1261,7 +1261,11 @@ src/
                        buildSourceReportUpdate.ts — built D1, routes each
                        sync job's result into its own per-source columns
                        on fights instead of the old shared, last-write-
-                       wins ones
+                       wins ones; buildWikiFightExternalId.ts (pure,
+                       mutation-tested) — a bout's identity is its
+                       fighter pair, never its card position; see
+                       correctness-critical item #13 for the production
+                       bug that forced it
     llm.ts             single Gemini wrapper — swappable in one file
                        (generateJson, gemini-3.5-flash-lite) — built F1
     jobs/              runWithTracking.ts — generic job_runs bookkeeping,
@@ -1548,6 +1552,29 @@ never "this should pass now."
     reverting the boundary to inclusive-both-ends let 0.6 double-count
     into two bands at once; reverting the void filter let a null-outcome
     pick contribute a phantom data point)
+13. **A synced bout's identity** — `CLAUDE.md` names ID resolution as
+    correctness-critical, and this is the case that proves why. Until
+    2026-09-03 a Wikipedia bout's `external_id` was
+    `wiki:<title>:<index in the wikitext>`, making a fight's identity its
+    POSITION on the card. Card positions move constantly. When two bouts
+    were added higher up UFC Fight Night: Hooker vs. Parnasse, index 3
+    stopped meaning "Pinto vs Spann" and started meaning "Donchenko vs
+    Soriano" — so `upsertFight` matched the OLD row by that id and wrote
+    the NEW bout's `weight_class` onto it (its update payload carries
+    `weight_class`/`bout_order`, never the fighters), while the incoming
+    bout was never inserted at all. Live symptoms: 4 of 11 stored bouts
+    carried another fight's weight class (a heavyweight bout displayed as
+    "Welterweight"), 3 of the card's 14 bouts were missing entirely, and
+    E2's weight-class breakdown was silently grouping on corrupt data.
+    **Fixed in the H-follow-up** — `buildWikiFightExternalId.ts` keys on
+    the sorted fighter pair, the one thing about a bout that does not
+    move when the card is reshuffled; mutation-verified (dropping the
+    sort, and dropping the second fighter from the key, each broke
+    exactly the test written to catch it). `upsertFight` now also adopts
+    the incoming `external_id` when it matches a row by fighter pair, so
+    rows still carrying the old positional key migrate themselves on the
+    next sync. Verified live: 0 wrong weight classes, 14 of 14 bouts
+    present, every row on the stable key
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.
