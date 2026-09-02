@@ -1,5 +1,6 @@
 import { listUpcomingUfcEventTitles, fetchEventSchedule } from "./fetchSchedule";
 import { getSupabaseAdmin } from "../supabase/admin";
+import { buildWikiFightExternalId } from "./buildWikiFightExternalId";
 import { upsertFighter } from "./upsertFighter";
 import { upsertEvent } from "./upsertEvent";
 import { upsertFight } from "./upsertFight";
@@ -33,7 +34,11 @@ export async function runScheduleSync() {
       // pair), so this merges into a fight syncJob.ts already created
       // from API-Sports instead of leaving one bout as two rows.
       await upsertFight(supabase, {
-        external_id: `wiki:${title}:${index}`,
+        // Keyed on the fighter pair, NOT the card position -- see
+        // buildWikiFightExternalId.ts for the real production bug that
+        // forced this change (a reshuffled card silently stamped one
+        // bout's weight class onto another and swallowed three fights).
+        external_id: buildWikiFightExternalId(title, fighter1Id, fighter2Id),
         event_id: eventId,
         fighter1_id: fighter1Id,
         fighter2_id: fighter2Id,

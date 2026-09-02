@@ -1244,6 +1244,66 @@ done.
 
 ---
 
+## Phase I — What the intern actually knows about a fighter
+
+Added 2026-09-03, after a user question ("how can we make it increase
+confidence?") turned into a real investigation. Confirmed with the user
+before writing any of it.
+
+**The finding that motivated this phase.** The intern's confidence sits
+at 1–2/5 on every fight, and the cap is not the problem — the knowledge
+base is. Verified live against production:
+
+- **0 of 273 fighters have a win/loss record.** The `wins`/`losses`/
+  `draws` columns have never been populated by anything, and
+  `fetchFighter.ts` does not even request them.
+- **146 of 146 fighters on upcoming cards have no `external_id`** — the
+  API-Sports enrichment has never run for them. They are name-only rows
+  created by the Wikipedia schedule sync. A current champion reads as
+  `0-0-0` with no height, reach, or stance.
+- **57 real results already sit in `fights` that Elo cannot see**,
+  because Elo reads `settled_at IS NOT NULL` and those were never run
+  through this app's settlement pipeline. Backfilling them alone would
+  change nothing for the current card, though — **checked, and zero of
+  the 146 upcoming-card fighters appear in those 57 fights.**
+
+**Verification spike run first** (2026-09-03, via a temporary Actions
+workflow since the API key is not in `.env.local`), and it changed the
+plan:
+
+- **API-Sports returns no W/L record at all.** The full fighter payload
+  is `id, name, nickname, photo, gender, birth_date, age, height,
+  weight, reach, stance, category, team, last_update`. A record must be
+  DERIVED by counting fight history, never fetched. (`team` — the
+  fighter's camp — `nickname` and `photo` are available and unused.)
+- **Name matching works**: `search=Hooker` → one exact hit, `search=
+  Pantoja` → one exact hit. Small sample, so low-confidence matches
+  should route to `data_conflicts` like the odds matcher already does.
+- **The free tier serves seasons 2022–2024 only.** 2025 and 2026 are
+  both refused outright. It is September 2026, so API-Sports history is
+  ~20 months stale — it can lift the confidence cap honestly for
+  veterans, but is blind to all recent form.
+
+| # | Sub-phase | Status |
+|---|---|---|
+| I1 | ⚠️ Elo reads *happened-and-has-a-winner*, ordered by **event date**, not `settled_at`. Unlocks the 57 existing results; every later sub-phase depends on it | not started |
+| I2 | ⚠️ Fighter matching + enrichment — resolve the 146 orphans to API-Sports ids, low-confidence → `data_conflicts`; populate external_id, height/reach/stance, weight, nickname, team | not started |
+| I3 | Fight-history backfill 2022–2024 — resumable and quota-aware, creating opponent rows so Elo can propagate opponent quality | not started |
+| I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | not started |
+| I5 | Derive `wins`/`losses`/`draws` from the fight graph; surface record + tale-of-the-tape in the UI | not started |
+
+**I1 is also a correctness fix, not just an unlock.** Ordering Elo by
+settlement timestamp rather than by when the fight actually happened is
+wrong on its own terms — settlement order is not chronological order,
+which is the very reason `recomputeEloRatings` does a full rebuild.
+
+**Rate limits shape I2/I3.** 146 searches plus 146 × 3 seasons ≈ 580
+requests against a 100/day free-tier cap, shared with the twice-daily
+sync. This cannot be a one-shot script — it needs a resumable job that
+works a queue over several days and tracks its own progress.
+
+---
+
 ## Design cadence
 
 The visual world was decided in v1 and is already shipped (CSS Modules, custom
