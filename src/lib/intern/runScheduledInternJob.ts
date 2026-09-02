@@ -13,6 +13,7 @@ async function main() {
     `Intern picks: ${summary.fightsConsidered} fights considered, ` +
       `${summary.picksWritten} written, ${summary.picksUnchanged} unchanged, ` +
       `${summary.unpricedPicks} unpriced (anchored at even odds), ` +
+      `${summary.betsPlaced} bets placed, ` +
       `${summary.skippedConflict} held by a conflict, ${summary.skippedLocked} already locked, ` +
       `${summary.failed} failed.`,
   );

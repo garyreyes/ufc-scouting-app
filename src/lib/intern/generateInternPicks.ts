@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_RATING } from "../elo/eloMath";
 import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
+import { decideInternBet } from "./decideInternBet";
+import type { InternBetDecision } from "./decideInternBet";
 import { decideInternPick } from "./decideInternPick";
 import type { InternFlag, InternPickDecision } from "./types";
 
@@ -9,6 +11,7 @@ export interface InternPicksSummary {
   picksWritten: number;
   picksUnchanged: number;
   unpricedPicks: number;
+  betsPlaced: number;
   skippedConflict: number;
   skippedLocked: number;
   failed: number;
@@ -26,6 +29,8 @@ interface ExistingPick {
   estimatedProbability: number;
   confidence: number;
   reasoning: string | null;
+  betFighterId: string | null;
+  stakeUnits: number | null;
 }
 
 interface EloInfo {
@@ -66,6 +71,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     picksWritten: 0,
     picksUnchanged: 0,
     unpricedPicks: 0,
+    betsPlaced: 0,
     skippedConflict: 0,
     skippedLocked: 0,
     failed: 0,
@@ -117,17 +123,34 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     const elo1 = eloByFighterId.get(fight.fighter1.id) ?? { rating: DEFAULT_RATING, ratedFightCount: 0 };
     const elo2 = eloByFighterId.get(fight.fighter2.id) ?? { rating: DEFAULT_RATING, ratedFightCount: 0 };
 
+    const odds = oddsByFightId.get(fight.id) ?? null;
+
     const decision = decideInternPick({
       fighter1: { ...fight.fighter1, eloRating: elo1.rating, ratedFightCount: elo1.ratedFightCount },
       fighter2: { ...fight.fighter2, eloRating: elo2.rating, ratedFightCount: elo2.ratedFightCount },
-      odds: oddsByFightId.get(fight.id) ?? null,
+      odds,
       flags: flagsByFightId.get(fight.id) ?? [],
     });
 
     if (!decision.marketAnchored) summary.unpricedPicks++;
 
+    // UC-2's own rule -- pick and bet are two different judgments,
+    // decided by two separate functions, only combined here at the I/O
+    // layer for storage (0019_picks.sql has one reasoning column, not
+    // one each).
+    const bet = decideInternBet(
+      fight.fighter1.id,
+      fight.fighter2.id,
+      decision.predictedFighterId,
+      decision.estimatedProbability,
+      decision.confidence,
+      odds,
+    );
+    if (bet.betFighterId !== null) summary.betsPlaced++;
+    const reasoning = `${decision.reasoning} ${bet.note}`;
+
     const existing = existingByFightId.get(fight.id);
-    if (existing && isUnchanged(existing, decision)) {
+    if (existing && isUnchanged(existing, decision, bet, reasoning)) {
       summary.picksUnchanged++;
       continue;
     }
@@ -141,7 +164,9 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
           predicted_fighter_id: decision.predictedFighterId,
           estimated_probability: decision.estimatedProbability,
           confidence: decision.confidence,
-          reasoning: decision.reasoning,
+          reasoning,
+          bet_fighter_id: bet.betFighterId,
+          stake_units: bet.stakeUnits,
         },
         { onConflict: "fight_id,author" },
       );
@@ -160,14 +185,27 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   return summary;
 }
 
-function isUnchanged(existing: ExistingPick, decision: InternPickDecision): boolean {
+function isUnchanged(
+  existing: ExistingPick,
+  decision: InternPickDecision,
+  bet: InternBetDecision,
+  reasoning: string,
+): boolean {
   return (
     existing.predictedFighterId === decision.predictedFighterId &&
     // numeric(5,4) round-trips to 4 decimal places, so compare at that
     // precision rather than by exact float equality.
     Math.abs(existing.estimatedProbability - decision.estimatedProbability) < 0.00005 &&
     existing.confidence === decision.confidence &&
-    existing.reasoning === decision.reasoning
+    existing.reasoning === reasoning &&
+    existing.betFighterId === bet.betFighterId &&
+    // numeric(6,2) -- same precision reasoning as estimated_probability
+    // above. Both null is the "no bet, still no bet" case.
+    (existing.stakeUnits === null && bet.stakeUnits === null
+      ? true
+      : existing.stakeUnits !== null &&
+        bet.stakeUnits !== null &&
+        Math.abs(existing.stakeUnits - bet.stakeUnits) < 0.005)
   );
 }
 
@@ -227,7 +265,9 @@ async function fetchExistingInternPicks(
 ): Promise<Map<string, ExistingPick>> {
   const { data, error } = await supabase
     .from("picks")
-    .select("fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning")
+    .select(
+      "fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning, bet_fighter_id, stake_units",
+    )
     .eq("author", "INTERN")
     .in("fight_id", fightIds);
   if (error) throw error;
@@ -241,6 +281,8 @@ async function fetchExistingInternPicks(
         estimatedProbability: Number(row.estimated_probability),
         confidence: row.confidence as number,
         reasoning: row.reasoning as string | null,
+        betFighterId: row.bet_fighter_id as string | null,
+        stakeUnits: row.stake_units === null ? null : Number(row.stake_units),
       },
     ]),
   );

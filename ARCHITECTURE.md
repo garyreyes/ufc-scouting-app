@@ -726,6 +726,49 @@ at that point in history, corrupting every rating computed since.
 Schema decisions below for why that's judged an acceptable tradeoff at
 this data volume.
 
+### Fork 12 — the intern's bet sizing: **edge and confidence together, not edge alone**
+
+G2. `docs/PRD.md` UC-2's own rule applies here exactly: "A pick and a bet
+are two different judgments and must not be collapsed" — `decideInternBet.ts`
+is a separate pure function from `decideInternPick.ts`, only combined at
+the I/O layer (`generateInternPicks.ts`) for storage, since `picks` has
+one `reasoning` column, not one each.
+
+**Checks edge on both fighters, not just the predicted one.**
+`probabilityForFighter.ts` (C4) already exists precisely because a bet
+may back a different fighter than the pick — reused directly rather than
+assuming the predicted fighter always carries the better price. In
+practice, given `decideInternPick.ts`'s single coherent probability
+(fighter1 and fighter2's estimates are always exact complements), the
+predicted fighter's edge is virtually always the better one — but
+"virtually always" isn't "always," and checking both costs almost
+nothing.
+
+**Sizing confirmed with the user: edge AND confidence together, not
+edge alone.** `docs/PRD.md`'s literal wording ("sized by that edge") only
+names one input, but G1b's confidence cap (thin rated-fight sample →
+capped confidence) had just been built and made this a real question:
+should two equal-edge bets get equal stakes even when one rests on a
+near-debutant matchup? Confirmed no — `sizeStake()` scales the edge-based
+base stake by a confidence multiplier (0.4x at confidence 1 through 1.2x
+at confidence 5), so a shaky, thin-sample edge is sized down even when
+its raw number looks the same as a well-supported one. This is the first
+real place G1b's confidence cap actually changes an outcome, not just a
+displayed number.
+
+**A real, positive-edge bet was verified live against real production
+fighter IDs (Dan Hooker vs. Salahdine Parnasse)** using a synthetic
+price and a real Elo gap — chosen specifically because `odds_snapshots`
+is immutable by trigger even for `service_role`, so a fabricated price
+could never be inserted and cleaned up afterward the way other live
+checks in this project use a rolled-back transaction. The synthetic
+price favoured one fighter; a real Elo differential gave the intern an
+independent reason to disagree, correctly flipping the bet to the
+underdog with a real, non-zero edge, and correctly tempering the stake
+for the resulting low confidence (1.2u, not near the cap, despite a
+35% edge) — the edge-and-confidence interaction confirmed working
+together, not just each in isolation.
+
 ---
 
 ## Entities
@@ -1250,7 +1293,12 @@ src/
                        .github/workflows/intern.yml every 2h) — built G1;
                        Elo wired in as one more bounded adjustment,
                        confidence capped for a thin rated-fight sample —
-                       built G1-follow-up
+                       built G1-follow-up; decideInternBet.ts (pure,
+                       mutation-tested — the edge threshold and the
+                       both-fighters comparison are the two things
+                       easiest to get silently wrong), checks edge on
+                       both fighters via probabilityForFighter.ts (C4),
+                       sizes by edge AND confidence together — built G2
     elo/               eloMath.ts (expectedScore, updateRatings,
                        kFactorForPriorFightCount — pure, mutation-tested),
                        computeEloHistory.ts (the full chronological
@@ -1460,6 +1508,17 @@ never "this should pass now."
     sort, the NC-exclusion guard, and the adjustment cap were each
     independently confirmed to be load-bearing). See Fork 11 above for
     the full result
+11. **Edge-gated betting** — item #2's edge formula, live for the first
+    time: this literally decides whether real (simulated) units move.
+    Silence on an unbackable favourite (PRD UC-3's own -6000-favourite
+    example) must never be lost as a passing test and become a real
+    silent-betting bug once wired up for real. Checking both fighters'
+    edge, not just the predicted one, is the other easy-to-skip half —
+    `probabilityForFighter.ts` (C4) exists precisely for this case.
+    **Done in G2** — `decideInternBet.ts`, mutation-verified (the
+    threshold gate and the both-sides comparison were each independently
+    confirmed load-bearing — the threshold mutation was caught by the
+    PRD's own headline example). See Fork 12 above for the sizing result
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.

@@ -614,3 +614,20 @@ Decided 2026-08-29, user-originated.
   calibration check needs a fighter's rating AS OF a past pick, not
   their rating today, and that becomes permanently unanswerable once
   picks accumulate if history isn't kept from the start.
+- **The intern's bet stake scales by edge AND confidence together, not
+  edge alone — confirmed with the user 2026-09-02 (G2), don't
+  re-litigate.** `docs/PRD.md`'s literal wording only names edge, but
+  two equal-edge bets deliberately get different stakes when one rests
+  on a thin, near-debutant rated-fight sample (G1b's confidence cap) and
+  the other on a well-established one. `decideInternBet.ts`'s
+  `sizeStake()` is the one place this is implemented — don't add a
+  second sizing formula elsewhere that only looks at edge.
+- **The intern's bet may back a fighter it did NOT predict to win —
+  checked deliberately, not assumed impossible.** `decideInternBet.ts`
+  computes edge for both fighters via `probabilityForFighter.ts` (the
+  same function C4 built for a human's own bet-on-the-other-side case)
+  and bets on whichever clears the threshold with the higher edge. In
+  practice this is almost always the predicted fighter, given
+  `decideInternPick.ts`'s single coherent probability estimate — but
+  that was verified as a near-certainty, not hardcoded as a rule, so
+  don't "simplify" this back to "always bet the pick."

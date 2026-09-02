@@ -5,7 +5,7 @@
 
 **Sources:** [docs/PRD.md](docs/PRD.md) (product truth, MoSCoW),
 [ARCHITECTURE.md](ARCHITECTURE.md) (10 resolved forks as of G1, 9
-correctness-critical items as of G1b, item #4 extended in G1), [docs/user-flows.md](docs/user-flows.md)
+correctness-critical items as of G2, item #4 extended in G1), [docs/user-flows.md](docs/user-flows.md)
 (screens and ordering constraints).
 
 **How to use this file.** One sub-phase is one `feature-planner` pass. Kick
@@ -954,7 +954,7 @@ works, not just the underlying API calls it's built on.
 |---|---|---|
 | G1 | Intern picks every fight with an `estimated_probability`, market-anchored and rumour-adjusted | **done** (2026-09-02) |
 | G1b | Elo rating as a third, bounded adjustment — opponent quality, using only data this app already owns | **done** (2026-09-02) |
-| G2 | Edge-gated betting — threshold plus confidence sizing, and **free to decline entirely** | not started |
+| G2 | Edge-gated betting — threshold plus confidence sizing, and **free to decline entirely** | **done** (2026-09-02) |
 | G3 | Intern lines on both boards + a calibration check | not started |
 
 **G2 note.** Silence on an unbackable favourite is the intern working, not
@@ -1064,6 +1064,45 @@ immediately after: all 81 real upcoming picks correctly rewrote with the
 new Elo line in their reasoning (everyone defaulting to the standard
 1500 seed rating, since no history exists yet) and the new,
 correctly-capped confidence — spot-checked directly against a real row.
+
+**G2 result.** `decideInternBet.ts` — the second judgment, deliberately
+its own pure function separate from `decideInternPick.ts`, per UC-2's
+own rule that a pick and a bet "must not be collapsed." Combined only at
+the I/O layer (`generateInternPicks.ts`) into `picks`' single
+`reasoning` column, since the schema itself has no separate bet-reasoning
+field.
+
+Checks edge on **both** fighters, not just the predicted one —
+`probabilityForFighter.ts` (C4) exists precisely because a bet may back
+a different fighter than the pick, reused directly here rather than
+assuming the predicted side always carries the better price.
+
+One real decision confirmed with the user: **stake sizing scales with
+edge AND confidence together**, not edge alone — the first real place
+G1b's confidence cap (thin rated-fight sample → lower confidence) does
+more than just change a displayed number. Two bets with identical edge
+now get different stakes if one rests on a near-debutant matchup.
+
+Test-first, mutation-verified (`decideInternBet.ts`, 11 tests) — the
+edge-threshold gate and the both-fighters comparison were each
+independently confirmed load-bearing. The threshold mutation was caught
+by PRD UC-3's own headline example (a -6000 favourite, ~0 edge) coded
+directly as a test case, not a synthetic number.
+
+Verified live against real production data twice: the actual scheduled
+job ran against all 81 real upcoming fights (all currently unpriced, so
+every one correctly declined with "No price yet — can't bet," and the
+run was confirmed idempotent on a second pass — 0 written, 81
+unchanged). Separately, since `odds_snapshots` is immutable by trigger
+even for `service_role` (no way to insert and later clean up a
+fabricated price), the actual positive-edge path was verified by calling
+the real functions directly against a real production fight (Dan Hooker
+vs. Salahdine Parnasse) with a synthetic price and a real Elo gap: the
+intern correctly flipped its bet to the side the market didn't favour,
+computed a real 35% edge, and correctly sized the stake down for the
+resulting low confidence (1.2u, nowhere near the 3u cap) — the
+edge-and-confidence interaction confirmed working together against real
+fighter IDs, not just in isolation.
 
 ---
 
