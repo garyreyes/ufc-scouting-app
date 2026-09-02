@@ -1,5 +1,6 @@
 import { applyProbabilityDelta } from "../scoring/applyProbabilityDelta";
 import { impliedProbability } from "../scoring/impliedProbability";
+import { eloAdjustment } from "../elo/eloAdjustment";
 import { flagPenalty } from "./flagPenalty";
 import type { InternPickDecision, InternPickInput } from "./types";
 
@@ -9,13 +10,24 @@ import type { InternPickDecision, InternPickInput } from "./types";
  * estimated_probability's precise number" -- for the intern that means a
  * plain deterministic banding of the number it already produced, not a
  * second independent judgment it doesn't have.
+ *
+ * Capped when either fighter has a thin rated-fight sample: a debutant
+ * matchup should never read as confidently as a fight between two
+ * proven veterans at the same raw probability, since the intern's
+ * Elo-based read of a debutant is close to a guess, not a real
+ * assessment (user-confirmed 2026-09-02, discussing this exact gap).
  */
-function confidenceFor(probability: number): number {
-  if (probability < 0.55) return 1;
-  if (probability < 0.62) return 2;
-  if (probability < 0.72) return 3;
-  if (probability < 0.85) return 4;
-  return 5;
+function confidenceFor(probability: number, minRatedFightCount: number): number {
+  let base: number;
+  if (probability < 0.55) base = 1;
+  else if (probability < 0.62) base = 2;
+  else if (probability < 0.72) base = 3;
+  else if (probability < 0.85) base = 4;
+  else base = 5;
+
+  if (minRatedFightCount < 3) return Math.min(base, 2);
+  if (minRatedFightCount < 6) return Math.min(base, 3);
+  return base;
 }
 
 function pct(value: number): string {
@@ -67,8 +79,12 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
 
   // A concern on your opponent helps you by exactly as much as it hurts
   // them -- one shared shift, applied once, so the two sides always stay
-  // complementary.
-  const delta = penalty2 - penalty1;
+  // complementary. Elo is the same shape: one more bounded, signed shift
+  // toward whichever fighter rates higher, added alongside the rumour
+  // delta rather than blended/averaged with the market anchor -- see
+  // lib/elo/eloAdjustment.ts for why.
+  const eloDelta = eloAdjustment(fighter1.eloRating, fighter2.eloRating);
+  const delta = penalty2 - penalty1 + eloDelta;
   const probability1 = applyProbabilityDelta(anchor1, delta);
 
   // Ties break toward fighter1, the same deterministic convention
@@ -85,11 +101,15 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
         `−${pct(penalty2)} ${fighter2.name} ` +
         `(${flags2.length} flag${flags2.length === 1 ? "" : "s"}).`;
 
+  const eloNote = `Elo: ${fighter1.name} ${Math.round(fighter1.eloRating)} (${fighter1.ratedFightCount} rated), ${fighter2.name} ${Math.round(fighter2.eloRating)} (${fighter2.ratedFightCount} rated).`;
+
+  const minRatedFightCount = Math.min(fighter1.ratedFightCount, fighter2.ratedFightCount);
+
   return {
     predictedFighterId: predicted.id,
     estimatedProbability,
-    confidence: confidenceFor(estimatedProbability),
-    reasoning: `${anchorNote} ${rumourNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
+    confidence: confidenceFor(estimatedProbability, minRatedFightCount),
+    reasoning: `${anchorNote} ${rumourNote} ${eloNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
     marketAnchored,
   };
 }

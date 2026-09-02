@@ -3,6 +3,16 @@ import type { RumourCategory } from "../rumours/types";
 export interface InternFighter {
   id: string;
   name: string;
+  // Always a resolved number, never null -- the caller (generateInternPicks.ts)
+  // already applies lib/elo/eloMath.ts's DEFAULT_RATING for a fighter with
+  // no rated UFC history, so this pure function never has to branch on
+  // "no rating."
+  eloRating: number;
+  // How many rated UFC fights this rating is actually built on -- used
+  // only to temper confidence (a thin sample shouldn't read as
+  // confidently as a deep one at the same probability), never to change
+  // the probability itself.
+  ratedFightCount: number;
 }
 
 // One flag as the intern consumes it -- only what the adjustment rule

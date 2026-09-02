@@ -1821,3 +1821,53 @@ cases independently.
 only reaches the local machine. A value filled in there does nothing for
 the deployed site -- Vercel needs its own separate copy in its own
 dashboard, and this is exactly the mistake that caused the outage.
+
+## Phase 43 — G1b: Elo ratings, after ruling out every external source (2026-09-02)
+
+The user's real ask: the intern should weigh who a fighter has actually
+beaten. Investigated properly before writing any code, and almost
+everything hoped for turned out unbuildable: pre-UFC/regional history
+(KSW, LFA, Cage Fury, CFFC) isn't reachable at all -- the API-Sports
+free tier this app already uses flatly refuses any season before 2022
+(a real, previously undocumented limit, found live), and even inside
+the allowed window a real fighter's history came back UFC-only.
+Tapology and Sherdog were both ruled out on explicit policy, not a
+technical wall -- Tapology's own robots.txt disallows Claude's crawlers
+by name, Sherdog's Terms of Use prohibit scraping outright. Reading MMA
+YouTubers'/TikTokers' own predictions was investigated too and mostly
+ruled out the same way. Full trail in ARCHITECTURE.md Fork 11.
+
+**What shipped instead answers the same real question with data this
+app already owns.** An Elo rating (lib/elo/), derived purely from UFC
+win/loss/method history. Two decisions confirmed with the user: one
+global rating per fighter, not per weight class (too few UFC fights per
+fighter for a per-division number to settle); full history snapshotted
+per fight, not current-value-only (a future calibration check needs to
+know what the intern knew AT THE TIME of a pick, not today).
+
+Integrates the same way rumour flags already do -- one more bounded,
+signed adjustment on the market anchor, never a second prediction
+blended in. Confidence is now also capped when either fighter has a thin
+rated-fight sample, directly answering the debutant question raised
+mid-conversation: a debutant matchup no longer reads as confidently as a
+veteran one at the same raw probability.
+
+A real distinction the schema can't make on its own: winner_id = null
+means either a draw or a No Contest, and Elo has to treat them
+completely differently. method text is the only signal that
+disambiguates them, and when it's null too, excluded entirely rather
+than guessed.
+
+Test-first, mutation-verified across eloMath.ts, computeEloHistory.ts,
+and eloAdjustment.ts (31 tests) -- the rating-update direction, the
+chronological sort, the NC-exclusion guard, and the adjustment cap were
+each independently confirmed load-bearing.
+
+Verified live against production: the settlement chain (now including
+Elo recompute) correctly produced a provable no-op against the real,
+currently-empty settled-fight set. Re-ran the intern job immediately
+after: all 81 real upcoming picks correctly rewrote with the new Elo
+line and correctly-capped confidence, spot-checked directly against a
+real row.
+
+**Status:** G1b done. Next: G2, edge-gated betting.

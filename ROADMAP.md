@@ -5,7 +5,7 @@
 
 **Sources:** [docs/PRD.md](docs/PRD.md) (product truth, MoSCoW),
 [ARCHITECTURE.md](ARCHITECTURE.md) (10 resolved forks as of G1, 9
-correctness-critical items as of F2, item #4 extended in G1), [docs/user-flows.md](docs/user-flows.md)
+correctness-critical items as of G1b, item #4 extended in G1), [docs/user-flows.md](docs/user-flows.md)
 (screens and ordering constraints).
 
 **How to use this file.** One sub-phase is one `feature-planner` pass. Kick
@@ -953,6 +953,7 @@ works, not just the underlying API calls it's built on.
 | # | Sub-phase | Status |
 |---|---|---|
 | G1 | Intern picks every fight with an `estimated_probability`, market-anchored and rumour-adjusted | **done** (2026-09-02) |
+| G1b | Elo rating as a third, bounded adjustment — opponent quality, using only data this app already owns | **done** (2026-09-02) |
 | G2 | Edge-gated betting — threshold plus confidence sizing, and **free to decline entirely** | not started |
 | G3 | Intern lines on both boards + a calibration check | not started |
 
@@ -1006,6 +1007,63 @@ on the card view row (Flow 1's diagram shows one) — G3 covers "intern
 lines on both boards" for the scoreboard specifically, but the card-view
 row display doesn't clearly belong to any lettered sub-phase as written.
 Worth deciding explicitly before G3, not assumed into either.
+
+**G1b result.** The user's real ask -- weigh who a fighter has actually
+beaten -- turned into a real investigation before any code: pre-UFC/
+regional history (KSW, LFA, Cage Fury, CFFC) is not reachable at all
+(the API-Sports free tier this app already uses flatly refuses any
+season before 2022, a real limit found live, and even inside the
+allowed window a real fighter's history came back UFC-only); Tapology
+and Sherdog were both ruled out on explicit policy (Tapology's own
+`robots.txt` disallows Claude's crawlers by name; Sherdog's Terms of Use
+prohibit scraping outright) rather than a technical wall; reading MMA
+YouTubers'/TikTokers' own predictions was investigated too and mostly
+ruled out the same way (TikTok: no free API, ToS prohibits scraping;
+YouTube: transcripts need the video owner's own OAuth consent, and
+title+description alone was judged too thin to bother with). Full trail
+in `ARCHITECTURE.md` Fork 11.
+
+**What shipped instead answers the same real question — "did this
+fighter beat good people" — using only data this app already owns.** An
+Elo rating (`lib/elo/`), the same math behind chess ratings, derived
+purely from UFC win/loss/method history. Two decisions confirmed with
+the user before building: one global rating per fighter, not per weight
+class (most fighters have too few UFC fights for a per-division number
+to ever settle); full history, snapshotted per fight, not
+current-value-only (so a future G3 calibration check can ask what the
+intern knew AT THE TIME of a past pick, not what it knows today).
+
+Integrates the same way rumour flags already do — one more bounded,
+signed adjustment on the market anchor (`eloAdjustment.ts`, capped at
+±0.15), never a second prediction blended in. Confidence is now also
+capped when either fighter has a thin rated-fight sample, directly
+answering the debutant question raised while discussing this: the
+intern's read of a debutant is close to a guess, and the confidence
+number now says so instead of reading as confidently as a 10-fight
+veteran matchup at the same raw probability.
+
+A genuinely correctness-relevant distinction the schema itself can't
+make on its own: `winner_id = null` means either a real draw or a No
+Contest, and Elo has to treat them completely differently (a draw is a
+real result, an NC must never move a rating at all). `method` text is
+the only signal that disambiguates the two, and when it's null too,
+excluded entirely rather than guessed — same "ambiguous, don't guess"
+rule already applied to rumour-flag attribution.
+
+Test-first, mutation-verified across `eloMath.ts`, `computeEloHistory.ts`,
+and `eloAdjustment.ts` (31 tests) — the rating-update direction, the
+chronological sort, the NC-exclusion guard, and the adjustment cap were
+each independently confirmed load-bearing, plus the new confidence-cap
+logic in `decideInternPick.ts` itself.
+
+Verified live against production: the full settlement chain (now
+including the Elo recompute step) ran against real data and correctly
+produced a provable no-op — 0 settled fights exist in this app yet, and
+it processed 0, wrote 0, matching reality exactly. Re-ran the intern job
+immediately after: all 81 real upcoming picks correctly rewrote with the
+new Elo line in their reasoning (everyone defaulting to the standard
+1500 seed rating, since no history exists yet) and the new,
+correctly-capped confidence — spot-checked directly against a real row.
 
 ---
 

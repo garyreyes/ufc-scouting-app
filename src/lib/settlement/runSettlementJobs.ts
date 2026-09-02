@@ -6,12 +6,15 @@ import { runSettlementJobsOnce } from "./runSettlementJobsOnce";
 // their freshly-written per-source reports to have anything to evaluate.
 async function main() {
   const supabase = getSupabaseAdmin();
-  const { fights, picks } = await runSettlementJobsOnce(supabase);
+  const { fights, picks, elo } = await runSettlementJobsOnce(supabase);
 
   console.log(
     `Fight settlement: ${fights.settled} settled, ${fights.conflicts} disputed (queued), ${fights.stillWaiting} still waiting.`,
   );
   console.log(`Pick settlement: ${picks.picksSettled} picks settled across ${picks.fightsProcessed} fights.`);
+  console.log(
+    `Elo recompute: ${elo.fightsProcessed} settled fights processed, ${elo.snapshotsWritten} rating snapshots written.`,
+  );
 }
 
 main().catch((err) => {
