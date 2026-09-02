@@ -485,3 +485,21 @@ Decided 2026-08-29, user-originated.
   schema anywhere maps a fighter to their own or their camp's Bluesky
   handle. Building that honestly needs new columns + a way to populate
   them — a real, separate scope item, not something F3 can fake in the UI.
+- **The rumour "degraded" notice is a separate, page-scoped component
+  (`features/rumours/components/RumourHealthNotice`), deliberately not
+  folded into the existing global `JobHealthBanner` — decided in F3, not
+  an oversight.** That banner is app-shell chrome with odds-specific
+  wording ("Odds job degraded"), rendered on every page via `layout.tsx`.
+  Rumour flags only ever appear on `/events/[id]` and `/fights/[id]`, so
+  a site-wide banner for them would be irrelevant chrome on every other
+  page. If a future session is tempted to consolidate these into one
+  generic banner, don't — the two states need different wording
+  (`docs/user-flows.md`'s exact copy for this one is "Flags unavailable,
+  last scraped X") and different scope.
+- **A real Bluesky outlet can post under both a bridged AND a native
+  handle — found live, F3, not assumed.** Bloody Elbow's content showed
+  up via both `bloodyelbow.com.web.brid.gy` (the bridge) and a separate
+  native `bloodyelbow.com` account. `lib/rumours/isNamedSource.ts`'s
+  hand-maintained allowlist exists for exactly this — add a handle to it
+  only once it's actually been observed posting real MMA content, the
+  way `bloodyelbow.com` was, never guessed from a plausible-looking name.

@@ -5,6 +5,8 @@ import { getCardView } from "@/features/fights/api";
 import { BoutRow } from "@/features/fights/components/BoutRow";
 import { getMyPicksForFights } from "@/features/picks/api";
 import { getOpenDisputedFightIds } from "@/features/conflicts/api";
+import { getRumourFlagSummaries } from "@/features/rumours/api";
+import { RumourHealthNotice } from "@/features/rumours/components/RumourHealthNotice";
 import type { MyPick } from "@/features/picks/types";
 import styles from "./page.module.css";
 
@@ -58,6 +60,11 @@ export default async function EventDetailPage({
     ]);
   }
 
+  // Public, unlike picks/conflicts above -- rumour_flags/rumour_sources
+  // are public-read (0024_rumour_flags_and_sources.sql), and docs/
+  // user-flows.md shows flags on the read-only card view too.
+  const rumourFlagsByFight = await getRumourFlagSummaries(event.fights.map((f) => f.id));
+
   const locked = event.starts_at !== null && new Date() >= new Date(event.starts_at);
 
   return (
@@ -69,6 +76,7 @@ export default async function EventDetailPage({
           {user ? "Not available." : "Sign in to make picks."}
         </p>
       )}
+      <RumourHealthNotice />
       {event.fights.length === 0 ? (
         <p className={styles.empty}>No fights match the selected filter.</p>
       ) : (
@@ -81,6 +89,7 @@ export default async function EventDetailPage({
               myPick={myPicks.get(fight.id) ?? null}
               locked={locked}
               disputed={disputedFightIds.has(fight.id)}
+              rumourFlags={rumourFlagsByFight.get(fight.id) ?? []}
             />
           ))}
         </div>

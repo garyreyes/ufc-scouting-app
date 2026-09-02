@@ -1,0 +1,19 @@
+/* Restrained-colour rule: the one existing accent, not a second hue --
+   see job-health's JobHealthBanner.module.css for the same reasoning. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.badge:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}

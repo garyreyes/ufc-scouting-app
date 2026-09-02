@@ -1,5 +1,5 @@
 import { getLatestJobRuns, getMissedSnapshotCount, TRACKED_JOB_NAMES } from "../api";
-import { evaluateJobHealth } from "../evaluateJobHealth";
+import { evaluateJobHealth } from "@/shared/utils/evaluateJobHealth";
 import { RetryButton } from "./RetryButton";
 import styles from "./JobHealthBanner.module.css";
 

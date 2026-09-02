@@ -1,0 +1,112 @@
+.section {
+  margin-bottom: 32px;
+}
+
+.fighterGroup {
+  margin-top: 12px;
+}
+
+.fighterGroup h3 {
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+}
+
+.flagCard {
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.flagHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.category {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.corroboration {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.summary {
+  margin: 8px 0 12px;
+}
+
+.sourceList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.source {
+  font-size: 0.85rem;
+}
+
+.sourceMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.author {
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.namedBadge {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.date {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.excerpt {
+  margin: 4px 0;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.links a {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+.links a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .sourceMeta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}

@@ -7,12 +7,20 @@ import { createClient } from "@/lib/supabase/server";
 import { ReportForm } from "@/features/scouting-reports/components/ReportForm";
 import { ReportList } from "@/features/scouting-reports/components/ReportList";
 import { FighterReportColumn } from "@/features/scouting-reports/components/FighterReportColumn";
+import { getRumourFlagsForFight } from "@/features/rumours/api";
+import { RumourSection } from "@/features/rumours/components/RumourSection";
 import styles from "./page.module.css";
 
 export default async function FightDetailPage({ params }: PageProps<"/fights/[id]">) {
   const { id } = await params;
   const fight = await getFightById(id);
   if (!fight) notFound();
+
+  // Public, same posture as the odds/fight data above it -- rumour_flags/
+  // rumour_sources are public-read, and docs/user-flows.md's "full rumour
+  // sources with links" applies to /fights/[id] for every visitor, not
+  // just the owner (only scouting reports below stay gated).
+  const rumourFlags = await getRumourFlagsForFight(id);
 
   const supabase = await createClient();
   const {
@@ -47,6 +55,8 @@ export default async function FightDetailPage({ params }: PageProps<"/fights/[id
         {fight.weight_class ?? "Weight class unknown"}
         {fight.method ? ` · ${fight.method}${fight.round ? ` · R${fight.round}` : ""}` : ""}
       </p>
+
+      <RumourSection fighter1={fight.fighter1} fighter2={fight.fighter2} flags={rumourFlags} />
 
       {!user && <p className={styles.signInPrompt}>Sign in to read and write scouting reports.</p>}
 
