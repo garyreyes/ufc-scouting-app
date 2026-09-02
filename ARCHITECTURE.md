@@ -507,12 +507,40 @@ Once rewritten that way, the complete file — including 15 and 16, never
 independently isolated — passed end to end. Full diagnostic trail in
 `PROJECT_FACTS.md`.
 
-**`lib/auth.ts` (`isOwner()`) carries no security weight of its own.** It
-exists for one reason: deciding what the UI shows (sign-in prompt vs. "not
-available" vs. the real screen). The actual boundary is `is_owner()` in
-Postgres, enforced independently of anything the app layer does or any bug
-in it — the same "app-layer check is UX, the database is the boundary"
-split already established for the odds-snapshot immutability trigger.
+**`lib/auth.ts` (`isOwner()`) carries no security weight of its own** for
+any RLS-backed table — clans, picks, and everything else this fork
+covers. It exists there for one reason: deciding what the UI shows
+(sign-in prompt vs. "not available" vs. the real screen), while
+`is_owner()` in Postgres is the actual boundary, enforced independently
+of anything the app layer does. **This stopped being true everywhere the
+moment `getSupabaseAdmin()`-backed tables arrived** (B5's `job_runs`/
+`odds_snapshots`, B6's `data_conflicts`, F4's `rumour_flags` outcome
+writes) — those have zero client write grant for RLS to fall back on, so
+`isOwner()`, checked server-side in each action, IS the real security
+boundary there. `lib/auth.ts`'s own docstring documents this split
+explicitly; don't assume the blanket "UX only" claim above still covers
+every caller.
+
+**A real production outage (2026-09-02) found the gap this split left
+open: `OWNER_USER_ID` was configured on GitHub Actions (for the batch
+jobs) but never on Vercel (for the app itself).** `isOwner()` returns
+`false` for a logged-out visitor before ever touching the env var, which
+is exactly why this was invisible to every check this session ran before
+that day — the moment the real, allowlisted owner actually logged in and
+`isOwner()` tried to read a missing `OWNER_USER_ID`, `requireEnv`'s hard
+throw took the whole page down. Also surfaced a second, independent
+drift: `0017_owner_allowlist.sql` in this repo still has the literal
+`'REPLACE_WITH_OWNER_USER_ID'` placeholder its own comment told the
+original author to replace by hand — the live database has been correct
+this whole time, fixed going forward by `0028_is_owner_real_id.sql`
+(a confirmed no-op against production). See `PROJECT_FACTS.md` and
+`CHANGES.md` Phase 42 for the full incident, and
+`lib/describeOwnerConfigError.ts` for the fix: a missing `OWNER_USER_ID`
+or `SUPABASE_SERVICE_ROLE_KEY` now degrades every owner-gated page to
+its existing read-only view plus a specific on-page notice, instead of
+crashing — a deliberate, user-confirmed decision, narrowly scoped to
+these two known failure messages so a genuinely unrelated bug still
+fails loudly.
 
 ### Fork 9 — social source: **Bluesky, not Reddit**
 
@@ -1053,15 +1081,23 @@ src/
     scouting-reports/  components/, api.ts, types.ts            [FROZEN]
     clans/             components/, api.ts, types.ts            [FROZEN]
     auth/              components/, api.ts
-  shared/              components/, utils/ (weightClasses.ts,
-                       evaluateJobHealth.ts + JobRunRow — moved from
-                       features/job-health/ in F3, shared with
-                       features/rumours)
+  shared/              components/ (..., OwnerConfigNotice — the read-
+                       only-but-loud degradation banner for a missing
+                       OWNER_USER_ID/SUPABASE_SERVICE_ROLE_KEY, added
+                       after the 2026-09-02 outage), utils/
+                       (weightClasses.ts, evaluateJobHealth.ts +
+                       JobRunRow — moved from features/job-health/ in
+                       F3, shared with features/rumours)
   lib/
     supabase/          browser + server + admin clients (admin.ts: one
                        service-role wrapper, shared — moved 2026-09-01
                        from ufc-data-sync/supabaseAdmin.ts once lib/odds/
                        needed the same client, rather than duplicate it)
+    describeOwnerConfigError.ts  pure, mutation-tested — the one place
+                       allowed to reclassify a missing OWNER_USER_ID/
+                       SUPABASE_SERVICE_ROLE_KEY as "read-only, not a
+                       crash"; anything else it doesn't recognize
+                       rethrows, on purpose (2026-09-02 outage fix)
     ufc-data-sync/     API-Sports + Wikipedia ingestion (existing);
                        buildSourceReportUpdate.ts — built D1, routes each
                        sync job's result into its own per-source columns

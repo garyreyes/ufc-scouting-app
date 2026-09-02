@@ -5,6 +5,8 @@ import { getReportsForFight, getReportsForFighter } from "@/features/scouting-re
 import { getMyClans } from "@/features/clans/api";
 import { createClient } from "@/lib/supabase/server";
 import { isOwner } from "@/lib/auth";
+import { describeOwnerConfigError } from "@/lib/describeOwnerConfigError";
+import { OwnerConfigNotice } from "@/shared/components/OwnerConfigNotice";
 import { ReportForm } from "@/features/scouting-reports/components/ReportForm";
 import { ReportList } from "@/features/scouting-reports/components/ReportList";
 import { FighterReportColumn } from "@/features/scouting-reports/components/FighterReportColumn";
@@ -42,6 +44,21 @@ export default async function FightDetailPage({ params }: PageProps<"/fights/[id
       ])
     : [[], [], [], []];
 
+  // A missing OWNER_USER_ID (found live 2026-09-02) previously crashed
+  // this whole page for a logged-in owner. Falls back to the read-only
+  // view instead, loudly, via ownerConfigError -- same pattern as
+  // /events/[id]. Any other thrown error is a real bug and still
+  // rethrows.
+  let viewerIsOwner = false;
+  let ownerConfigError: string | null = null;
+  try {
+    viewerIsOwner = isOwner(user?.id);
+  } catch (err) {
+    const described = describeOwnerConfigError(err);
+    if (!described) throw err;
+    ownerConfigError = described;
+  }
+
   const redirectPath = `/fights/${id}`;
 
   return (
@@ -57,12 +74,14 @@ export default async function FightDetailPage({ params }: PageProps<"/fights/[id
         {fight.method ? ` · ${fight.method}${fight.round ? ` · R${fight.round}` : ""}` : ""}
       </p>
 
+      {ownerConfigError && <OwnerConfigNotice message={ownerConfigError} />}
+
       <RumourSection
         fighter1={fight.fighter1}
         fighter2={fight.fighter2}
         flags={rumourFlags}
         settled={fight.winner_id !== null}
-        viewerIsOwner={isOwner(user?.id)}
+        viewerIsOwner={viewerIsOwner}
       />
 
       {!user && <p className={styles.signInPrompt}>Sign in to read and write scouting reports.</p>}

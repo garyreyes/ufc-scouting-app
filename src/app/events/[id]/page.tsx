@@ -7,6 +7,8 @@ import { getMyPicksForFights } from "@/features/picks/api";
 import { getOpenDisputedFightIds } from "@/features/conflicts/api";
 import { getRumourFlagSummaries } from "@/features/rumours/api";
 import { RumourHealthNotice } from "@/features/rumours/components/RumourHealthNotice";
+import { describeOwnerConfigError } from "@/lib/describeOwnerConfigError";
+import { OwnerConfigNotice } from "@/shared/components/OwnerConfigNotice";
 import type { MyPick } from "@/features/picks/types";
 import styles from "./page.module.css";
 
@@ -44,20 +46,38 @@ export default async function EventDetailPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const viewerIsOwner = isOwner(user?.id);
 
   // Read-only for everyone who isn't the owner -- logged-out and
   // logged-in-but-not-allowlisted are the same UI state here
   // (docs/user-flows.md's auth-gate table), and Flow 1's own diagram
   // never branches conflict-holds or picks onto either of those paths.
+  //
+  // A missing OWNER_USER_ID or SUPABASE_SERVICE_ROLE_KEY (found live
+  // 2026-09-02: this crashed the whole page with an opaque error) falls
+  // into the exact same read-only branch rather than a 500 -- but is
+  // still loud about it, via ownerConfigError, rather than silently
+  // treating a real owner as a stranger with no explanation. Any OTHER
+  // thrown error is a real bug, not a recognized config gap
+  // (describeOwnerConfigError.ts returns null for those), and still
+  // fails loudly by rethrowing.
+  let viewerIsOwner = false;
+  let ownerConfigError: string | null = null;
   let myPicks = new Map<string, MyPick>();
   let disputedFightIds = new Set<string>();
-  if (viewerIsOwner) {
-    const fightIds = event.fights.map((f) => f.id);
-    [myPicks, disputedFightIds] = await Promise.all([
-      getMyPicksForFights(supabase, fightIds),
-      getOpenDisputedFightIds(fightIds),
-    ]);
+  try {
+    viewerIsOwner = isOwner(user?.id);
+    if (viewerIsOwner) {
+      const fightIds = event.fights.map((f) => f.id);
+      [myPicks, disputedFightIds] = await Promise.all([
+        getMyPicksForFights(supabase, fightIds),
+        getOpenDisputedFightIds(fightIds),
+      ]);
+    }
+  } catch (err) {
+    const described = describeOwnerConfigError(err);
+    if (!described) throw err;
+    viewerIsOwner = false;
+    ownerConfigError = described;
   }
 
   // Public, unlike picks/conflicts above -- rumour_flags/rumour_sources
@@ -76,6 +96,7 @@ export default async function EventDetailPage({
           {user ? "Not available." : "Sign in to make picks."}
         </p>
       )}
+      {ownerConfigError && <OwnerConfigNotice message={ownerConfigError} />}
       <RumourHealthNotice />
       {event.fights.length === 0 ? (
         <p className={styles.empty}>No fights match the selected filter.</p>
