@@ -1562,3 +1562,41 @@ what caught the null-stance case above before it could surprise anyone.
 **Status:** E2 done. Phase E (the scoreboard) is complete. Next: Phase F
 (the rumour engine) or Phase G (the intern) -- both are independent of
 what's shipped so far; worth confirming which one to take next.
+
+## Phase 37 — F1: verification spike, and a real social-source pivot (2026-09-02)
+
+Started as a verification spike for the plan's original source (Reddit)
+and ended up re-deciding the social source entirely. X was ruled out on
+hard fact: its free tier was discontinued in February 2026, directly
+violating the project's $0/month constraint. Reddit was checked live,
+not assumed changed from a stale headline -- extensive real
+troubleshooting (a network-security block on the user's own connection,
+CAPTCHA staleness) eventually surfaced the real cause: Reddit's
+"Responsible Builder Policy" (June 5, 2026) closed self-service app
+registration, replacing it with a manual, opaque approval process with
+no guaranteed outcome.
+
+Bluesky was verified live and chosen instead -- free, no approval queue,
+and a real content check found genuine signal: established MMA outlets
+bridge their coverage onto it, turning up real, current, named-source
+posts. Two real technical findings, neither assumed: Bluesky's own
+"public" API host blocks search specifically (fixed by routing through
+the authenticated session's own host instead), and a meaningful share of
+the best content arrives via bridge accounts with empty post text, the
+real content living in a link-embed field instead (`lib/bluesky.ts`
+falls back to it).
+
+Gemini was verified too, with a real model-selection finding: every full
+"Flash" model checked caps at 20 free requests/day, while the
+Flash-Lite tier gets 500 -- confirmed via the account's own real
+dashboard, since Google's docs refuse to publish a fixed number. A live
+side-by-side test found Lite matches full Flash's output quality on a
+realistic clustering prompt exactly, so `lib/llm.ts` targets
+`gemini-3.5-flash-lite`.
+
+Both wrapper modules (`lib/llm.ts`, `lib/bluesky.ts`) were verified live
+end-to-end as the actual shipped code, not just via raw throwaway fetch
+calls to the underlying APIs.
+
+**Status:** F1 done. Next: F2, clustering into `rumour_flags` +
+`rumour_sources`, with a degrade-loudly fallback.

@@ -4,9 +4,9 @@
 `user-flow-mapper`.
 
 **Sources:** [docs/PRD.md](docs/PRD.md) (product truth, MoSCoW),
-[ARCHITECTURE.md](ARCHITECTURE.md) (7 resolved forks, 8 correctness-critical
-items), [docs/user-flows.md](docs/user-flows.md) (screens and ordering
-constraints).
+[ARCHITECTURE.md](ARCHITECTURE.md) (9 resolved forks as of F1, 8
+correctness-critical items), [docs/user-flows.md](docs/user-flows.md)
+(screens and ordering constraints).
 
 **How to use this file.** One sub-phase is one `feature-planner` pass. Kick
 one off by naming it. When `feature-planner` logs a completed feature to
@@ -727,7 +727,7 @@ Independent of A–E. Can move earlier — UC-1 works with no odds and no picks.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| F1 | Verification spike + `lib/llm.ts` (Gemini Flash) and Reddit client wrappers | not started |
+| F1 | Verification spike + `lib/llm.ts` (Gemini Flash) and social client wrapper | **done** (2026-09-02) |
 | F2 | Clustering → `rumour_flags` + `rumour_sources`, with a degrade-loudly fallback | not started |
 | F3 | Flags on card rows + full sources with links on `/fights/[id]` | not started |
 | F4 | Rumour outcome marking on settled cards (UC-5) | not started |
@@ -739,6 +739,81 @@ counts **independent claims**, not raw post volume.
 
 **F4 note.** This is what makes the PRD's rumour precision metric measurable
 at all. Without it that metric cannot be reported.
+
+**F1 result.** Started as a verification spike for the originally-planned
+source (Reddit) and ended up re-deciding the social source entirely —
+`ARCHITECTURE.md` Fork 9 has the full reasoning; this is the build-log
+version.
+
+**X was checked and ruled out on hard fact:** its free tier was
+discontinued in February 2026 — reading a single post now costs real
+money, a direct violation of the `$0/month, hard` constraint at any
+volume.
+
+**Reddit was checked live, not assumed changed from a stale headline.**
+A real attempt to register a script OAuth app at `reddit.com/prefs/apps`
+hit a genuine dead end, not a form bug — extensive back-and-forth
+troubleshooting (a network-security block on the user's own connection,
+ruled out via incognito; CAPTCHA staleness, ruled out by resubmitting
+immediately) eventually surfaced the real cause: Reddit's "Responsible
+Builder Policy" (dated June 5, 2026) closed self-service registration.
+Every new OAuth client now needs manual, opaque approval with reported
+multi-week queues and no published criteria — corroborated independently
+by both the user's own research and a live web search before accepting
+it as the real explanation, not a guess from one source.
+
+**Bluesky was verified live and chosen.** Free, no approval queue (an
+account plus a self-service app password), and a real content check
+found genuine signal: established MMA outlets (Bloody Elbow, MMA
+Fighting, MMA Mania) bridge their coverage onto it, turning up real,
+current, named-source posts — "Patchy Mix misses weight by over six
+pounds", "Chidi Njokuani rips commission for weight cut controversy at
+UFC 330" — a genuinely good fit for UC-1's corroboration/sourcing
+requirements, not a fallback settled for after Reddit and X both failed.
+
+Two real technical findings from the live verification, neither
+assumed: `public.api.bsky.app` (documented as the public,
+unauthenticated read mirror) blocks `searchPosts` specifically — ruled
+out a broad network block first (a trivial `getProfile` call against the
+same host succeeded unauthenticated) before finding the fix is routing
+search through the authenticated session's own PDS host (`bsky.social`)
+instead. And a real share of the best content arrives via "bridge"
+accounts with an **empty** `record.text` -- the actual content lives in
+`record.embed.external` instead, found by inspecting one real bridged
+post's full JSON. `lib/bluesky.ts`'s `searchMmaPosts` falls back to the
+embed's title+description; a live test of the real function (not raw
+fetch calls) confirmed zero posts came back empty after the fallback,
+out of a real 7-post sample.
+
+**Gemini verified live too, model choice changed from the original
+plan.** `docs/PRD.md` named "Gemini Flash or Groq," `ARCHITECTURE.md`
+had already narrowed this to Gemini Flash specifically — F1 checked the
+account's own real rate limits (Google's own docs refuse to publish a
+fixed number, pointing to the per-account AI Studio dashboard instead)
+and found every full "Flash" model checked (2.5/3/3.5/3.6/3.7) caps at
+20 requests/day, while `gemini-2.5-flash-lite`/`gemini-3.1-flash-lite`
+share a **500** RPD budget. A live side-by-side test of the identical
+realistic clustering prompt against both tiers returned matching
+quality — same correct deduplication of two independent posts into one
+concern, same correct exclusion of a joke/troll post, even the same
+attribution miss on a deliberately ambiguous case (confirming that miss
+is a prompt-design gap for F2 to solve, not a Lite-specific capability
+gap) — while Lite ran faster and spent zero tokens on internal
+"thinking" (782 thinking tokens on the full model vs. none on Lite).
+`gemini-2.5-flash-lite` itself is confirmed dead: calling it live
+returned a 404 telling new callers to use `gemini-3.5-flash-lite`
+instead, which is what `lib/llm.ts` targets.
+
+`lib/llm.ts` also uses Gemini's native `responseMimeType:
+"application/json"` rather than a prose "return only JSON" instruction
+— verified live that the prose approach wraps output in ` ```json `
+markdown fences (a real parsing footgun), while the native mode returns
+clean, directly `JSON.parse`-able text every time tested.
+
+**Both wrapper modules verified live end-to-end** (not just via raw
+throwaway fetch scripts): `generateJson` and `searchMmaPosts` themselves
+were imported and called for real, confirming the actual shipped code
+works, not just the underlying API calls it's built on.
 
 ---
 

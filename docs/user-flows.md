@@ -245,7 +245,7 @@ where the app fails.
 | **Odds snapshot missed** | **Loud banner** plus a manual late-pull action, accepting the worse price. The PRD calls this the highest-impact failure in the system |
 | Bout disputed | Row visibly held, picking disabled, link to `/conflicts` |
 | **Rumour engine degraded** | **"Flags unavailable, last scraped X"** — never a silent zero, which is indistinguishable from "nothing to report" |
-| Reddit stale | Flags shown, stamped with their age |
+| Bluesky stale | Flags shown, stamped with their age |
 | Picks locked | Controls disabled with the reason, not hidden |
 | Loading | Bout list streams first; flags and odds fill in per row. The list must never block on the rumour query |
 

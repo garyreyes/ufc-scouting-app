@@ -5,6 +5,10 @@
 **Amended:** 2026-08-29 — picks and bets split into two separate judgments,
 scoreboard split into two boards (UC-2, UC-3, UC-4, §5, §8); disputed-opponent
 policy decided (§7)
+**Amended:** 2026-09-02 — social source switched from Reddit to Bluesky
+(§6, §7, §9); verified live that Reddit's API now requires manual,
+opaque approval with no guaranteed outcome, and that X's free tier is
+gone entirely. See `ARCHITECTURE.md` Fork 9 for the full reasoning
 **Supersedes:** the product story in `README.md` (see "Pivot record" below)
 
 > This is the single source of product truth. `ARCHITECTURE.md` owns *how*
@@ -77,8 +81,9 @@ multi-user changes cost structure, onboarding, and RLS all at once.
 ### UC-1 — Scout the card (the intern's real job)
 
 Before a card, I open an event and each bout shows what the intern turned
-up from r/MMA and socials: weight-cut trouble, injuries, camp changes,
-short-notice replacements.
+up from Bluesky (established MMA outlets and beat writers, plus fan
+discussion): weight-cut trouble, injuries, camp changes, short-notice
+replacements.
 
 **Each flag must show corroboration and sourcing, never a bare boolean:**
 
@@ -264,8 +269,8 @@ it as success is the specific mistake this two-board split exists to prevent.
 | Odds source | **BetOnline.ag** (`betonlineag`), region `us`, **decimal** format (the API default) | switched 2026-09-01 from 1xBet — 89% feed coverage vs 1xBet's 54%, and the only bookmaker checked that also prices DWCS |
 | Odds coverage | **BetOnline.ag returns real MMA prices for both UFC and DWCS**, confirmed live — matched a real UFC 331 fighter pairing against the independently-sourced Wikipedia date, and priced a real DWCS card the same day. No fallback bookmaker needed | verified live 2026-09-01 |
 | `h2h` market shape | **Two outcomes on BetOnline.ag** — no `Draw` entry, confirmed on both a UFC and a DWCS fight. (1xBet's `h2h` was three-outcome; the client's Draw-discard is kept as a no-op safeguard regardless of which bookmaker is active) | verified live 2026-09-01 |
-| LLM free tier | Gemini Flash or Groq. **Must be verified empirically before anything is built on it**, and must sit behind one swappable wrapper module so a dead tier is a one-file change | see §9 |
-| Reddit API | Free at personal volume; needs a registered OAuth app | to verify |
+| LLM free tier | **Gemini Flash-Lite** (`gemini-3.5-flash-lite`) — verified live 2026-09-02: matches full "Flash" output quality on a real clustering test, 25x the free daily request budget (500 RPD vs. 20) | see §9 |
+| Social API | ~~Reddit API~~ — **switched to Bluesky.** Reddit's self-service app registration closed under a June 2026 policy update; every new client now needs manual, opaque approval with no guaranteed outcome. X was checked and ruled out separately — its free tier was discontinued in Feb 2026, violating the $0 constraint at any volume. Bluesky: free, no approval queue, real MMA content confirmed live | verified live 2026-09-02 |
 | Data ordering gap | No `bout_order` column exists; card ordering is currently unreliable | verified in schema |
 
 **Standing rule, learned the hard way:** do not trust a provider's
@@ -325,7 +330,7 @@ and "done" means the test was run and observed passing.**
   clustering (fuzzy name match + concern keywords). **Must degrade loudly —
   never silently return zero flags**, which is indistinguishable from
   "nothing to report" and is the worst possible failure.
-- **Reddit rate-limited or down** → last successful scrape shown, clearly
+- **Bluesky rate-limited or down** → last successful scrape shown, clearly
   stamped with its age.
 - **Post deleted after flagging** → snapshot post text at scrape time so the
   evidence survives link rot.
@@ -365,7 +370,7 @@ and "done" means the test was run and observed passing.**
   reasoning — on any fight, no stake required
 - Bet logging: **optional and separate**, may back a different fighter than
   the pick; unit stake at the snapshotted price, enforced pick lock
-- Reddit/social rumour engine: corroboration count + source links, no
+- Bluesky/social rumour engine: corroboration count + source links, no
   credibility verdict
 - Intern output: market-anchored, rumour-adjusted picks on every fight, plus
   edge-gated bets it is **free to decline entirely**
@@ -428,8 +433,8 @@ and "done" means the test was run and observed passing.**
 | Layer | Choice | Status |
 |---|---|---|
 | Odds | **The Odds API** free tier — **BetOnline.ag** (`betonlineag`), region `us`, **decimal**, `h2h` 2-way market | Decimal is the API default, so no odds-format conversion exists. Verified live: 89% feed coverage, prices both UFC and DWCS |
-| Social source | **Reddit API** (r/MMA), free tier | Needs a registered OAuth app |
-| LLM | **Gemini Flash or Groq**, free tier | Provider undecided; **must sit behind one wrapper module** (`lib/llm.ts`) so it's swappable |
+| Social source | **Bluesky**, free tier, behind `lib/bluesky.ts` | Switched from Reddit 2026-09-02 — verified live that Reddit's API now requires manual, opaque approval; confirmed real MMA content on Bluesky (established outlets bridge coverage onto it) |
+| LLM | **Gemini Flash-Lite** (`gemini-3.5-flash-lite`), free tier, behind `lib/llm.ts` | Verified live 2026-09-02: matches full "Flash" quality, 25x the free daily request budget |
 | Fuzzy matching | String-similarity library, TS side | Replaces today's exact `ilike` name match |
 | Testing | Test runner TBD (Vitest likely) | Required before correctness-critical work starts |
 | Scraping | **Open** — see below | |
@@ -456,7 +461,7 @@ and "done" means the test was run and observed passing.**
 ### Layer boundaries (unchanged, enforced as file layout)
 
 UI components hold no business logic and make no external calls. All
-outbound calls — Supabase, Reddit, odds, LLM — live in `lib/` or a feature's
+outbound calls — Supabase, Bluesky, odds, LLM — live in `lib/` or a feature's
 `api.ts` / `actions.ts`. Route handlers stay thin. Every third-party SDK gets
 exactly one wrapper module.
 
