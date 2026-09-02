@@ -634,6 +634,98 @@ to write straight past a started or finished card. See correctness-
 critical item #4 for the full finding and the live-tested fix
 (`0027_narrow_settlement_bypass.sql`).
 
+### Fork 11 — opponent quality: **an Elo rating, not external scouting data**
+
+The user's real ask (G1-follow-up, 2026-09-02): the intern should weigh
+who a fighter has actually beaten, not just their bare win/loss count —
+were their opponents journeymen or genuine contenders, was their pre-UFC
+record (KSW, LFA, Cage Fury, CFFC) any good. Investigated properly rather
+than guessed at, and most of what was hoped for turned out unbuildable:
+
+- **Pre-UFC/regional history is not reachable at all.** Live-tested
+  against the real API-Sports account this app already uses: the free
+  plan flatly refuses any season before 2022 (`"Free plans do not have
+  access to this season, try from 2022 to 2024"`, a real, previously
+  undocumented limit, found the same way Phase 5's date-window and
+  rate-limit cutoffs were), and even inside the allowed window, a real
+  fighter's fighter-scoped fight list came back UFC-only — no evidence
+  the API's fighter-indexed data covers regional promotions at all, for
+  the one real fighter tested.
+- **Tapology and Sherdog were both ruled out on explicit policy, not a
+  technical wall.** Tapology's own `robots.txt` disallows `ClaudeBot`,
+  `Claude-Web`, and `anthropic-ai` by name. Sherdog's Terms of Use
+  explicitly prohibit "screen scraping" and "aggregating content... for
+  use elsewhere." Neither is a JS-proof-of-work-style barrier a
+  differently-built scraper could route around (Fork 1's UFCStats
+  case); both are the site owner explicitly saying no. Not built.
+- **TikTok and YouTube (reading MMA creators' own predictions) were also
+  investigated and mostly ruled out.** TikTok: no free API, and its
+  Terms of Service explicitly prohibit automated scraping/bot access.
+  YouTube: the official Data API is free and legitimate for search, but
+  `captions.download` (the actual reasoning, not just a title) requires
+  OAuth consent from each video's own owner — not obtainable at any
+  real scale. The only clean, ToS-compliant path left (title +
+  description text only, no transcripts) was judged too thin to be
+  worth building — most creators never write their reasoning in the
+  description.
+
+**What Elo answers instead: the same underlying question, using only
+data this app already fully owns.** A rating derived purely from who
+beat whom in the UFC — the standard math behind chess ratings and
+FiveThirtyEight's sports models — propagates "quality of opposition"
+through the whole win/loss graph with zero external dependency and zero
+ToS risk. It cannot see pre-UFC history (the same gap as above, just
+handled honestly: a debuting fighter starts at a stated default rather
+than a guess), which the user explicitly confirmed is an acceptable,
+understood limitation rather than a blocker.
+
+Two decisions confirmed with the user before building:
+
+1. **One global rating per fighter, not per weight class.** Most
+   fighters have too few UFC fights for a per-division rating to ever
+   settle into anything meaningful — pooling across weight classes
+   trades some precision for a sample size that can actually converge,
+   the same cold-start problem debutants already have, just made worse
+   and more common by splitting the data further.
+2. **Full history, snapshotted per fight, not current-value-only.**
+   `fighter_elo_history` keeps every rating a fighter has ever had, not
+   just their latest — G3's future calibration check needs to ask "what
+   did the intern know at the moment of a past pick," not "what does it
+   know now," and a current-value-only table would make that
+   permanently unanswerable once picks start accumulating.
+
+**Elo integrates the same way rumour flags already do** — a bounded,
+signed, additive shift on the market anchor (`eloAdjustment.ts`,
+±0.15), not a second probability blended/averaged in. Keeps the market
+anchor primary, per UC-3's own stated design ("anchors on the market and
+deviates when its own scouting gives it a reason to"), and reuses the
+exact shape `flagPenalty.ts` already established rather than inventing a
+second mechanism.
+
+**A genuinely correctness-relevant distinction the schema itself cannot
+make:** `fights.winner_id = null` means either a real draw or a No
+Contest, and Elo must treat them completely differently — a draw is a
+real 0.5/0.5 result, an NC is not a competitive result at all and must
+never move a rating. `method` text is the only signal that
+disambiguates them (`evaluateFightSettlement.ts`'s own test fixture:
+`"NC (overturned)"`), and when `method` is itself null (the
+`api_sports_only_24h` settlement path writes it that way), there is no
+way to tell the two apart — excluded from Elo entirely rather than
+guessed, the same "ambiguous → drop, don't guess" rule already applied
+to rumour-flag fighter attribution.
+
+**Always a full recompute, never an incremental patch.** Elo is
+inherently sequential — this app's own settlement design lets fights
+settle out of chronological order relative to each other (a fight can
+sit disputed while later ones for the same fighters already settled),
+so an upsert-only approach would silently rate a late-settling fight
+using the fighters' CURRENT ratings instead of what they actually were
+at that point in history, corrupting every rating computed since.
+`recomputeEloRatings.ts` deletes and rebuilds the whole table from
+`computeEloHistory.ts`'s chronological pass every time it runs — see
+Schema decisions below for why that's judged an acceptable tradeoff at
+this data volume.
+
 ---
 
 ## Entities
@@ -655,6 +747,7 @@ Fight  1---*  RumourFlag       (one per distinct concern per fighter)
 RumourFlag 1---* RumourSource  (the posts backing it)
 DataConflict                   (anything the machine isn't sure of — one queue)
 JobRun                         (job health — what makes loud failure possible)
+Fighter 1---*  EloRatingSnapshot  (one per rated UFC fight, full history kept)
 ```
 
 **The chalk line is computed, never stored.** It is derivable from odds plus
@@ -993,10 +1086,22 @@ schema — not guessable, and they do not leak row counts.
 
 **Indexes** (Postgres does **not** auto-index foreign keys):
 `picks(fight_id)`, `picks(status)`, `rumour_flags(fight_id)`,
-`rumour_sources(flag_id)`, `odds_snapshots(fight_id)`.
+`rumour_sources(flag_id)`, `odds_snapshots(fight_id)`,
+`fighter_elo_history(fighter_id, fight_settled_at desc)` (the real query
+shape: "this fighter's most recent rating before some point in time").
 Pre-existing gap worth closing at the same time: `fights.event_id`,
 `fights.fighter1_id`, and `fights.fighter2_id` are all unindexed today and are
 joined on constantly.
+
+**`fighter_elo_history` — built G1-follow-up** (`0029_fighter_elo_
+history.sql`). `unique(fighter_id, fight_id)` — one snapshot per fighter
+per fight, upserted by a full recompute rather than accumulated.
+Deliberately public-read, no client write grant — same posture as
+`odds_snapshots`/`rumour_flags`, since this is derived entirely from
+fight results already shown throughout the app. A debuting fighter gets
+no explicit seed row; `DEFAULT_RATING` (1500) is applied at read time by
+any caller resolving "this fighter's current rating" against an empty
+history, so the table only ever grows by real, rated results.
 
 ---
 
@@ -1142,14 +1247,29 @@ src/
                        easiest to get silently backwards), types.ts,
                        generateInternPicks.ts, runScheduledInternJob.ts
                        (`npm run intern:scheduled-job`, and
-                       .github/workflows/intern.yml every 2h) — built G1
+                       .github/workflows/intern.yml every 2h) — built G1;
+                       Elo wired in as one more bounded adjustment,
+                       confidence capped for a thin rated-fight sample —
+                       built G1-follow-up
+    elo/               eloMath.ts (expectedScore, updateRatings,
+                       kFactorForPriorFightCount — pure, mutation-tested),
+                       computeEloHistory.ts (the full chronological
+                       recompute, pure, mutation-tested — the sort order
+                       and the draw/NC distinction are the two things
+                       easiest to get silently wrong), eloAdjustment.ts
+                       (pure, mutation-tested — the cap is the actual
+                       point of the function), recomputeEloRatings.ts (I/O
+                       glue: fetch every settled fight, delete + rebuild
+                       fighter_elo_history) — built G1-follow-up, run from
+                       runSettlementJobsOnce.ts right after D1/D2
     settlement/        evaluateFightSettlement.ts (pure, mutation-
                        tested), settleFights.ts — built D1; settlePicks.ts
-                       — built D2; runSettlementJobsOnce.ts (D1 then D2,
-                       each its own job_runs row — same shape as
-                       lib/odds/runOddsJobsOnce.ts), runSettlementJobs.ts
-                       (`npm run settlement:run-jobs`, and
-                       .github/workflows/sync.yml, after both sync jobs)
+                       — built D2; runSettlementJobsOnce.ts (D1, D2, then
+                       the Elo recompute, each its own job_runs row — same
+                       shape as lib/odds/runOddsJobsOnce.ts),
+                       runSettlementJobs.ts (`npm run settlement:run-jobs`,
+                       and .github/workflows/sync.yml, after both sync
+                       jobs)
     scoring/           impliedProbability.ts, edge.ts,
                        scorePickCorrect.ts, scoreBetPnl.ts, types.ts
                        (FightOutcome) — built C2; probabilityForFighter.ts,
@@ -1326,6 +1446,20 @@ never "this should pass now."
    a real bug the unit tests couldn't (a schema-level source/flag
    attribution collision, not a counting-logic bug) — see the
    `rumour_flags`/`rumour_sources` entry under Schema decisions above
+10. **Elo rating math** — this feeds `decideInternPick.ts`'s probability
+    the same way market price and rumour flags already do, and G2 will
+    eventually multiply that probability against a price to decide
+    whether the intern bets at all — an error here isn't a wrong number,
+    it's a silently wrong strategy, the same reasoning already applied
+    to item #2. The direction of a rating update (winner up, loser down)
+    and the draw/No-Contest distinction (a draw is a real 0.5/0.5
+    result, an NC must never move a rating at all) are the two things
+    easiest to get silently backwards. **Done in G1-follow-up** —
+    `lib/elo/eloMath.ts`, `computeEloHistory.ts`, `eloAdjustment.ts`, all
+    mutation-verified (the update-direction sign, the chronological
+    sort, the NC-exclusion guard, and the adjustment cap were each
+    independently confirmed to be load-bearing). See Fork 11 above for
+    the full result
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.

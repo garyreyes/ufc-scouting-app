@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { DEFAULT_RATING } from "../elo/eloMath";
 import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
 import { decideInternPick } from "./decideInternPick";
 import type { InternFlag, InternPickDecision } from "./types";
@@ -27,6 +28,11 @@ interface ExistingPick {
   reasoning: string | null;
 }
 
+interface EloInfo {
+  rating: number;
+  ratedFightCount: number;
+}
+
 function isLockedError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return message.includes("Picks are locked");
@@ -34,7 +40,8 @@ function isLockedError(err: unknown): boolean {
 
 /**
  * G1: one INTERN pick per upcoming fight -- market-anchored where a price
- * exists, rumour-adjusted, deterministic (decideInternPick.ts).
+ * exists, rumour-adjusted, Elo-adjusted (G1-follow-up), deterministic
+ * (decideInternPick.ts).
  *
  * Scoped to every UPCOMING event, not just the nearest: unlike the rumour
  * job there is no per-fight external API cost here, and the intern is
@@ -83,15 +90,18 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   const fights = (rawFights ?? []) as unknown as EmbeddedFight[];
   if (fights.length === 0) return summary;
   const fightIds = fights.map((f) => f.id);
+  const fighterIds = [...new Set(fights.flatMap((f) => [f.fighter1.id, f.fighter2.id]))];
 
   // Fetched separately and merged in JS rather than embedded -- the same
   // pattern features/fights/api.ts and matchAndSnapshot.ts already use.
-  const [oddsByFightId, flagsByFightId, conflictedFightIds, existingByFightId] = await Promise.all([
-    fetchOdds(supabase, fightIds),
-    fetchFlags(supabase, fightIds),
-    fetchConflictedFightIds(supabase, fightIds),
-    fetchExistingInternPicks(supabase, fightIds),
-  ]);
+  const [oddsByFightId, flagsByFightId, conflictedFightIds, existingByFightId, eloByFighterId] =
+    await Promise.all([
+      fetchOdds(supabase, fightIds),
+      fetchFlags(supabase, fightIds),
+      fetchConflictedFightIds(supabase, fightIds),
+      fetchExistingInternPicks(supabase, fightIds),
+      fetchLatestEloRatings(supabase, fighterIds),
+    ]);
 
   for (const fight of fights) {
     summary.fightsConsidered++;
@@ -104,9 +114,12 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       continue;
     }
 
+    const elo1 = eloByFighterId.get(fight.fighter1.id) ?? { rating: DEFAULT_RATING, ratedFightCount: 0 };
+    const elo2 = eloByFighterId.get(fight.fighter2.id) ?? { rating: DEFAULT_RATING, ratedFightCount: 0 };
+
     const decision = decideInternPick({
-      fighter1: fight.fighter1,
-      fighter2: fight.fighter2,
+      fighter1: { ...fight.fighter1, eloRating: elo1.rating, ratedFightCount: elo1.ratedFightCount },
+      fighter2: { ...fight.fighter2, eloRating: elo2.rating, ratedFightCount: elo2.ratedFightCount },
       odds: oddsByFightId.get(fight.id) ?? null,
       flags: flagsByFightId.get(fight.id) ?? [],
     });
@@ -231,4 +244,41 @@ async function fetchExistingInternPicks(
       },
     ]),
   );
+}
+
+/**
+ * Each fighter's most recent Elo snapshot and how many rated fights it's
+ * built on -- fetches the WHOLE history for just the fighters on this
+ * card (a small set) and reduces client-side, the same "fetch broadly,
+ * merge in JS" pattern used throughout this codebase, rather than one
+ * per-fighter query (features/job-health/api.ts's per-tracked-name
+ * pattern doesn't scale to a card's worth of fighters the way it does
+ * to two job names).
+ */
+async function fetchLatestEloRatings(
+  supabase: SupabaseClient,
+  fighterIds: string[],
+): Promise<Map<string, EloInfo>> {
+  if (fighterIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("fighter_elo_history")
+    .select("fighter_id, rating, fight_settled_at")
+    .in("fighter_id", fighterIds)
+    .order("fight_settled_at", { ascending: true });
+  if (error) throw error;
+
+  const result = new Map<string, EloInfo>();
+  for (const row of data ?? []) {
+    const fighterId = row.fighter_id as string;
+    const existing = result.get(fighterId);
+    // Ascending order means the last row seen per fighter is their most
+    // recent -- overwrite rating each time, but always increment the
+    // count so it ends up as the true total rated-fight count.
+    result.set(fighterId, {
+      rating: Number(row.rating),
+      ratedFightCount: (existing?.ratedFightCount ?? 0) + 1,
+    });
+  }
+  return result;
 }

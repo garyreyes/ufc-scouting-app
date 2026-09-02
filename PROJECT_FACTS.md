@@ -275,6 +275,13 @@ Decided 2026-08-29, user-originated.
     500 RPD — a 25x difference no amount of reading documentation would
     have surfaced.
   - **The Odds API**: covered earlier, B1/B5.
+- **API-Sports free tier also refuses any season before 2022 for
+  fighter-scoped `/fights` queries — found live, G1b (2026-09-02),
+  never documented anywhere checked.** Real error text:
+  `"Free plans do not have access to this season, try from 2022 to
+  2024."` This is what actually killed the pre-UFC/regional-history idea
+  (Fork 11), not the sync code's own UFC-only filter, which was the
+  first, wrong hypothesis before this was tested directly.
 
 ## Infrastructure
 
@@ -585,3 +592,25 @@ Decided 2026-08-29, user-originated.
   alone on a fresh Supabase project, `0028` is what makes `is_owner()`
   actually work instead of throwing on every call — don't assume `0017`
   alone is sufficient just because production has been fine.
+- **Tapology, Sherdog, TikTok, and reading MMA YouTubers' predictions
+  are all ruled out as inputs to the intern — checked live, G1b
+  (2026-09-02), not a preference.** Tapology: `robots.txt` disallows
+  `ClaudeBot`/`Claude-Web`/`anthropic-ai` by name. Sherdog: Terms of Use
+  explicitly prohibit scraping/aggregating content. TikTok: no free API,
+  ToS explicitly prohibits automated access. YouTube: the official Data
+  API can search legitimately, but the actual reasoning (video
+  transcripts) requires each video owner's own OAuth consent — not
+  obtainable at scale, and title/description alone was judged too thin
+  to bother with. If any of these change their policy in the future,
+  that's a real reason to revisit — don't re-attempt any of them from a
+  hunch without checking fresh, the same standing rule already recorded
+  for Reddit/X.
+- **Elo rating is global per fighter, not per weight class, and stores
+  full history, not just the current value — both confirmed with the
+  user 2026-09-02, don't re-litigate.** Per-division ratings were
+  considered and rejected: most fighters have too few UFC fights for a
+  per-weight-class number to ever settle into anything meaningful.
+  Current-value-only was also considered and rejected: G3's future
+  calibration check needs a fighter's rating AS OF a past pick, not
+  their rating today, and that becomes permanently unanswerable once
+  picks accumulate if history isn't kept from the start.
