@@ -73,6 +73,17 @@ Decided 2026-08-29, user-originated.
   `estimated_probability`'s precise number) and `predicted_method`/
   `reasoning` (both nullable — required free text on every pick would fail
   the no-learning-curve UX floor).
+- **Calibration (G3) deliberately uses each line's FULL settled
+  population, not the accuracy board's head-to-head restriction — this
+  is intentional, not an inconsistency to "fix."** Accuracy restricts the
+  intern's headline number to fights the owner also picked, because
+  accuracy is a *comparison* between two lines and only overlapping
+  fights are like-for-like. Calibration isn't a comparison between the
+  two lines at all — it's asking whether one line's own stated numbers
+  meant what they said, a question every one of that line's own
+  estimates can answer on its own. Using the head-to-head subset here
+  would just be a smaller, needlessly noisier version of the same
+  question for no reason.
 
 ## Data sources
 

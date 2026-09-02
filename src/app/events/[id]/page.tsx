@@ -3,13 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { isOwner } from "@/lib/auth";
 import { getCardView } from "@/features/fights/api";
 import { BoutRow } from "@/features/fights/components/BoutRow";
-import { getMyPicksForFights } from "@/features/picks/api";
+import { getMyPicksForFights, getInternPicksForFights } from "@/features/picks/api";
 import { getOpenDisputedFightIds } from "@/features/conflicts/api";
 import { getRumourFlagSummaries } from "@/features/rumours/api";
 import { RumourHealthNotice } from "@/features/rumours/components/RumourHealthNotice";
 import { describeOwnerConfigError } from "@/lib/describeOwnerConfigError";
 import { OwnerConfigNotice } from "@/shared/components/OwnerConfigNotice";
-import type { MyPick } from "@/features/picks/types";
+import type { InternPickSummary, MyPick } from "@/features/picks/types";
 import styles from "./page.module.css";
 
 function formatDate(dateString: string): string {
@@ -64,13 +64,15 @@ export default async function EventDetailPage({
   let ownerConfigError: string | null = null;
   let myPicks = new Map<string, MyPick>();
   let disputedFightIds = new Set<string>();
+  let internPicks = new Map<string, InternPickSummary>();
   try {
     viewerIsOwner = isOwner(user?.id);
     if (viewerIsOwner) {
       const fightIds = event.fights.map((f) => f.id);
-      [myPicks, disputedFightIds] = await Promise.all([
+      [myPicks, disputedFightIds, internPicks] = await Promise.all([
         getMyPicksForFights(supabase, fightIds),
         getOpenDisputedFightIds(fightIds),
+        getInternPicksForFights(supabase, fightIds),
       ]);
     }
   } catch (err) {
@@ -108,6 +110,7 @@ export default async function EventDetailPage({
               fight={fight}
               viewerState={viewerIsOwner ? "owner" : "read-only"}
               myPick={myPicks.get(fight.id) ?? null}
+              internPick={internPicks.get(fight.id) ?? null}
               locked={locked}
               disputed={disputedFightIds.has(fight.id)}
               rumourFlags={rumourFlagsByFight.get(fight.id) ?? []}

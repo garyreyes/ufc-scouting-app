@@ -5,6 +5,7 @@ import { OwnerConfigNotice } from "@/shared/components/OwnerConfigNotice";
 import { getScoreboardData } from "@/features/scoreboard/api";
 import { UnitsBoard } from "@/features/scoreboard/components/UnitsBoard";
 import { AccuracyBoard } from "@/features/scoreboard/components/AccuracyBoard";
+import { CalibrationTable } from "@/features/scoreboard/components/CalibrationTable";
 import { PickHistoryTable } from "@/features/scoreboard/components/PickHistoryTable";
 import styles from "./page.module.css";
 
@@ -92,6 +93,8 @@ export default async function ScoreboardPage() {
         <UnitsBoard me={data.units.me} intern={data.units.intern} chalk={data.units.chalk} />
         <AccuracyBoard me={data.accuracy.me} intern={data.accuracy.intern} chalk={data.accuracy.chalk} />
       </div>
+
+      <CalibrationTable me={data.calibration.me} intern={data.calibration.intern} />
 
       <PickHistoryTable rows={data.pickHistory} />
     </div>

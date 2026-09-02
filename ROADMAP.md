@@ -955,7 +955,7 @@ works, not just the underlying API calls it's built on.
 | G1 | Intern picks every fight with an `estimated_probability`, market-anchored and rumour-adjusted | **done** (2026-09-02) |
 | G1b | Elo rating as a third, bounded adjustment — opponent quality, using only data this app already owns | **done** (2026-09-02) |
 | G2 | Edge-gated betting — threshold plus confidence sizing, and **free to decline entirely** | **done** (2026-09-02) |
-| G3 | Intern lines on both boards + a calibration check | not started |
+| G3 | Intern lines on both boards + a calibration check | **done** (2026-09-03) |
 
 **G2 note.** Silence on an unbackable favourite is the intern working, not
 failing. A -6000 shot is 98.4% implied; it needs better than that to have any
@@ -1002,11 +1002,11 @@ confirmed directly against `updated_at` (every value still from the first
 run) — idempotency verified against real timestamps, not just the
 summary counts.
 
-**Not built in G1, deliberately:** nothing yet surfaces the intern's pick
-on the card view row (Flow 1's diagram shows one) — G3 covers "intern
-lines on both boards" for the scoreboard specifically, but the card-view
-row display doesn't clearly belong to any lettered sub-phase as written.
-Worth deciding explicitly before G3, not assumed into either.
+**Not built in G1, deliberately at the time:** nothing yet surfaced the
+intern's pick on the card view row (Flow 1's diagram shows one) — this
+didn't clearly belong to any lettered sub-phase as written. Closed in G3,
+alongside the calibration check, rather than left open any longer — see
+G3's own result below.
 
 **G1b result.** The user's real ask -- weigh who a fighter has actually
 beaten -- turned into a real investigation before any code: pre-UFC/
@@ -1103,6 +1103,61 @@ computed a real 35% edge, and correctly sized the stake down for the
 resulting low confidence (1.2u, nowhere near the 3u cap) — the
 edge-and-confidence interaction confirmed working together against real
 fighter IDs, not just in isolation.
+
+**G3 result.** Getting oriented found the first half of this sub-phase
+already done, as a side effect of how carefully E1/E2 were built: both
+boards already query `picks` filtered by `author = "INTERN"` and already
+render a real Intern line — `AccuracyBoard`'s head-to-head/full-card split
+and `UnitsBoard`'s three-line shape were built correctly the first time,
+before any real intern data existed, specifically so nothing would need
+reworking once it did. Confirmed live: `getScoreboardData` ran end-to-end
+against production with no changes needed to that part.
+
+**What was actually still missing:** the calibration check itself, and
+the still-open gap G1 named in its own result — the intern's pick never
+showed on the card view row Flow 1's diagram specifies. Both closed here.
+
+`computeCalibrationBuckets.ts` (`lib/scoring/`) answers "of the fights
+called 70%, did roughly 70% happen" with six reliability-diagram bands
+(50-60% up to 90-100%, plus a defensive "Under 50%" catch-all — nothing
+in `0019_picks.sql`'s schema actually requires an estimate to favour the
+fighter it names). Computed for **"me" and "intern" both**, each against
+its own full settled population, not the accuracy board's head-to-head
+restriction — calibration is asking whether a line's own stated numbers
+meant what they said, a question every one of that line's own estimates
+can answer regardless of whether the other line picked the same fight.
+No chalk column: chalk has no independent probability estimate of its
+own to be right or wrong about, only a fixed always-the-favourite
+strategy. Rendered as a new `CalibrationTable` between the two boards and
+the pick history table on `/scoreboard`.
+
+Test-first, mutation-verified: the band boundary (a value landing on
+exactly 60% must fall in 60-70%, not 50-60%) and the void-exclusion rule
+(a draw/NC/cancelled pick has no correct answer to check its estimate
+against, the same rule the accuracy boards already apply) were each
+independently confirmed load-bearing.
+
+The card-view gap closed via a fact already on record, not a new
+decision: C1 established `picks` as owner-only, not public ("for now just
+me until I prove the picks are actually reliable"), which resolved what
+could otherwise have looked like an open question (should a read-only
+visitor see the intern's pick?) — no, the same way they don't see the
+owner's own pick, since the underlying rows aren't public regardless of
+whose pick they are. `getInternPicksForFights` (`features/picks/api.ts`)
+is a narrower sibling of `getMyPicksForFights`, fetched in the same
+owner-gated branch of `/events/[id]`, and `BoutRow` now renders a small
+"Intern: [fighter] (NN%, confidence N/5)" line above the owner's own
+pick controls.
+
+**Verified live, safely — real data, not fabricated:**
+`getInternPicksForFights` was called directly against three real INTERN
+picks already sitting in production (from G1/G1b/G2's own live runs) and
+its output matched the raw table rows exactly, field for field.
+`getScoreboardData`'s widened query (added `estimated_probability` to the
+picks select) and the new calibration block both ran end-to-end against
+production with no error — `settledCardCount: 0` and all six bands empty
+on both lines, the correct, honest state given nothing has settled yet in
+this app.
 
 ---
 

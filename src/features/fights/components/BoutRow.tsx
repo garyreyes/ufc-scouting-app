@@ -4,7 +4,7 @@ import { BetRow } from "@/features/picks/components/BetRow";
 import { RumourBadge } from "@/features/rumours/components/RumourBadge";
 import { RumourOutcomeMarking } from "@/features/rumours/components/RumourOutcomeMarking";
 import type { RumourFlagSummary } from "@/features/rumours/types";
-import type { MyPick } from "@/features/picks/types";
+import type { InternPickSummary, MyPick } from "@/features/picks/types";
 import type { CardBout } from "../types";
 import styles from "./BoutRow.module.css";
 
@@ -20,6 +20,7 @@ export function BoutRow({
   fight,
   viewerState,
   myPick,
+  internPick,
   locked,
   disputed,
   rumourFlags,
@@ -27,6 +28,7 @@ export function BoutRow({
   fight: CardBout;
   viewerState: CardViewerState;
   myPick: MyPick | null;
+  internPick: InternPickSummary | null;
   locked: boolean;
   disputed: boolean;
   rumourFlags: RumourFlagSummary[];
@@ -77,6 +79,12 @@ export function BoutRow({
 
       {viewerState === "owner" && (
         <div className={styles.pickArea}>
+          {internPick && (
+            <p className={styles.internPick}>
+              Intern: {internPick.predictedFighterId === fight.fighter1.id ? fight.fighter1.name : fight.fighter2.name}{" "}
+              ({Math.round(internPick.estimatedProbability * 100)}%, confidence {internPick.confidence}/5)
+            </p>
+          )}
           <QuickPick
             fightId={fight.id}
             fighter1={fight.fighter1}

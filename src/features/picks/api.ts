@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { MyPick } from "./types";
+import type { InternPickSummary, MyPick } from "./types";
 
 /**
  * The owner's own USER picks among a given set of fights -- the full row
@@ -49,6 +49,44 @@ export async function getMyPicksForFights(
         reasoning: row.reasoning as string | null,
         betFighterId: row.bet_fighter_id as string | null,
         stakeUnits: row.stake_units as number | null,
+      },
+    ]),
+  );
+}
+
+/**
+ * The intern's own picks among a given set of fights -- closes a gap G1
+ * itself named as still open: "nothing yet surfaces the intern's pick on
+ * the card view row" (ROADMAP.md, docs/user-flows.md Flow 1 node J).
+ *
+ * Same session-aware client and same RLS reasoning as getMyPicksForFights
+ * above -- `picks` has no anon grant (C1: "owner-only, not public, for
+ * now just me until I prove the picks are actually reliable"), so this
+ * is called from the same owner-gated branch on /events/[id], never from
+ * the read-only path. A logged-out or non-owner viewer gets zero rows
+ * back from RLS either way, same as getMyPicksForFights.
+ */
+export async function getInternPicksForFights(
+  supabase: SupabaseClient,
+  fightIds: string[],
+): Promise<Map<string, InternPickSummary>> {
+  if (fightIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("picks")
+    .select("fight_id, predicted_fighter_id, estimated_probability, confidence")
+    .eq("author", "INTERN")
+    .in("fight_id", fightIds);
+  if (error) throw error;
+
+  return new Map(
+    (data ?? []).map((row) => [
+      row.fight_id as string,
+      {
+        fightId: row.fight_id as string,
+        predictedFighterId: row.predicted_fighter_id as string,
+        estimatedProbability: row.estimated_probability as number,
+        confidence: row.confidence as number,
       },
     ]),
   );
