@@ -1210,12 +1210,18 @@ src/
                        read-merge-write both actions funnel through),
                        types.ts — QuickPick/api.ts/actions.ts/types.ts
                        built C3, BetRow/betProbabilityBands.ts/
-                       mergePickFields.ts/saveBetAction built C4
+                       mergePickFields.ts/saveBetAction built C4;
+                       api.ts's getInternPicksForFights (the intern's own
+                       narrower InternPickSummary slice) — built G3,
+                       closing the gap G1 itself left open ("nothing yet
+                       surfaces the intern's pick on the card view row")
     scoreboard/        components/ (UnitsBoard, AccuracyBoard,
                        PickHistoryTable), api.ts (getScoreboardData),
                        types.ts — UnitsBoard/AccuracyBoard/api.ts/
                        types.ts built E1, PickHistoryTable + api.ts's
-                       pick-history query built E2
+                       pick-history query built E2; components/
+                       (CalibrationTable), api.ts's calibration block —
+                       built G3
     rumours/           components/ (RumourBadge, RumourHealthNotice,
                        RumourSection), api.ts (getRumourFlagSummaries,
                        getRumourFlagsForFight, getRumourScanHealth),
@@ -1329,7 +1335,11 @@ src/
                        aggregateUnitsLine.ts, aggregateAccuracyLine.ts —
                        built E1, the scoreboard's chalk line and its
                        three-line reductions; describeStanceMatchup.ts —
-                       built E2, the pick table's stance/style breakdown.
+                       built E2, the pick table's stance/style breakdown;
+                       computeCalibrationBuckets.ts — built G3, the
+                       reliability-diagram bands shared by "me" and
+                       "intern" alike, mutation-tested (the band boundary
+                       and the void-exclusion rule).
                        Pure functions, no I/O
   app/                 routing/pages — thin
 ```
@@ -1519,6 +1529,20 @@ never "this should pass now."
     threshold gate and the both-sides comparison were each independently
     confirmed load-bearing — the threshold mutation was caught by the
     PRD's own headline example). See Fork 12 above for the sizing result
+12. **Calibration bucketing** — G3's own reason for existing: "of the
+    fights called 70%, did roughly 70% happen" is an event-counting
+    question (item #9's same class — a wrong bucket boundary silently
+    misreports the very thing this check exists to measure), not
+    layout/presentation work. The band boundary (a value landing on
+    exactly 50/60/70/80/90% must fall in the band it *opens*, not the one
+    it closes) and the void-exclusion rule (a draw/NC/cancelled pick has
+    no correct answer to check its estimate against, same rule item #8
+    already applies to the accuracy boards) are the two things easiest to
+    get silently wrong. **Done in G3** — `computeCalibrationBuckets.ts`,
+    mutation-verified (both rules independently confirmed load-bearing —
+    reverting the boundary to inclusive-both-ends let 0.6 double-count
+    into two bands at once; reverting the void filter let a null-outcome
+    pick contribute a phantom data point)
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.

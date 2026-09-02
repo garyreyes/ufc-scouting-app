@@ -1906,3 +1906,40 @@ sized the stake down for low confidence.
 
 **Status:** G2 done. Next: G3, intern lines on both boards + a
 calibration check.
+
+## Phase 45 — G3: calibration check + the intern's pick on the card view (2026-09-03)
+
+Getting oriented found half of G3 already done: E1/E2 had already built
+the Intern line on both boards correctly, before any real intern data
+existed, so nothing needed reworking now that it does. Confirmed live --
+getScoreboardData ran unchanged against production.
+
+What was actually missing: the calibration check itself, and the gap G1
+left open -- the intern's pick never showed on the card view row.
+
+computeCalibrationBuckets.ts (lib/scoring/) answers "of the fights called
+70%, did roughly 70% happen" with six bands (50-60% up to 90-100%, plus a
+defensive "Under 50%" catch-all), computed for both "me" and "intern"
+against each line's own full settled population, not the accuracy
+board's head-to-head restriction. No chalk column -- chalk has no
+independent probability estimate to be right or wrong about. Test-first,
+mutation-verified: the band boundary and the void-exclusion rule (a
+draw/NC/cancelled pick has no correct answer to check) were each
+independently confirmed load-bearing.
+
+The card-view gap closed via a fact already on record: C1 established
+picks as owner-only, not public, which answers whether a read-only
+visitor should see the intern's pick (no, same as the owner's own pick).
+getInternPicksForFights (features/picks/api.ts), fetched in the same
+owner-gated branch of /events/[id], and BoutRow now shows "Intern:
+[fighter] (NN%, confidence N/5)" above the pick controls.
+
+Verified live, safely: getInternPicksForFights matched three real
+production INTERN picks exactly, field for field. getScoreboardData's
+widened query and the new calibration block both ran end-to-end against
+production with no error -- 0 settled fights, all six bands empty on
+both lines, the correct honest state given nothing has settled yet.
+
+**Status:** G3 done. Phase G (the intern) is now fully done -- G1, G1b,
+G2, G3 all shipped. Next: Phase H, cleanup (remove Clans from nav, a
+full-app accessibility/responsive audit).

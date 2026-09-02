@@ -7,6 +7,7 @@ import type { BetResult } from "@/lib/scoring/aggregateUnitsLine";
 import { aggregateAccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
 import { fightOutcomeFromSettledFight } from "@/lib/scoring/fightOutcomeFromSettledFight";
 import { describeStanceMatchup } from "@/lib/scoring/describeStanceMatchup";
+import { computeCalibrationBuckets } from "@/lib/scoring/computeCalibrationBuckets";
 import type { ScoreboardData, PickTableRow } from "./types";
 
 /**
@@ -56,7 +57,9 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
 
   const { data: settledPicks, error: picksError } = await supabase
     .from("picks")
-    .select("id, author, fight_id, predicted_fighter_id, pick_correct, pnl_units, bet_fighter_id, stake_units")
+    .select(
+      "id, author, fight_id, predicted_fighter_id, estimated_probability, pick_correct, pnl_units, bet_fighter_id, stake_units",
+    )
     .not("settled_at", "is", null);
   if (picksError) throw picksError;
 
@@ -108,6 +111,11 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
 
   const pickHistory = await buildPickHistory(supabase, settledFights ?? [], mePicks, oddsByFightId);
 
+  const toCalibrationEntry = (p: { estimated_probability: unknown; pick_correct: unknown }) => ({
+    estimatedProbability: Number(p.estimated_probability),
+    correct: p.pick_correct as boolean | null,
+  });
+
   return {
     units: {
       me: aggregateUnitsLine(meUnitsBets),
@@ -125,6 +133,14 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
     settledCardCount,
     unpricedSettledPickCount,
     pickHistory,
+    // Each line's own full settled population -- not the head-to-head
+    // restriction accuracy uses, since calibration is asking "did this
+    // line's own numbers mean what they said," a question every one of
+    // its estimates can answer on its own.
+    calibration: {
+      me: computeCalibrationBuckets(mePicks.map(toCalibrationEntry)),
+      intern: computeCalibrationBuckets(internPicks.map(toCalibrationEntry)),
+    },
   };
 }
 

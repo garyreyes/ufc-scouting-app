@@ -1,7 +1,8 @@
 import type { UnitsLine } from "@/lib/scoring/aggregateUnitsLine";
 import type { AccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
+import type { CalibrationBucket } from "@/lib/scoring/computeCalibrationBuckets";
 
-export type { UnitsLine, AccuracyLine };
+export type { UnitsLine, AccuracyLine, CalibrationBucket };
 
 // The intern's accuracy carries two numbers, not one (docs/PRD.md UC-4):
 // head-to-head on fights both the owner and the intern picked is the
@@ -62,4 +63,17 @@ export interface ScoreboardData {
   // so on screen (docs/user-flows.md).
   unpricedSettledPickCount: number;
   pickHistory: PickTableRow[];
+  // G3's calibration check (ROADMAP.md): "of the fights called 70%, did
+  // roughly 70% happen?" -- one set of bands per line, "me" and "intern"
+  // (not chalk, which has no independent probability estimate of its
+  // own to check -- it just always backs the favourite). Uses each
+  // line's FULL settled population, not the intern's head-to-head
+  // restriction accuracy uses -- calibration asks whether a stated
+  // number meant what it said, which every one of that line's own
+  // estimates can answer, not just the ones that happen to overlap with
+  // the other line's picks.
+  calibration: {
+    me: CalibrationBucket[];
+    intern: CalibrationBucket[];
+  };
 }
