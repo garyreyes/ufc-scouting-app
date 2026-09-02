@@ -38,8 +38,8 @@ The v1 group features (clans, invites, shared-report visibility) are
 | Fighter/event data | **API-Sports MMA** (free) + **Wikipedia** | API-Sports has no lookahead; Wikipedia has the schedule |
 | Results | **Wikipedia + API-Sports, cross-checked** | Two independent licensed sources — see Fork 1 |
 | Odds | **The Odds API**, free tier — **BetOnline.ag** (`betonlineag`, region `us`), **decimal** | One snapshot per card at T-12h. 89% feed coverage, the only book checked that also prices DWCS. Decimal is the API default, so no odds-format conversion exists anywhere in the codebase |
-| Social source | **Reddit API** (r/MMA), free tier | Needs a registered OAuth app |
-| LLM | **Gemini Flash**, free tier, behind `lib/llm.ts` | Large context means a whole card's posts in one call; the free tier caps *requests*, so fewer and bigger calls is the right shape |
+| Social source | **Bluesky**, free, behind `lib/bluesky.ts` | Switched from Reddit 2026-09-02 — Reddit's API now requires manual, opaque approval with no guaranteed outcome; X's free tier is gone entirely. See Fork 9 |
+| LLM | **Gemini Flash-Lite** (`gemini-3.5-flash-lite`), free tier, behind `lib/llm.ts` | Verified live: matches full "Flash" output quality, 25x the free daily request budget (500 RPD vs. 20) — see Fork 9 |
 | Fuzzy matching | TS string-similarity, human-backstopped | Feeds a review queue, not a silent best guess |
 | Testing | **Vitest** | Required before any correctness-critical work |
 | Hosting | **Vercel** free tier | Auto-deploy on push to `main` |
@@ -78,7 +78,8 @@ as the array index.
 ### Fork 2 — scraping runtime: **TypeScript only**
 
 The v2 spec assumed Python (BeautifulSoup + rapidfuzz). With UFCStats out
-there is **no HTML scraping left** — Reddit and The Odds API are JSON REST,
+there is **no HTML scraping left** — the social source and The Odds API
+are JSON REST (Bluesky since Fork 9, originally planned as Reddit),
 Wikipedia is already TypeScript. BeautifulSoup had no remaining job, and the
 fuzzy matcher is backstopped by a human review queue, making it a threshold
 heuristic rather than a precision-critical algorithm. A second runtime would
@@ -90,7 +91,7 @@ of the existing `lib/ufc-data-sync/` helpers, in exchange for nothing.
 Same pattern as the existing twice-daily `sync.yml`. Free, and the 6-hour job
 limit means LLM calls and rate-limit pacing are unconstrained. Vercel Cron was
 rejected: the free tier's function timeout is far too short for a job that
-pages through Reddit, calls an LLM, and waits on rate limits.
+pages through Bluesky, calls an LLM, and waits on rate limits.
 
 ### Fork 4 — unified reports table: **cancelled, permanently**
 
@@ -513,6 +514,69 @@ Postgres, enforced independently of anything the app layer does or any bug
 in it — the same "app-layer check is UX, the database is the boundary"
 split already established for the odds-snapshot immutability trigger.
 
+### Fork 9 — social source: **Bluesky, not Reddit**
+
+`docs/PRD.md` originally named Reddit (r/MMA) as the social source, with a
+stated open risk: "Free at personal volume; needs a registered OAuth
+app... to verify." Verifying it in F1 (2026-09-02) found the world had
+moved since 2026-08-29, not that the original choice was ill-reasoned at
+the time:
+
+- **X was checked and ruled out on hard fact, not preference:** its free
+  tier was discontinued entirely in February 2026. Reading a post now
+  costs real money (~$0.005/read, pay-per-use, no free allocation) —
+  a direct violation of `docs/PRD.md`'s `$0/month, hard` constraint at
+  any volume above zero.
+- **Reddit was checked live and found genuinely changed, not just
+  slower.** A real attempt to register a script app hit a dead end — not
+  a form validation bug, but Reddit's "Responsible Builder Policy"
+  (dated June 5, 2026): self-service app registration is closed, every
+  new OAuth client now requires a manual support-ticket review with no
+  published approval criteria, reported multi-week queues, and reports
+  of legitimate personal/read-only requests being ignored or vaguely
+  rejected. Free once approved, same as always — but "once approved" is
+  no longer a guarantee, which makes it unsafe to build the rumour
+  engine's only social source around.
+- **Bluesky was verified live and chosen** — free, no approval queue
+  (an account and an app password, both self-service and immediate),
+  and a real live check found genuine, relevant MMA content: established
+  outlets (Bloody Elbow, MMA Fighting, MMA Mania) bridge their coverage
+  onto it, turning up exactly the kind of named-source reporting UC-1
+  asks for ("Patchy Mix misses weight by over six pounds", "Chidi
+  Njokuani rips commission for weight cut controversy at UFC 330") —
+  arguably a better fit for the "traces back to a named journalist"
+  requirement than unmoderated subreddit chatter would have been.
+
+**Two real, non-obvious findings from the live verification, not
+assumed from Bluesky's own docs:**
+
+1. `public.api.bsky.app` — the host Bluesky's own documentation
+   describes as the public, unauthenticated read mirror — returns a
+   blanket 403 on `app.bsky.feed.searchPosts` specifically, with or
+   without an auth token. Confirmed this isn't a broader network block
+   (a trivial `getProfile` call against that same host succeeds
+   unauthenticated) before concluding search itself is what's gated.
+   The fix: route search through the authenticated session's own PDS
+   host (`bsky.social`) instead — confirmed live, real results, real
+   rate-limit headers (`ratelimit-limit: 3000`, `w=300s` — 3000
+   requests per 5 minutes, far beyond anything this app's cadence
+   needs).
+2. A meaningful share of the real content arrives via "bridge" accounts
+   (handles ending `.web.brid.gy`) mirroring outlets' own feeds onto
+   Bluesky — these posts carry an **empty** `record.text`, with the
+   actual article title/summary/link living in `record.embed.external`
+   instead. Found by inspecting a real bridged post's full JSON live,
+   not guessed. `lib/bluesky.ts`'s `searchMmaPosts` falls back to the
+   embed's title+description when `text` is empty; a live test of the
+   real function (not just raw fetch calls) confirmed zero posts came
+   back with genuinely empty text after the fallback, out of a real
+   7-post sample.
+
+`lib/llm.ts` (Gemini) was verified in the same pass — see the D2/E1-style
+result narrative in `ROADMAP.md` F1 for the model-selection findings
+(`gemini-3.5-flash-lite` over the full "Flash" tier: identical output
+quality on a real clustering test, 25x the free daily request budget).
+
 ---
 
 ## Entities
@@ -841,10 +905,10 @@ Carried forward from v1, all still binding:
 
 New for v2:
 
-- [ ] `ODDS_API_KEY`, `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`, and
+- [ ] `ODDS_API_KEY`, `BLUESKY_IDENTIFIER` / `BLUESKY_APP_PASSWORD`, and
       `GEMINI_API_KEY` are **server-only** — never `NEXT_PUBLIC_`, stored as
       GitHub Actions secrets and Vercel env vars
-- [ ] The browser never calls The Odds API, Reddit, or Gemini directly. All
+- [ ] The browser never calls The Odds API, Bluesky, or Gemini directly. All
       three are reached only from `lib/` inside a batch job (BFF pattern)
 - [ ] Each of those three gets **exactly one wrapper module**; feature code
       imports the wrapper, never the SDK or a raw `fetch`
@@ -906,7 +970,8 @@ src/
                        sync job's result into its own per-source columns
                        on fights instead of the old shared, last-write-
                        wins ones
-    llm.ts             single Gemini wrapper — swappable in one file  [NEW]
+    llm.ts             single Gemini wrapper — swappable in one file
+                       (generateJson, gemini-3.5-flash-lite) — built F1
     jobs/              runWithTracking.ts — generic job_runs bookkeeping,
                        built B5 for the odds jobs, written generically
                        because the Phase F rumour engine needs the same
@@ -920,7 +985,9 @@ src/
                        .github/workflows/odds.yml every 2h);
                        rankFightMatches (matchFights.ts) — built B6, for
                        the conflicts screen's candidate picker
-    reddit/            Reddit OAuth client                           [NEW]
+    bluesky.ts         single Bluesky wrapper (searchMmaPosts) —
+                       switched from a planned reddit/ folder, Fork 9 —
+                       built F1
     intern/            clustering + pick generation (batch)          [NEW]
     settlement/        evaluateFightSettlement.ts (pure, mutation-
                        tested), settleFights.ts — built D1; settlePicks.ts
@@ -955,7 +1022,7 @@ cheap to test exhaustively.
 - **UI components** render and handle interaction. No business rules, no
   external calls, ever.
 - **Services** (`api.ts` / `actions.ts` / `lib/`) hold business logic and own
-  every outbound call — Supabase, Reddit, odds, Gemini.
+  every outbound call — Supabase, Bluesky, odds, Gemini.
 - **Route handlers** stay thin: parse, call a service, return.
 
 Rule of thumb: if a feature needs something from another feature, it belongs
@@ -1089,10 +1156,12 @@ returns, the work is intact.
 
 ## Known unresolved
 
-- **The Odds API and Reddit free-tier limits are unverified.** Per the standing
-  rule, verify empirically before designing around the documented numbers.
-- **Gemini Flash's free tier is unverified** for the actual clustering job —
-  same rule applies before `lib/llm.ts` is built against it.
+All three external services this list originally flagged as unverified —
+The Odds API (B1/B5), Bluesky (F1, replacing the originally planned
+Reddit source), and Gemini's free tier (F1) — are now verified live. See
+Fork 9 for the F1 findings. Nothing outstanding here currently; DWCS
+ingestion (noted in Phase B's own result narrative) remains a separate,
+deliberately unscoped open question.
 
 *(The Phase 7 duplicate-opponent problem, previously listed here, is resolved
 by Fork 5.)*

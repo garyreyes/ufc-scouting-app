@@ -178,8 +178,13 @@ Decided 2026-08-29, user-originated.
   construction) needs either a real invocation or a pure, tested builder
   function around it — pure-function unit tests plus an unrelated manual
   `curl` check are not the same as exercising the actual code path. Apply
-  this before trusting `lib/reddit/` or `lib/llm.ts` the first time either
-  is built. Fixed here via `buildOddsUrl`, a pure exported function
+  this before trusting `lib/bluesky.ts` or `lib/llm.ts` the first time
+  either is built — **done in F1** (2026-09-02): both wrapper functions
+  (`searchMmaPosts`, `generateJson`) were imported and called for real,
+  not just their underlying fetch calls tested in isolation, and F1
+  found a real boundary bug this exact way (Bluesky's "public" search
+  endpoint silently blocking, only caught by calling it for real). Fixed
+  here via `buildOddsUrl`, a pure exported function
   (single-argument `new URL(fullString)`, no base to silently resolve
   against) with its own test — mutation-verified, reverting to the broken
   form fails it.
@@ -255,9 +260,21 @@ Decided 2026-08-29, user-originated.
   triggering the errors (Phase 5).
 - **Standing rule:** do not trust a provider's documented limits over what the
   API actually does. This rule has now paid off twice.
-- **Still unverified**, and must be checked before code is built against them:
-  The Odds API free tier, Reddit API at personal volume, and Gemini Flash's
-  free tier for the actual clustering job.
+- **All three now verified** (F1, 2026-09-02) — none remain outstanding:
+  - **Bluesky**: `app.bsky.feed.searchPosts` returns a blanket 403 against
+    the host Bluesky's own docs describe as the public, unauthenticated
+    mirror (`public.api.bsky.app`) — undocumented, found only by calling
+    it directly and ruling out a broader network block first. Works
+    against the authenticated session's own PDS host (`bsky.social`)
+    instead: real rate limit `3000 requests / 300s` (from the response's
+    own `ratelimit-*` headers, not a docs page).
+  - **Gemini**: free-tier RPD is **not published anywhere** — Google's own
+    rate-limits page explicitly points to the per-account AI Studio
+    dashboard instead of a fixed number. That dashboard showed every full
+    "Flash" model at 20 RPD and the two newest "Flash Lite" models at
+    500 RPD — a 25x difference no amount of reading documentation would
+    have surfaced.
+  - **The Odds API**: covered earlier, B1/B5.
 
 ## Infrastructure
 
@@ -428,3 +445,19 @@ Decided 2026-08-29, user-originated.
   once settled. If this ever matters for real (a settled pick turns out to
   need un-settling), it needs its own scoped design — don't assume it's
   covered by D1/D2's existing machinery.
+- **Reddit and X are both ruled out as the rumour engine's social source
+  — checked live, 2026-09-02 (F1), not a preference.** X: its free tier
+  was discontinued in February 2026, real cost per read now, a direct
+  violation of the $0/month constraint at any volume. Reddit: self-service
+  API app registration is closed under their "Responsible Builder Policy"
+  (dated June 5, 2026) — every new OAuth client now needs manual, opaque
+  approval with reported multi-week queues and no published criteria. Both
+  facts were corroborated two ways (independent web research plus, for
+  Reddit, a real live attempt that hit the actual wall) before being
+  accepted, not assumed from one source. **Bluesky is the social source**
+  (`lib/bluesky.ts`) — free, no approval queue, real MMA content confirmed
+  live (established outlets bridge their coverage onto it). If either
+  Reddit or X policy changes again in the future and one becomes viable,
+  that's a real reason to revisit — but don't re-attempt either from a
+  hunch that "surely it's easier now" without checking fresh, the way this
+  session had to.

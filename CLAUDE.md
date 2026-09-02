@@ -37,7 +37,7 @@ These are halts, not judgment calls.
    params, or state/nonce handling.
 3. **Every third-party SDK gets exactly one wrapper module** in `lib/`.
    Feature code imports the wrapper, never the SDK or raw API directly. This
-   applies to Supabase, The Odds API, Reddit, and Gemini alike.
+   applies to Supabase, The Odds API, Bluesky, and Gemini alike.
 
 ## Requires explicit confirmation before acting
 
@@ -102,7 +102,7 @@ bug and caught it fast with this technique.
 - **UI components** render and handle interaction. No business logic, no
   external calls, ever.
 - **Services** (`api.ts` / `actions.ts` / `lib/`) hold business logic and own
-  every outbound call — Supabase, Reddit, odds, Gemini.
+  every outbound call — Supabase, Bluesky, odds, Gemini.
 - **Route handlers** stay thin: parse, call a service, return.
 
 If a feature needs something from another feature, it belongs in `shared/` or
