@@ -1734,3 +1734,40 @@ Lightweight `/impeccable audit`: clean, no fixes needed.
 
 **Status:** F4 done. Next: Phase G, the intern -- market-anchored,
 rumour-adjusted picks on every fight.
+
+## Phase 41 — G1: the intern picks every fight, and a real security hole closed first (2026-09-02)
+
+Found before writing any intern code, not after: the pick-lock trigger's
+settlement bypass keyed on the WRITER's role alone, so the intern's own
+service_role cron would have been able to write a pick past a started or
+finished card, silently invalidating the entire you-vs-intern comparison.
+Fixed same-day (0027_narrow_settlement_bypass.sql -- the bypass now also
+requires the write to touch only the three real settlement columns) and
+live-tested in a rolled-back transaction: a late service_role INSERT and
+a late revision are both correctly rejected, the real settlement update
+still works, nothing leaked into production.
+
+Three real decisions confirmed before building: a deterministic pick
+rule instead of an LLM call (reproducible, free, and what makes a future
+calibration check mean anything); the intern still picks an unpriced
+fight, anchored at an even 50%; and it revises its pick until the card
+locks rather than committing once.
+
+lib/intern/: decideInternPick.ts is the whole opinion as one pure
+function -- a de-vigged market anchor (raw implied probabilities sum to
+more than 1, the overround; using them directly would hand the intern
+phantom edge on nearly every fight) shifted by a capped,
+corroboration-scaled penalty per flagged fighter. Test-first,
+mutation-verified: the de-vig and the adjustment direction are the two
+things easiest to get silently backwards, and both mutations were
+caught by the test suite.
+
+Run live against production: 81 real upcoming fights, 81 picks written,
+0 failures. Spot-checked three real flagged fights by hand against the
+function's own logic -- matched exactly. Re-ran immediately after: 0
+written, 81 unchanged, confirmed against real updated_at timestamps, not
+just the summary counts.
+
+**Status:** G1 done. Not yet decided: whether the intern's pick shows on
+the card view row (Flow 1 shows one) as part of G1/G3 or its own step.
+Next: G2, edge-gated betting.

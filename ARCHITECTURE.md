@@ -577,6 +577,35 @@ result narrative in `ROADMAP.md` F1 for the model-selection findings
 (`gemini-3.5-flash-lite` over the full "Flash" tier: identical output
 quality on a real clustering test, 25x the free daily request budget).
 
+### Fork 10 — the intern's decision rule: **deterministic, not an LLM call**
+
+Three real decisions, all confirmed with the user before G1 was built:
+
+1. **Deterministic rule over asking Gemini per fight.** A fixed function
+   (market implied probability, de-vigged, shifted by a capped penalty
+   per corroborated rumour flag) rather than an LLM call. Reproducible —
+   the same fight always produces the same pick — which is what makes
+   G3's future calibration check mean anything: with a non-deterministic
+   estimator, a bad number and a bad day are indistinguishable. Also
+   free, and doesn't compete with the rumour job for Gemini's daily
+   budget.
+2. **Unpriced fights still get a pick.** "Market-anchored" needs a price,
+   but the intern is meant to pick every fight (UC-3). Anchors at an even
+   50% instead, adjusts on rumours only, and says so in its own
+   reasoning text — not silently treated as market-anchored.
+3. **Revises until the card locks**, rather than committing once. The
+   intern's final answer uses the most complete scouting available,
+   right up to `events.starts_at` — the same moment a human pick locks.
+   This is what actually made Fork 4's discovery (below) matter: revision
+   only works safely once nothing can slip a late write past the lock.
+
+**Found while planning, before writing intern code, and fixed the same
+day:** the pick-lock trigger's settlement bypass keyed on the WRITER's
+role alone, so the intern's own `service_role` cron would have been able
+to write straight past a started or finished card. See correctness-
+critical item #4 for the full finding and the live-tested fix
+(`0027_narrow_settlement_bypass.sql`).
+
 ---
 
 ## Entities
@@ -1065,8 +1094,19 @@ src/
                        scanFightForRumours.ts, runRumourScanJob.ts,
                        runScheduledRumourJob.ts (`npm run
                        rumours:scheduled-job`, and
-                       .github/workflows/rumours.yml every 6h) — built F2
-    intern/            clustering + pick generation (batch)          [NEW]
+                       .github/workflows/rumours.yml every 6h) — built F2;
+                       fetchFlagsForFights.ts — takes the Supabase client
+                       as a parameter rather than importing one, so
+                       lib/intern/ (a sibling lib/, not a feature) can
+                       read flags without lib/ importing from features/ —
+                       built G1
+    intern/            decideInternPick.ts + flagPenalty.ts (pure,
+                       mutation-tested — the market-anchor de-vig and the
+                       rumour-adjustment direction are the two things
+                       easiest to get silently backwards), types.ts,
+                       generateInternPicks.ts, runScheduledInternJob.ts
+                       (`npm run intern:scheduled-job`, and
+                       .github/workflows/intern.yml every 2h) — built G1
     settlement/        evaluateFightSettlement.ts (pure, mutation-
                        tested), settleFights.ts — built D1; settlePicks.ts
                        — built D2; runSettlementJobsOnce.ts (D1 then D2,
@@ -1160,7 +1200,23 @@ never "this should pass now."
    fixed before shipping
 4. **Pick lock** — a pick cannot be created or edited after `events.starts_at`.
    **Done in C1** — `check_pick_constraints()`, a `BEFORE INSERT OR UPDATE`
-   trigger, `supabase/tests/rls.sql` checks 17/24, live-verified
+   trigger, `supabase/tests/rls.sql` checks 17/24, live-verified.
+   **A second half, found while planning G1:** the settlement bypass added
+   in C2/D2 keyed on the WRITER'S ROLE alone (`current_setting('role',
+   true) = 'service_role'`), so any `service_role` write bypassed the
+   lock, not just the settlement job's own narrow update. Phase G's
+   intern job runs as `service_role` too (Fork 3), so nothing stopped it
+   writing a pick for a fight that had already started or finished —
+   silently invalidating the entire you-vs-intern comparison. Fixed in
+   `0027_narrow_settlement_bypass.sql`: the bypass now also requires the
+   write to be an `UPDATE` touching only the three real settlement
+   columns (`pick_correct`, `pnl_units`, `settled_at`) and nothing else,
+   verified against `settlePicks.ts`'s actual update call. Live-tested in
+   a rolled-back transaction against real data: a late `service_role`
+   INSERT and a late prediction revision are both correctly rejected, the
+   real settlement UPDATE still succeeds. Same lesson `odds_snapshots`
+   already recorded in a different shape — an absent or role-shaped check
+   does nothing to stop the job itself
 5. **Odds snapshot immutability** — a later sync must not overwrite a price
    that is already pending or settled. **A second half, found while building
    B5:** a too-early write is just as permanent as an overwrite — the

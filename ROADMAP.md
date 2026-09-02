@@ -4,8 +4,8 @@
 `user-flow-mapper`.
 
 **Sources:** [docs/PRD.md](docs/PRD.md) (product truth, MoSCoW),
-[ARCHITECTURE.md](ARCHITECTURE.md) (9 resolved forks as of F1, 9
-correctness-critical items as of F2), [docs/user-flows.md](docs/user-flows.md)
+[ARCHITECTURE.md](ARCHITECTURE.md) (10 resolved forks as of G1, 9
+correctness-critical items as of F2, item #4 extended in G1), [docs/user-flows.md](docs/user-flows.md)
 (screens and ordering constraints).
 
 **How to use this file.** One sub-phase is one `feature-planner` pass. Kick
@@ -952,7 +952,7 @@ works, not just the underlying API calls it's built on.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| G1 | Intern picks every fight with an `estimated_probability`, market-anchored and rumour-adjusted | not started |
+| G1 | Intern picks every fight with an `estimated_probability`, market-anchored and rumour-adjusted | **done** (2026-09-02) |
 | G2 | Edge-gated betting — threshold plus confidence sizing, and **free to decline entirely** | not started |
 | G3 | Intern lines on both boards + a calibration check | not started |
 
@@ -964,6 +964,48 @@ edge at all.
 directly checkable: of the fights called 70%, did roughly 70% happen? Expect
 chalk to win early while calibration is bad. That is an informative result,
 not a failure — the PRD says so explicitly.
+
+**G1 result.** `lib/intern/`: `decideInternPick.ts` is the whole opinion as
+one pure, deterministic function — de-vigged market anchor (raw implied
+probabilities always sum to more than 1, the overround, so using them
+directly would hand the intern phantom edge on nearly every fight) plus a
+capped, corroboration-scaled penalty per flagged fighter
+(`flagPenalty.ts`). `generateInternPicks.ts` is the I/O glue: every
+upcoming fight, priced or not, gets a pick, held fights are skipped, and a
+write only happens when the decision actually changed — `updated_at` stays
+a real signal of when the intern last changed its mind now that revision
+is allowed. See `ARCHITECTURE.md`'s Fork 10 for the three confirmed
+decisions this rule embodies (deterministic over LLM, picks unpriced
+fights anchored at 50%, revises until the card locks).
+
+**A real security gap found and closed before any intern code ran live**
+— see correctness-critical item #4: the pick-lock trigger's settlement
+bypass keyed on the writer's role alone, so the intern's own
+`service_role` cron would have been able to write past a started or
+finished card. Fixed same-day (`0027_narrow_settlement_bypass.sql`),
+live-tested in a rolled-back transaction against real data: a late
+`service_role` INSERT and a late revision are both correctly rejected,
+the real settlement UPDATE still works.
+
+Test-first, mutation-verified: `flagPenalty.ts` and `decideInternPick.ts`
+(19 tests) — the market-anchor de-vig and the rumour-adjustment direction
+are the two things easiest to get silently backwards, and both mutations
+were caught.
+
+Run live against production (81 real upcoming fights, every future
+event): 81 picks written, 0 failures. Spot-checked three real flagged
+fights against the function's own logic by hand — the symmetric
+adjustment, the 50/50 anchor for unpriced fights, and the per-fighter cap
+all matched exactly. Re-ran immediately after: 0 written, 81 unchanged,
+confirmed directly against `updated_at` (every value still from the first
+run) — idempotency verified against real timestamps, not just the
+summary counts.
+
+**Not built in G1, deliberately:** nothing yet surfaces the intern's pick
+on the card view row (Flow 1's diagram shows one) — G3 covers "intern
+lines on both boards" for the scoreboard specifically, but the card-view
+row display doesn't clearly belong to any lettered sub-phase as written.
+Worth deciding explicitly before G3, not assumed into either.
 
 ---
 
