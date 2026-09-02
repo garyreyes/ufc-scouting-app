@@ -1871,3 +1871,38 @@ line and correctly-capped confidence, spot-checked directly against a
 real row.
 
 **Status:** G1b done. Next: G2, edge-gated betting.
+
+## Phase 44 — G2: edge-gated betting (2026-09-02)
+
+decideInternBet.ts -- the second judgment, deliberately its own pure
+function separate from decideInternPick.ts, per UC-2's own rule that a
+pick and a bet "must not be collapsed." Combined only at the I/O layer
+into picks' single reasoning column.
+
+Checks edge on both fighters, not just the predicted one --
+probabilityForFighter.ts (C4) exists precisely because a bet may back a
+different fighter than the pick.
+
+One real decision confirmed with the user: stake sizing scales with edge
+AND confidence together, not edge alone -- the first real place G1b's
+confidence cap does more than change a displayed number. Two bets with
+identical edge now get different stakes if one rests on a near-debutant
+matchup.
+
+Test-first, mutation-verified (11 tests) -- the edge-threshold gate and
+the both-fighters comparison were each independently confirmed
+load-bearing. The threshold mutation was caught by PRD UC-3's own
+headline example (a -6000 favourite, ~0 edge) coded directly as a test
+case.
+
+Verified live against real production data twice: the actual scheduled
+job ran against all 81 real upcoming fights (all unpriced, all correctly
+declined, confirmed idempotent on a second pass). Separately, since
+odds_snapshots is immutable by trigger even for service_role, the
+positive-edge path was verified by calling the real functions directly
+against a real production fight with a synthetic price and a real Elo
+gap: correctly flipped the bet, computed a real edge, and correctly
+sized the stake down for low confidence.
+
+**Status:** G2 done. Next: G3, intern lines on both boards + a
+calibration check.
