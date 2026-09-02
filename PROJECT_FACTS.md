@@ -518,3 +518,32 @@ Decided 2026-08-29, user-originated.
   a real check the first time a card the intern is watching finishes,
   rather than assuming it works because the logic mirrors already-proven
   patterns.
+- **The pick-lock's settlement bypass previously keyed on WRITER'S ROLE
+  alone, not on what was being written — found and fixed in G1, before
+  any intern code ran live, not after an incident.** Any `service_role`
+  write bypassed the lock, which meant Phase G's intern cron could have
+  written a pick past a started or finished card with nothing stopping
+  it. `0027_narrow_settlement_bypass.sql` narrows the bypass to an
+  `UPDATE` touching only `pick_correct`/`pnl_units`/`settled_at` — if a
+  future session adds another `service_role` writer to `picks` for any
+  reason, check this trigger's assumptions again rather than trusting
+  the role check alone.
+- **The intern's pick rule is deliberately deterministic, not an LLM
+  call — confirmed with the user 2026-09-02 (G1), not a cost shortcut.**
+  Reproducible output is what makes G3's future calibration check
+  interpretable at all; a non-deterministic estimator makes a bad rule
+  indistinguishable from a bad day. If a future session is tempted to
+  route this through Gemini for "smarter" picks, that trade-off needs
+  re-confirming with the user, not assumed to be a strict upgrade.
+- **The intern revises its pick until the card locks, not once — this
+  only became safe once the pick-lock gap above was closed, and the two
+  decisions are linked, not independent.** Don't consider disabling the
+  lock-narrowing fix without also reconsidering whether revision is still
+  safe.
+- **Nothing yet shows the intern's pick on the card view's bout row
+  (G1), even though Flow 1's own diagram includes it — a real, open gap,
+  not an oversight buried in G3's scope.** `ROADMAP.md`'s G3 line
+  ("Intern lines on both boards") is about the `/scoreboard` boards,
+  which already had intern support since E1 — it does not obviously
+  cover the card-view row. Decide explicitly which sub-phase owns this
+  before assuming G3 already will.

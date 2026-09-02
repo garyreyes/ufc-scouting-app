@@ -1,0 +1,36 @@
+name: Intern picks job
+
+on:
+  schedule:
+    # Every 2 hours, matching odds.yml's cadence deliberately. The intern
+    # needs a price to anchor on (odds land ~T-12h) and is rejected by the
+    # pick-lock trigger once the card starts, so its useful window is
+    # exactly the 12 hours between those two moments -- a daily cadence
+    # could miss it entirely on a card that prices and starts between
+    # runs. No external API cost per run (no LLM, no Bluesky: the pick
+    # rule is deterministic), so a tight cadence is free here.
+    - cron: "30 */2 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  intern:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Writes one INTERN pick per upcoming fight, revising its own
+      # earlier pick when the market or the rumour picture has moved.
+      # Recorded in job_runs as "intern_picks".
+      - name: Generate intern picks
+        run: npx tsx src/lib/intern/runScheduledInternJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
