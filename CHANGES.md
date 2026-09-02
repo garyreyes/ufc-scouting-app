@@ -1600,3 +1600,64 @@ calls to the underlying APIs.
 
 **Status:** F1 done. Next: F2, clustering into `rumour_flags` +
 `rumour_sources`, with a degrade-loudly fallback.
+
+## Phase 38 — F2: the clustering job, and a real bug found by running it live (2026-09-02)
+
+`rumour_flags` + `rumour_sources` (`0024_rumour_flags_and_sources.sql`),
+public-read, service-role-write-only like `odds_snapshots`/`job_runs`.
+One user decision confirmed first: adding an `'other'` category bucket
+alongside the PRD's four named concern types (weight cut, injury, camp
+change, short-notice replacement), so a real corroborated concern that
+doesn't fit those four still gets surfaced instead of dropped.
+
+`lib/rumours/` is the full pipeline: search Bluesky per fighter on the
+nearest upcoming card, cluster via Gemini (with a keyword + fuzzy-name
+heuristic fallback on any LLM failure), upsert by `(fight, fighter,
+category)` so corroboration accumulates across job runs. The LLM's raw
+output is never trusted at face value — `parseClusterResponse.ts`
+independently re-validates every fighter attribution, category, and
+source uri, dropping anything hallucinated or ambiguous rather than
+guessing. Corroboration count is never a stored column, matching the
+scoreboard's chalk-line rule: it's `count(*)` on `rumour_sources` at read
+time.
+
+Test-first and mutation-verified: the heuristic fallback, the
+near-duplicate collapse (the actual "corroboration counts independent
+claims, not raw post volume" rule), the fighter-mention matcher, and the
+LLM-response validator.
+
+**Run live against production three times in a row, real upcoming card
+(UFC Fight Night: Hooker vs. Parnasse, 11 fights) — and it found a real
+bug the unit tests couldn't.** The first run wrote a flag with **zero**
+attached sources: the original schema's `unique(post_uri)` was global,
+so when the same real post supported two different flags about the same
+fighter (a short-notice-replacement announcement that also mentioned a
+past weight miss), the second flag's source insert silently lost the
+constraint race. Fixed same-day (`0025_rumour_sources_unique_per_flag.sql`
+— scoped to `unique(flag_id, post_uri)` instead) and re-verified live:
+every flag now carries real sources, and a third immediate re-run
+confirmed real accumulation (one flag's corroboration grew from 1 to 3
+sources as new posts appeared) with zero duplicate rows, checked directly
+against the table.
+
+The same live run also caught the degrade-loudly path firing for real,
+not simulated: one of the 11 fights genuinely hit an LLM failure mid-run
+and fell back to heuristic clustering, correctly recorded in `job_runs`.
+And it caught a real prompt gap — early output included past-fight
+result recaps ("secured a first-round knockout victory...") as if they
+were pre-fight concerns; `buildClusterPrompt.ts` now explicitly excludes
+anything that isn't a live risk to the *upcoming* bout.
+
+**Scope note:** PRD UC-1 wants sourcing to distinguish a named
+journalist, the camp, or the fighter. Only named-outlet detection is
+built (`.web.brid.gy` bridge accounts, F1's finding) — there's no stored
+mapping from a fighter to their own or their camp's Bluesky handle
+anywhere in this schema, so that part is honestly out of scope for now
+rather than faked.
+
+`.github/workflows/rumours.yml` runs every 6 hours; `GEMINI_API_KEY` and
+both `BLUESKY_*` secrets added to GitHub Actions (piped from `.env.local`,
+never displayed) alongside the existing `ODDS_API_KEY`.
+
+**Status:** F2 done. No UI reads this data yet — that's F3: flags on
+card rows + full sources with links on `/fights/[id]`.
