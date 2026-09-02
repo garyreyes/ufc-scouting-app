@@ -1943,3 +1943,43 @@ both lines, the correct honest state given nothing has settled yet.
 **Status:** G3 done. Phase G (the intern) is now fully done -- G1, G1b,
 G2, G3 all shipped. Next: Phase H, cleanup (remove Clans from nav, a
 full-app accessibility/responsive audit).
+
+## Phase 46 — H1 + H2: nav cleanup + full-app audit, v2 feature-complete (2026-09-03)
+
+H1: Sidebar.tsx's NAV_ITEMS no longer lists /clans -- the PRD's own
+"Should have" item names two options ("retire or clearly hide... from
+navigation"), already scoped to the hide option. /clans, /clans/[id],
+/invite/[token] all still build and resolve; nothing else in the app
+linked to /clans.
+
+H2: mechanical detector run across the whole in-scope tree plus a manual
+pass over every surface not already covered by a per-phase audit (app
+shell, search, weight filter, auth dropdown, grids, /conflicts). Three
+real findings, fixed:
+
+- WeightClassFilter and AuthButton are both hand-built disclosure widgets
+  that closed on outside click but never on Escape, and never returned
+  focus to the trigger -- a real repeated keyboard-nav gap, not a
+  one-off. Extracted into a shared useDismissableOpen.ts (shared/utils/)
+  the moment a second component needed the identical fix. AuthButton was
+  also missing aria-expanded entirely.
+- The fighter-search input had no accessible name (placeholder alone
+  isn't reliable) -- added aria-label.
+- The search input's focus indicator was thin and asymmetric (1px
+  border-color only, no border at all on one edge by design) -- added a
+  box-shadow ring.
+
+One finding reported, not fixed: the sidebar's collapse-toggle animates
+margin-left/width (real layout-thrash properties). A like-for-like fix
+means redesigning the sidebar as an overlay, a real UX change, not a bug
+fix -- and the actual cost is one 150ms reflow on a manual toggle click.
+Left as a named P3. One finding reported as a false positive, verified:
+the detector's overused-font rule flagged Arial, the plain system-font
+fallback stack shipped since v1, not one of the rule's own named
+AI-slop faces.
+
+Full gate chain green after every fix. Audit Health Score: 18/20
+(Excellent).
+
+**Status:** H1 + H2 done. v2 is now feature-complete -- Phases A through
+H are all done.

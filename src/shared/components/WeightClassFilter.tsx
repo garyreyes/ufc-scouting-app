@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { WEIGHT_CLASSES } from "@/shared/utils/weightClasses";
+import { useDismissableOpen } from "@/shared/utils/useDismissableOpen";
 import styles from "./WeightClassFilter.module.css";
 
 export function WeightClassFilter() {
@@ -11,18 +12,11 @@ export function WeightClassFilter() {
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const selected = searchParams.getAll("weightClass");
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  useDismissableOpen(open, () => setOpen(false), containerRef, triggerRef);
 
   function toggle(weightClass: string) {
     const next = new URLSearchParams(searchParams.toString());
@@ -37,6 +31,7 @@ export function WeightClassFilter() {
   return (
     <div className={styles.container} ref={containerRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={`${styles.trigger} ${selected.length > 0 ? styles.active : ""}`}
         onClick={() => setOpen((o) => !o)}
