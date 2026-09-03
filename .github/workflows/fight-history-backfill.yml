@@ -1,0 +1,40 @@
+name: Fight history backfill job
+
+on:
+  schedule:
+    # Once daily, at 18:00 UTC -- 6h clear of sync.yml's 00:00/12:00 runs
+    # and fighter-enrichment.yml's 06:00 run, evenly spacing the four
+    # jobs sharing API-Sports' 100/day free-tier budget across the day.
+    # Not time-sensitive: this is a backfill against a fixed population
+    # (fighters I2 has already enriched), not a live-price/live-schedule
+    # concern, so twice-daily would only spend quota faster for no
+    # benefit.
+    - cron: "0 18 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Backfills 2022-2024 fight history (the free tier's own floor and
+      # ceiling) for up to 5 already-enriched fighters per run
+      # (backfillFightHistory.ts) -- the opponent-quality data the intern
+      # needs, and the actual reason G1b's Elo confidence cap stays
+      # capped for most fighters right now. Recorded in job_runs as
+      # "fight_history_backfill".
+      - name: Backfill fighter history
+        run: npx tsx src/lib/ufc-data-sync/runFightHistoryBackfillJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          UFC_API_SPORTS_KEY: ${{ secrets.UFC_API_SPORTS_KEY }}
