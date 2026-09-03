@@ -2277,3 +2277,34 @@ intern job: 1 pick written, 0 held by a conflict (down from 1).
 
 **Status:** 1 conflict open (Sutherland, needs a human call). I2d and
 I3-I5 not started.
+
+## Phase 54 — I2d: the two 3-fight duplicate clusters (2026-09-03)
+
+Both turned out to be the identical real-world shape as the earlier
+conflict fixes: an originally-announced opponent got replaced, and the
+sync had independently captured both the before and after. Wikipedia's
+current page settled both definitively -- "Stanley Dorsainvil def.
+Gauge Young" and "Liu Ce def. Levi Rodrigues Jr." -- neither mentioning
+the third name in either cluster (Kody Steele; Junior Tafa) at all.
+
+Handled as a direct manual repair, not routed through data_conflicts --
+unlike Louie Sutherland, there was no genuine ambiguity left; Wikipedia
+had already settled it. For each cluster: filled in the real
+method/round (and, for Cluster B, the weight class it was missing
+entirely) on the row matching Wikipedia, deleted the two stale rows,
+deleted one resulting fully-orphaned unenriched fighter row ("Liu Ce").
+Kody Steele and Junior Tafa's own fighter records untouched -- both
+real, just not on these cards after the replacement.
+
+A concrete correctness bug closed, not just tidiness: Gauge
+Young/Dorsainvil's result had been counted TWICE by Elo. Confirmed by
+the recompute's own numbers: 45 fights processed -> 44, 90 snapshots ->
+88, exactly matching the one duplicate that had been contributing.
+
+Verified live: 0 of 4 deleted fights still present, both survivors show
+the exact filled-in data, the orphan fighter gone, Kody Steele/Junior
+Tafa untouched, 146 total fights (150 - 4).
+
+**Status:** All open conflicts and known latent duplicates resolved,
+except the one genuinely-ambiguous case (Louie Sutherland) that needs a
+real person identified. I3-I5 not started.

@@ -1502,7 +1502,45 @@ untouched, `fighter_elo_history` at 82 rows (down from 94 — exactly
 
 | # | Follow-up | Status |
 |---|---|---|
-| I2d | Resolve the 2 real 3-fight clusters `sweepLatentDisputedOpponents.ts` deliberately left untouched (Gauge Young; Ce Liu/Tafa/Rodrigues Jr.) — needs either a manual one-off look or a genuine N-way extension of the conflict shape if this pattern recurs | not started |
+| I2d | Resolve the 2 real 3-fight clusters `sweepLatentDisputedOpponents.ts` deliberately left untouched (Gauge Young; Ce Liu/Tafa/Rodrigues Jr.) — needs either a manual one-off look or a genuine N-way extension of the conflict shape if this pattern recurs | **done** (2026-09-03) |
+
+**I2d result.** Both clusters turned out to be the identical real-world
+shape: an originally-announced opponent got replaced, and the sync had
+independently captured both the before and after as separate rows —
+the same story as the Wood/Andrusca and Johns/Rosas fixes in the
+conflict-resolution pass, just with a third stale row involved instead
+of two clean ones. Wikipedia's current page gave a definitive, sourced
+answer for both (not a guess): "Stanley Dorsainvil def. Gauge Young"
+and "Liu Ce def. Levi Rodrigues Jr." — neither mentioning the third
+name in either cluster (Kody Steele; Junior Tafa) at all.
+
+Handled as a direct, manual repair rather than routed through
+`data_conflicts` — unlike Louie Sutherland, there was no genuine
+ambiguity left for an owner to judge; Wikipedia, one of this app's own
+two trusted sources, had already settled it. For each cluster: filled
+in the real method/round (and, for Cluster B, the weight class — the
+surviving row was missing it entirely) on the one row matching
+Wikipedia exactly, deleted the two stale rows, and deleted one
+resulting fully-orphaned unenriched fighter row ("Liu Ce," 0 fights, 0
+external_id). Kody Steele and Junior Tafa's own fighter records were
+left untouched — both real, enriched fighters simply not on these
+particular cards after the replacement.
+
+A concrete correctness bug this closed, not just tidiness: Gauge
+Young/Dorsainvil's result had been counted TWICE by Elo (two separate
+fight rows, each with a real winner, both feeding the rebuild) —
+confirmed by the recompute's own numbers before and after (45 fights
+processed → 44, 90 snapshots → 88, exactly matching the one duplicate
+that had been contributing).
+
+Verified live against the real tables: 0 of the 4 deleted fights still
+present, both surviving rows show exactly the filled-in Wikipedia data,
+the orphan fighter row gone, Kody Steele's and Junior Tafa's own rows
+untouched, 146 total fights (150 − 4).
+
+**All open conflicts and known latent duplicates are now resolved**,
+except the one still-open, genuinely-ambiguous case (Louie Sutherland)
+that needs a real person identified, not inferred.
 
 **I1 result.** `isResolvedForElo.ts` (pure, mutation-verified) replaces
 `settled_at IS NOT NULL` as the eligibility rule, and ordering moved to
