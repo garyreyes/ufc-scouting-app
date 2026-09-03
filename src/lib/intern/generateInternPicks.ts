@@ -305,9 +305,9 @@ async function fetchLatestEloRatings(
 
   const { data, error } = await supabase
     .from("fighter_elo_history")
-    .select("fighter_id, rating, fight_settled_at")
+    .select("fighter_id, rating, fight_occurred_at")
     .in("fighter_id", fighterIds)
-    .order("fight_settled_at", { ascending: true });
+    .order("fight_occurred_at", { ascending: true });
   if (error) throw error;
 
   const result = new Map<string, EloInfo>();

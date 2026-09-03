@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { computeEloHistory } from "./computeEloHistory";
-import type { SettledFightForElo } from "./computeEloHistory";
+import type { FightForElo } from "./computeEloHistory";
 import { DEFAULT_RATING } from "./eloMath";
 
-function fight(overrides: Partial<SettledFightForElo>): SettledFightForElo {
+function fight(overrides: Partial<FightForElo>): FightForElo {
   return {
     fightId: "f1",
     fighter1Id: "a",
     fighter2Id: "b",
     winnerId: "a",
     method: "Decision",
-    settledAt: "2026-01-01T00:00:00Z",
+    occurredAt: "2026-01-01T00:00:00Z",
     ...overrides,
   };
 }
@@ -34,14 +34,14 @@ describe("computeEloHistory", () => {
       fighter1Id: "a",
       fighter2Id: "x",
       winnerId: "a",
-      settledAt: "2026-01-01T00:00:00Z",
+      occurredAt: "2026-01-01T00:00:00Z",
     });
     const late = fight({
       fightId: "f-late",
       fighter1Id: "a",
       fighter2Id: "y",
       winnerId: "y",
-      settledAt: "2026-06-01T00:00:00Z",
+      occurredAt: "2026-06-01T00:00:00Z",
     });
 
     const inOrder = computeEloHistory([early, late]);
@@ -57,7 +57,7 @@ describe("computeEloHistory", () => {
       fighter1Id: "a",
       fighter2Id: "c",
       winnerId: "a",
-      settledAt: "2026-02-01T00:00:00Z",
+      occurredAt: "2026-02-01T00:00:00Z",
     });
     const snapshots = computeEloHistory([first, second]);
 
@@ -95,21 +95,21 @@ describe("computeEloHistory", () => {
   });
 
   it("a subsequent fight after an excluded NC still uses the pre-NC rating and fight count", () => {
-    const winFirst = fight({ fightId: "f1", winnerId: "a", settledAt: "2026-01-01T00:00:00Z" });
+    const winFirst = fight({ fightId: "f1", winnerId: "a", occurredAt: "2026-01-01T00:00:00Z" });
     const ncSecond = fight({
       fightId: "f2",
       fighter1Id: "a",
       fighter2Id: "c",
       winnerId: null,
       method: "NC",
-      settledAt: "2026-02-01T00:00:00Z",
+      occurredAt: "2026-02-01T00:00:00Z",
     });
     const winThird = fight({
       fightId: "f3",
       fighter1Id: "a",
       fighter2Id: "d",
       winnerId: "a",
-      settledAt: "2026-03-01T00:00:00Z",
+      occurredAt: "2026-03-01T00:00:00Z",
     });
 
     const withNc = computeEloHistory([winFirst, ncSecond, winThird]);
@@ -128,13 +128,13 @@ describe("computeEloHistory", () => {
   it("gives a debuting fighter a bigger rating swing than a fighter with a long history, for the same result", () => {
     // "a" has 12 prior fights (all wins, alternating opponents so k
     // settles); "z" is a total debutant facing "a" for the first time.
-    const priorFights: SettledFightForElo[] = Array.from({ length: 12 }, (_, i) =>
+    const priorFights: FightForElo[] = Array.from({ length: 12 }, (_, i) =>
       fight({
         fightId: `warmup-${i}`,
         fighter1Id: "a",
         fighter2Id: `opponent-${i}`,
         winnerId: "a",
-        settledAt: `2025-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+        occurredAt: `2025-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
       }),
     );
     const upset = fight({
@@ -142,7 +142,7 @@ describe("computeEloHistory", () => {
       fighter1Id: "a",
       fighter2Id: "z",
       winnerId: "z",
-      settledAt: "2026-06-01T00:00:00Z",
+      occurredAt: "2026-06-01T00:00:00Z",
     });
 
     const snapshots = computeEloHistory([...priorFights, upset]);
