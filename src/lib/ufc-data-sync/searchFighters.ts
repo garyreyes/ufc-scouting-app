@@ -1,5 +1,6 @@
 import { apiSportsGet } from "./client";
 import { parseHeightToCm, parseReachToCm, parseWeightToKg } from "./parseMeasurements";
+import { sanitizeSearchQuery } from "./sanitizeSearchQuery";
 
 interface ApiSportsFighter {
   id: number;
@@ -33,7 +34,13 @@ export interface FighterSearchCandidate {
 }
 
 export async function searchFighters(name: string): Promise<FighterSearchCandidate[]> {
-  const fighters = await apiSportsGet<ApiSportsFighter[]>("fighters", { search: name });
+  // The query is sanitized; the comparison against it (decideFighterMatch,
+  // via enrichFighters.ts's own separately-held `fighterName`) never is --
+  // see sanitizeSearchQuery.ts.
+  const query = sanitizeSearchQuery(name);
+  if (query.length === 0) return [];
+
+  const fighters = await apiSportsGet<ApiSportsFighter[]>("fighters", { search: query });
 
   return fighters.map((f) => ({
     externalId: String(f.id),

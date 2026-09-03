@@ -12,13 +12,10 @@
 // lib/text/ is neutral ground: no feature's fuzzy matching is a special
 // case of another's.
 
+import { foldDiacritics } from "./foldDiacritics";
+
 function normalize(name: string): string {
-  return name
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // strip combining diacritical marks (é -> e, ñ -> n)
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ");
+  return foldDiacritics(name).toLowerCase().trim().replace(/\s+/g, " ");
 }
 
 // Known limitation: precomposed letters that aren't decomposable via NFD
