@@ -219,6 +219,7 @@ per card" framing hadn't accounted for once this became a poll loop rather
 than a single precise trigger.
 
 New pieces:
+
 - `lib/odds/snapshotWindow.ts`'s `isPastSnapshotWindow` — the T-12h gate
   `matchAndSnapshot` was missing since B3 (item #5 above). Test-first,
   mutation-verified at the boundary and the null-`starts_at` guard.
@@ -386,6 +387,7 @@ access; this phase touched no migration and nothing live.
 
 Test-first throughout, every branch mutation-verified against a real
 regression, not just written and trusted:
+
 - `impliedProbability`/`edge` tested against the PRD's own -6000-
   favourite example (decimal 1.0167 -> 98.4% implied).
 - `scoreBetPnl` tested against known moneyline examples (a 1.20
@@ -1187,6 +1189,7 @@ and Phase F's own surfaces were already covered by their per-phase
 audits and not re-walked here.
 
 Three real, verified findings, fixed in this pass:
+
 - **A repeated pattern, not a one-off**: `WeightClassFilter` and
   `AuthButton` are both hand-built trigger+panel disclosure widgets that
   closed on outside click but never on Escape, and never returned focus
@@ -1234,7 +1237,7 @@ exactly the two deliberately left as-is above.
 found and fixed this pass), Performance 3/4 (the two known, low-impact
 transition items), Theming 4/4 (full token system, no hard-coded colours
 found anywhere in scope), Responsive 4/4 (fluid grids, deliberate
-horizontal-scroll tables, no fixed-width overflow risk found), 
+horizontal-scroll tables, no fixed-width overflow risk found),
 Implementation Integrity 4/4 (coherent, product-specific throughout —
 every `onClick` in the entire in-scope tree is on a real `<button>`,
 confirmed by a direct search, never a hand-rolled clickable `div`).
