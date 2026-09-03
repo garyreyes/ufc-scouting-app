@@ -17,7 +17,8 @@
     "settlement:run-jobs": "dotenv -e .env.local -- tsx src/lib/settlement/runSettlementJobs.ts",
     "rumours:scheduled-job": "dotenv -e .env.local -- tsx src/lib/rumours/runScheduledRumourJob.ts",
     "intern:scheduled-job": "dotenv -e .env.local -- tsx src/lib/intern/runScheduledInternJob.ts",
-    "fighters:enrich": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runFighterEnrichmentJob.ts"
+    "fighters:enrich": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runFighterEnrichmentJob.ts",
+    "fights:sweep-disputed-opponents": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runSweepLatentDisputedOpponents.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

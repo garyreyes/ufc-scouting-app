@@ -1425,7 +1425,81 @@ than done unilaterally.
 
 | # | Follow-up | Status |
 |---|---|---|
-| I2c | Why did A2's disputed-opponent detection not catch the live André/Andre Lima fight duplication? Investigate before assuming the fix is only the diacritic fold above | not started |
+| I2c | Why did A2's disputed-opponent detection not catch the live André/Andre Lima fight duplication? Investigate before assuming the fix is only the diacritic fold above | **done** (2026-09-03) |
+
+**I2c result.** The code was never broken — replayed `sharesExactlyOneFighter`
+directly against the real Lima/Batbayar rows and it returns `true` in
+both directions, today. The real explanation: **A2's detection only
+runs when `upsertFight` is called on a write.** It has no mechanism that
+retroactively checks fights already sitting in the table before it
+shipped (2026-09-01). This event is dated 2026-08-29; once a past
+event's sync window closes, nothing ever calls `upsertFight` for it
+again, so a duplicate from before A2 existed is permanently invisible to
+it — no bug required, just a gap between "protects every future write"
+and "was ever applied to what already existed."
+
+**Swept the whole table for the same shape, not assumed to be one-off.**
+`clusterFightsBySharedFighter.ts` (pure, mutation-verified — union-find
+over the exact same `sharesExactlyOneFighter` relation A2's live path
+already uses) found **10 real clusters** across 158 fights, not 13
+isolated pairs: two of the "13 pairwise matches" first found were edges
+within two genuine **3-fight chains** ("Gauge Young" implicated across
+three rows; "Ce Liu"/"Junior Tafa"/"Levi Rodrigues Jr." similarly),
+where a naive pairwise sweep would have double-resolved the same fighter
+across two independent conflicts and left a dangling reference. Caught
+by a mutation test built specifically to require checking every pair,
+not just array-adjacent ones — a real gap in the first version of the
+test suite, closed before it could hide anything.
+
+Of the 10 clusters, **8 were clean 2-fight pairs and are not name-
+matching bugs alone** — only 2 were the diacritic case I2b already
+fixes going forward (André/Andre Lima, Márcio/Marcio Barbosa). The other
+6 span nickname forms (Wesley/Wes Schultz, Stan/Stanley Dorsainvil),
+name-order swaps (Liu Ce/Ce Liu), and missing spaces in transliterated
+names (Aori Qileng/Aoriqileng) — none of which I2b's exact-after-fold
+match would ever catch, and several of which are genuinely different-
+looking names an automatic merge should never attempt at all.
+
+`sweepLatentDisputedOpponents.ts` resolves the 8 clean pairs by reusing
+the **existing** disputed-opponent conflict machinery unmodified — zero
+new UI. The one real difference from the live path: there, a candidate
+only ever exists as JSON inside `details` because `upsertFight`'s
+conflict branch runs *instead of* an insert; here, both sides of every
+pair already exist as real rows, so the candidate's row is deleted as
+part of opening the conflict (its full data snapshotted into `details`
+first) — otherwise resolving through the existing action would silently
+leave an orphan duplicate no matter which side the owner picked.
+Confirmed live before anything ran: zero `odds_snapshots`/`picks`/
+`rumour_flags`/`data_conflicts` referenced any of the 22 rows involved.
+
+**A real finding from the live run itself, not assumed safe in
+advance:** the first attempt failed outright — `fighter_elo_history` has
+an FK on `fight_id`, and several of these pre-A2 duplicates carry a
+genuine recorded result that I1's Elo recompute had already rated.
+Confirmed the failure left nothing partially written (0 conflicts opened,
+158 fights still present) before fixing it: each candidate's own
+`fighter_elo_history` rows are cleared explicitly before its `fights`
+row is deleted, then one full `recomputeEloRatings()` runs after the
+whole sweep — simpler and more obviously correct than hand-patching
+individual ratings, and a no-op when nothing rated was actually removed.
+
+The 2 three-way clusters are **not** resolved automatically — the
+existing conflict shape is exactly one "kept" vs one "candidate", and
+force-fitting a real three-way chain into it risked losing information
+rather than surfacing it. Reported, left as real rows, for a human (or
+a proper N-way extension, if this pattern recurs) to look at directly.
+
+**Verified live afterward, against the real tables, not the summary
+line:** 150 fights remaining (158 − 8), exactly 9 open `disputed_opponent`
+conflicts (8 new + the 1 pre-existing Wood/Andrusca), every new
+conflict's kept/candidate pairing resolves to the correct real fighter
+names, all 6 fights in the two skipped clusters still present and
+untouched, `fighter_elo_history` at 82 rows (down from 94 — exactly
+94 − 12 cleared, confirming the math, not just trusting it).
+
+| # | Follow-up | Status |
+|---|---|---|
+| I2d | Resolve the 2 real 3-fight clusters `sweepLatentDisputedOpponents.ts` deliberately left untouched (Gauge Young; Ce Liu/Tafa/Rodrigues Jr.) — needs either a manual one-off look or a genuine N-way extension of the conflict shape if this pattern recurs | not started |
 
 **I1 result.** `isResolvedForElo.ts` (pure, mutation-verified) replaces
 `settled_at IS NOT NULL` as the eligibility rule, and ordering moved to

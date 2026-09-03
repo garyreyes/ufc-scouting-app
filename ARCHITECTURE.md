@@ -1279,7 +1279,15 @@ src/
                        enrichFighters.ts, runFighterEnrichmentJob.ts
                        (`npm run fighters:enrich`, and
                        .github/workflows/fighter-enrichment.yml daily) —
-                       built I2, see correctness-critical item #14
+                       built I2, see correctness-critical item #14;
+                       clusterFightsBySharedFighter.ts (pure,
+                       mutation-tested — union-find over A2's own
+                       sharesExactlyOneFighter relation),
+                       sweepLatentDisputedOpponents.ts,
+                       runSweepLatentDisputedOpponents.ts (`npm run
+                       fights:sweep-disputed-opponents` — a one-time
+                       backfill, not scheduled) — built I2c, see
+                       correctness-critical item #16
     llm.ts             single Gemini wrapper — swappable in one file
                        (generateJson, gemini-3.5-flash-lite) — built F1
     jobs/              runWithTracking.ts — generic job_runs bookkeeping,
@@ -1640,6 +1648,42 @@ never "this should pass now."
     not caught it — tracked as I2c (ROADMAP.md), not yet understood, and
     the live duplicate not yet merged (a destructive multi-table repair,
     deliberately not done without explicit confirmation)
+16. **Retroactively applying a live safety net to data that predates it**
+    — item #15's own open question, answered. A2's detection
+    (`sharesExactlyOneFighter`) was never broken; replayed directly
+    against the real duplicate and it fires correctly, in both
+    directions. It simply never ran against fights already in the table
+    before A2 shipped, since it only executes on a live write and a past
+    event's sync window never reopens. **Done in I2c** —
+    `clusterFightsBySharedFighter.ts` (pure, mutation-verified —
+    union-find over A2's own relation, not a naive pairwise scan: a
+    mutation reducing the check to array-adjacent pairs only wasn't
+    caught until a test placed two connected fights apart in the input
+    array, closed before it could hide anything). Swept all 158
+    production fights and found 10 real clusters, not 13 isolated pairs
+    — two were genuine 3-fight chains a pairwise sweep would have
+    double-resolved. `sweepLatentDisputedOpponents.ts` resolves the 8
+    clean 2-fight clusters through the **existing, unmodified**
+    disputed-opponent machinery; deletes the candidate's own row as part
+    of opening the conflict, since — unlike the live path, where a
+    candidate never has a row of its own — both sides here already
+    exist, and resolving through the existing action without removing
+    one would leave an orphan duplicate regardless of which side the
+    owner picked. Confirmed zero downstream references on all 22
+    involved rows before anything ran. The 2 three-way clusters are
+    deliberately left untouched — the existing conflict shape is exactly
+    one-kept-vs-one-candidate, and forcing a real three-way chain into
+    it risked losing information rather than surfacing it; tracked as
+    I2d. **A real failure caught by the database, not assumed safe in
+    advance:** the first live attempt failed outright —
+    `fighter_elo_history` has an FK on `fight_id`, and several
+    duplicates carry a genuine result I1's recompute had already rated.
+    Confirmed the failure left nothing partially written before fixing
+    it (clear the candidate's own Elo rows before deleting it, one full
+    `recomputeEloRatings()` after the sweep). Verified live: 150 fights
+    remaining, 9 open conflicts with correct kept/candidate pairings, the
+    6 untouched cluster fights still present, Elo at 82 rows — exactly
+    94 minus the 12 cleared, not merely trusted
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.
