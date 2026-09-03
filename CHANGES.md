@@ -2144,3 +2144,35 @@ next ~3 daily runs.
 
 **Status:** I2 done. I2b (fix upsertFighter.ts's diacritic-blind
 matching) tracked, not started. I3-I5 not started.
+
+## Phase 51 — I2b: fighter identity across sync sources, plus a bigger finding (2026-09-03)
+
+namesMatchExactly.ts (lib/text/, mutation-verified) -- deliberately an
+EXACT match after folding case/diacritics/whitespace, never fuzzy: this
+backs an automatic, unattended write, unlike nameSimilarity's fuzzy
+score which only ever feeds a human review queue. normalizeName.ts
+extracted from nameSimilarity's own internal fold, the third consumer
+for the identical transform.
+
+upsertFighter.ts's existing ilike exact-match stays first (cheap, one
+row); only when that finds nothing does it fetch every fighter's name
+and check namesMatchExactly -- paid only on the path already about to
+insert a new row or (as here) miss a real duplicate.
+
+Live investigation surfaced something bigger than expected, not fixed
+in this pass: the orphan "André Lima" row wasn't dead data -- it's
+referenced by a real fights row. A SECOND, separate fight row exists for
+the exact same real bout (Andre Lima vs Namsrai Batbayar, UFC Fight
+Night: Nurmagomedov vs. Song), one written by each sync source, because
+the two Limas never resolved to one fighter. This should have been
+caught by A2's own disputed-opponent detection and was not -- confirmed
+directly, zero data_conflicts rows exist for either fight. Why the
+existing safety net missed it is not yet understood; tracked as I2c
+rather than guessed at. The live duplicate fights/fighters rows are not
+merged in this pass -- that's a genuinely destructive multi-table
+repair, brought back as an explicit question rather than done
+unilaterally.
+
+**Status:** I2b done (the code fix, prevents future occurrences). I2c
+(why A2 missed the live duplicate) and the live data repair itself are
+both open, pending a decision. I3-I5 not started.

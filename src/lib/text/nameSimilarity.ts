@@ -12,11 +12,7 @@
 // lib/text/ is neutral ground: no feature's fuzzy matching is a special
 // case of another's.
 
-import { foldDiacritics } from "./foldDiacritics";
-
-function normalize(name: string): string {
-  return foldDiacritics(name).toLowerCase().trim().replace(/\s+/g, " ");
-}
+import { normalizeName as normalize } from "./normalizeName";
 
 // Known limitation: precomposed letters that aren't decomposable via NFD
 // (e.g. Polish ł/Ł) are NOT folded to their Latin look-alike. Bigram

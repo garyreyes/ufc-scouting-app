@@ -1307,7 +1307,14 @@ src/
                        once lib/ufc-data-sync/sanitizeSearchQuery.ts
                        needed the identical transform for a different
                        reason (API-Sports rejects the raw characters,
-                       nameSimilarity just tolerates them)
+                       nameSimilarity just tolerates them);
+                       normalizeName.ts — extracted from nameSimilarity's
+                       fold+case+whitespace handling once
+                       namesMatchExactly.ts needed the identical
+                       normalization for an EXACT (never fuzzy)
+                       comparison; namesMatchExactly.ts (pure,
+                       mutation-tested) — built I2b, backs
+                       upsertFighter.ts's sync-merge fallback
     rumours/           matchFighterMention.ts, collapseNearDuplicates.ts,
                        heuristicCluster.ts, isNamedSource.ts (pure,
                        mutation-tested), concernKeywords.ts,
@@ -1615,6 +1622,24 @@ never "this should pass now."
     rows for the same real person, `upsertFighter.ts`'s exact-match
     fallback never folding diacritics — is a distinct root cause outside
     I2's own code and is tracked as I2b (ROADMAP.md), not patched here
+15. **A fighter's identity across sync sources** — item #14's own
+    duplicate-`fighters`-row finding, fixed. `upsertFighter.ts`'s
+    name-fallback was a plain `ilike`, diacritic-sensitive, so
+    Wikipedia's "André Lima" and API-Sports' "Andre Lima" were never
+    recognized as one person. **Done in I2b** — `namesMatchExactly.ts`
+    (`lib/text/`, mutation-verified), deliberately an EXACT match after
+    normalizing, never fuzzy — a false positive here silently attaches
+    one real fighter's synced data to a genuinely different person, so
+    this must stay conservative, unlike the review-queue fuzzy score
+    item #14 uses for a human to check. Mutation-verified: swapping the
+    exact comparison for a substring check broke the test built
+    specifically to catch a false-positive merge (`"Dan Hooker"` must
+    never match `"Dan Hooker Jr"`). Live investigation found the split
+    had already produced a genuinely duplicated `fights` row for the
+    same real bout, and that A2's own disputed-opponent detection had
+    not caught it — tracked as I2c (ROADMAP.md), not yet understood, and
+    the live duplicate not yet merged (a destructive multi-table repair,
+    deliberately not done without explicit confirmation)
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.

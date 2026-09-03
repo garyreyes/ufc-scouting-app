@@ -1378,7 +1378,54 @@ queued row; worth a first live check once one actually occurs.
 
 | # | Follow-up | Status |
 |---|---|---|
-| I2b | `upsertFighter.ts`'s name-fallback doesn't fold diacritics, producing duplicate rows across sync sources for accented names (found live: "André Lima" / "Andre Lima", external_id 2679) | not started |
+| I2b | `upsertFighter.ts`'s name-fallback doesn't fold diacritics, producing duplicate rows across sync sources for accented names (found live: "André Lima" / "Andre Lima", external_id 2679) | **done** (2026-09-03) |
+
+**I2b result.** `namesMatchExactly.ts` (`lib/text/`, mutation-verified)
+is a NEW, separate kind of match from `nameSimilarity.ts`'s fuzzy score
+on purpose: exact after folding case/diacritics/whitespace, nothing
+looser, because this backs an automatic, unattended write —
+`nameSimilarity`'s fuzzy score is for review queues a human looks at,
+never for a silent merge. `normalizeName.ts` extracted out of
+`nameSimilarity.ts`'s own internal fold along the way, the third
+consumer for the identical transform. Mutation-verified: swapping the
+exact match for a substring check broke the one test built specifically
+to catch a false-positive merge (`"Dan Hooker"` must never match
+`"Dan Hooker Jr"`).
+
+`upsertFighter.ts`'s existing `ilike` exact-match fallback stays first
+(cheap, handles the common case with one row fetched); only when that
+finds nothing does it fetch every fighter's name and check
+`namesMatchExactly` — paid only on the path that was already about to
+either insert a new row or (as here) miss a real duplicate, not on every
+call.
+
+**Live investigation surfaced something bigger than the original
+finding, not fixed in this pass.** The orphan "André Lima" row wasn't
+dead data — it's referenced by a real `fights` row (fighter2 in "André
+Lima vs. Namsrai Batbayar," UFC Fight Night: Nurmagomedov vs. Song,
+2026-08-29). A **second, separate** fight row exists for the exact same
+real bout — Wikipedia's sync wrote one (orphan Lima as fighter2, no
+result), API-Sports' sync wrote the other (the enriched Lima as
+fighter1, with a winner). Two fight rows, one real bout, because the two
+sources' Lima never resolved to one fighter id.
+
+**This should have been caught by A2's own disputed-opponent detection
+(Fork 5) and was not** — `sharesExactlyOneFighter` should fire on this
+exact shape (Batbayar shared, the two Limas differing), and confirmed
+directly: zero `data_conflicts` rows exist for either fight id. Why the
+existing safety net missed this specific case is not yet understood and
+is a real open question, tracked separately (**I2c** below) rather than
+guessed at. The code fix here (I2b) prevents the fighter-identity split
+that caused it from happening again; it does not merge the two already-
+duplicated fight rows already live in production — that is a genuinely
+destructive, multi-table repair (reassign a fighter id on one fight row,
+reconcile which source's result is authoritative, retire the orphan
+fighter row) and is being brought back as an explicit question rather
+than done unilaterally.
+
+| # | Follow-up | Status |
+|---|---|---|
+| I2c | Why did A2's disputed-opponent detection not catch the live André/Andre Lima fight duplication? Investigate before assuming the fix is only the diacritic fold above | not started |
 
 **I1 result.** `isResolvedForElo.ts` (pure, mutation-verified) replaces
 `settled_at IS NOT NULL` as the eligibility rule, and ordering moved to
