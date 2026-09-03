@@ -378,6 +378,14 @@ Decided 2026-08-29, user-originated.
   2024."` This is what actually killed the pre-UFC/regional-history idea
   (Fork 11), not the sync code's own UFC-only filter, which was the
   first, wrong hypothesis before this was tested directly.
+- **The shared 100/day API-Sports budget is now genuinely tight, not
+  theoretical.** Confirmed live 2026-09-03: I3's very first real run hit
+  the day's quota already exhausted by the time it ran (16:19 UTC),
+  after just the two `sync.yml` runs (00:00, 12:00) and I2's own
+  enrichment job (06:00) had already spent it — before I3's own daily
+  run at 18:00 even gets a turn most days. If a fifth API-Sports-backed
+  job is ever added, the four existing jobs' batch sizes may need
+  shrinking rather than assuming there's headroom.
 
 ## Infrastructure
 

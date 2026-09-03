@@ -1287,7 +1287,21 @@ src/
                        runSweepLatentDisputedOpponents.ts (`npm run
                        fights:sweep-disputed-opponents` — a one-time
                        backfill, not scheduled) — built I2c, see
-                       correctness-critical item #16
+                       correctness-critical item #16;
+                       processFightHistoryEntries.ts (extracted from
+                       syncJob.ts once backfillFightHistory.ts needed
+                       the identical event/fighter/fight upsert
+                       sequence — syncJob.ts's own behaviour unchanged),
+                       fetchFighterSeasonHistory (added to
+                       fetchFightHistory.ts, sharing its UFC filter and
+                       entry parsing), backfillFightHistory.ts,
+                       runFightHistoryBackfillJob.ts (`npm run
+                       fights:backfill-history`, and
+                       .github/workflows/fight-history-backfill.yml
+                       daily) — built I3, self-throttling and resumable
+                       the same way I2's enrichFighters.ts is (no new
+                       queue table — `external_id is not null and
+                       history_backfilled_at is null` is the queue)
     llm.ts             single Gemini wrapper — swappable in one file
                        (generateJson, gemini-3.5-flash-lite) — built F1
     jobs/              runWithTracking.ts — generic job_runs bookkeeping,
