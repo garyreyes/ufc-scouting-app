@@ -1196,7 +1196,11 @@ src/
                        cards, DisputedResultCard read-only — built D1),
                        api.ts, actions.ts, resolveDisputedOpponent.ts,
                        resolveLowConfidence.ts (pure, mutation-tested),
-                       types.ts — built B6
+                       types.ts — built B6; components/
+                       (LowConfidenceFighterMatchCard, ConflictCard's
+                       switch extended to a fourth kind),
+                       resolveFighterMatch.ts (pure, mutation-tested) —
+                       built I2
     job-health/        components/ (JobHealthBanner, RetryButton),
                        api.ts, actions.ts — built B5;
                        evaluateJobHealth.ts + types.ts moved to
@@ -1265,7 +1269,17 @@ src/
                        mutation-tested) — a bout's identity is its
                        fighter pair, never its card position; see
                        correctness-critical item #13 for the production
-                       bug that forced it
+                       bug that forced it; parseMeasurements.ts
+                       (extracted from fetchFighter.ts once
+                       searchFighters.ts needed the same parsing),
+                       searchFighters.ts, matchFighterCandidate.ts (pure,
+                       mutation-tested), sanitizeSearchQuery.ts (pure,
+                       mutation-tested — API-Sports' own search rejects
+                       anything but letters/digits/spaces, found live),
+                       enrichFighters.ts, runFighterEnrichmentJob.ts
+                       (`npm run fighters:enrich`, and
+                       .github/workflows/fighter-enrichment.yml daily) —
+                       built I2, see correctness-critical item #14
     llm.ts             single Gemini wrapper — swappable in one file
                        (generateJson, gemini-3.5-flash-lite) — built F1
     jobs/              runWithTracking.ts — generic job_runs bookkeeping,
@@ -1284,6 +1298,16 @@ src/
     bluesky.ts         single Bluesky wrapper (searchMmaPosts) —
                        switched from a planned reddit/ folder, Fork 9 —
                        built F1
+    text/              nameSimilarity.ts (pure, mutation-tested) —
+                       Dice's-coefficient fuzzy name matching, moved here
+                       from lib/odds/ in I2 once a third feature needed
+                       it (lib/rumours/ already imported across from
+                       lib/odds/ before this move); foldDiacritics.ts —
+                       extracted from nameSimilarity's own internal fold
+                       once lib/ufc-data-sync/sanitizeSearchQuery.ts
+                       needed the identical transform for a different
+                       reason (API-Sports rejects the raw characters,
+                       nameSimilarity just tolerates them)
     rumours/           matchFighterMention.ts, collapseNearDuplicates.ts,
                        heuristicCluster.ts, isNamedSource.ts (pure,
                        mutation-tested), concernKeywords.ts,
@@ -1575,6 +1599,22 @@ never "this should pass now."
     rows still carrying the old positional key migrate themselves on the
     next sync. Verified live: 0 wrong weight classes, 14 of 14 bouts
     present, every row on the stable key
+14. **Fighter identity resolution** — I2's whole job is attaching a real
+    person's record to a name-only row without attaching the WRONG
+    person's. The threshold gate and the "an unknown external id is
+    refused, never silently treated as no-match" guard are the two
+    things easiest to get silently wrong, the same class as item #6's
+    odds-matching threshold. **Done in I2** — `matchFighterCandidate.ts`
+    and `resolveFighterMatch.ts`, both mutation-verified. Live-verified
+    against production found a real, previously-undocumented API-Sports
+    limit (`/fighters?search=` rejects diacritics, hyphens, apostrophes,
+    trailing periods) that would otherwise have silently starved the
+    match rate for a large share of international names — fixed same-day
+    with `sanitizeSearchQuery.ts`, the 9 real production failures kept as
+    regression fixtures. A second live finding — two separate `fighters`
+    rows for the same real person, `upsertFighter.ts`'s exact-match
+    fallback never folding diacritics — is a distinct root cause outside
+    I2's own code and is tracked as I2b (ROADMAP.md), not patched here
 
 Layout, copy, and styling work gets no tests — there is no single correct
 output for a machine to assert.
