@@ -1,6 +1,12 @@
 name: Fight history backfill job
 
 on:
+  # TEMPORARY, for live verification only -- removed before this PR is
+  # final. workflow_dispatch needs the file on the default branch first,
+  # so a push trigger is how a brand-new workflow gets its first real
+  # run from a feature branch.
+  push:
+    branches: [feat/i3-fight-history-backfill]
   schedule:
     # Once daily, at 18:00 UTC -- 6h clear of sync.yml's 00:00/12:00 runs
     # and fighter-enrichment.yml's 06:00 run, evenly spacing the four
