@@ -1,9 +1,6 @@
 import { fetchFightHistory, type FightHistoryEntry } from "./fetchFightHistory";
-import { fetchFighter } from "./fetchFighter";
 import { getSupabaseAdmin } from "../supabase/admin";
-import { upsertFighter } from "./upsertFighter";
-import { upsertEvent } from "./upsertEvent";
-import { upsertFight } from "./upsertFight";
+import { processFightHistoryEntries } from "./processFightHistoryEntries";
 
 // The API only supports per-date lookups, not date ranges or bulk history.
 // The free plan additionally only allows a rolling ~3-day window whose
@@ -45,69 +42,16 @@ export async function runSyncJob() {
     return;
   }
 
-  const uniqueEvents = new Map<string, { external_id: string; name: string; event_date: string }>();
-  for (const entry of entries) {
-    if (!uniqueEvents.has(entry.eventSlug)) {
-      uniqueEvents.set(entry.eventSlug, {
-        external_id: entry.eventSlug,
-        name: entry.eventSlug,
-        event_date: entry.eventDate,
-      });
-    }
-  }
-  const eventIdBySlug = new Map<string, string>();
-  for (const [slug, event] of uniqueEvents) {
-    // upsertEvent falls back to a punctuation-insensitive name match, so
-    // this merges into an event syncSchedule.ts already created from
-    // Wikipedia instead of creating a near-duplicate row.
-    eventIdBySlug.set(slug, await upsertEvent(supabase, event));
-  }
-
-  const fighterExternalIds = new Set<string>();
-  for (const entry of entries) {
-    fighterExternalIds.add(entry.fighter1ExternalId);
-    fighterExternalIds.add(entry.fighter2ExternalId);
-  }
-  const fighterIdByExternalId = new Map<string, string>();
-  let fighterCount = 0;
-  for (const externalId of fighterExternalIds) {
-    const fighter = await fetchFighter(Number(externalId));
-    if (!fighter) continue;
-    // upsertFighter matches by external_id first, falling back to an
-    // exact name match -- so a fighter created earlier as a Wikipedia
-    // placeholder (no external_id) gets updated in place here instead
-    // of duplicated.
-    const id = await upsertFighter(supabase, fighter);
-    fighterIdByExternalId.set(externalId, id);
-    fighterCount++;
-  }
-
-  let fightCount = 0;
-  for (const entry of entries) {
-    const eventId = eventIdBySlug.get(entry.eventSlug);
-    const fighter1Id = fighterIdByExternalId.get(entry.fighter1ExternalId);
-    const fighter2Id = fighterIdByExternalId.get(entry.fighter2ExternalId);
-    if (!eventId || !fighter1Id || !fighter2Id) continue;
-
-    // upsertFight falls back to matching on (event, unordered fighter
-    // pair), so this merges into a fight syncSchedule.ts already created
-    // from Wikipedia instead of leaving one bout as two rows.
-    await upsertFight(supabase, {
-      external_id: entry.externalFightId,
-      event_id: eventId,
-      fighter1_id: fighter1Id,
-      fighter2_id: fighter2Id,
-      source: "api_sports",
-      winner_id: entry.winnerExternalId
-        ? fighterIdByExternalId.get(entry.winnerExternalId)
-        : null,
-      weight_class: entry.weightClass,
-    });
-    fightCount++;
-  }
+  // upsertEvent falls back to a punctuation-insensitive name match (merges
+  // into a Wikipedia-created event), upsertFighter falls back to an
+  // exact-after-fold name match (merges into a Wikipedia-created
+  // placeholder), and upsertFight falls back to an unordered fighter-pair
+  // match -- so this never creates duplicates of rows syncSchedule.ts
+  // already wrote.
+  const result = await processFightHistoryEntries(supabase, entries);
 
   console.log(
-    `Synced ${uniqueEvents.size} events, ${fighterCount} fighters, ${fightCount} fights.`,
+    `Synced ${result.eventCount} events, ${result.fighterCount} fighters, ${result.fightCount} fights.`,
   );
 }
 

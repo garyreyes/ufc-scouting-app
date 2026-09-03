@@ -1291,7 +1291,53 @@ plan:
 |---|---|---|
 | I1 | ⚠️ Elo reads *happened-and-has-a-winner*, ordered by **event date**, not `settled_at`. Unlocks the 57 existing results; every later sub-phase depends on it | **done** (2026-09-03) |
 | I2 | ⚠️ Fighter matching + enrichment — resolve the 146 orphans to API-Sports ids, low-confidence → `data_conflicts`; populate external_id, height/reach/stance, weight, nickname, team | **done** (2026-09-03) |
-| I3 | Fight-history backfill 2022–2024 — resumable and quota-aware, creating opponent rows so Elo can propagate opponent quality | not started |
+| I3 | Fight-history backfill 2022–2024 — resumable and quota-aware, creating opponent rows so Elo can propagate opponent quality | **done** (2026-09-03) |
+
+**I3 result.** `fetchFighterSeasonHistory` (`fetchFightHistory.ts`) hits
+the same `/fights` resource the existing recent-results sync already
+uses, just scoped by `fighter`+`season` instead of `date`, sharing its
+UFC-only filter and entry parsing. `processFightHistoryEntries.ts`
+extracted the event/fighter/fight upsert sequence straight out of
+`syncJob.ts` once this became the second caller needing it — `syncJob.ts`
+itself is unchanged in behaviour, no longer duplicating the logic.
+
+`backfillFightHistory.ts` is self-throttling and resumable with **no new
+queue table**, same shape as I2's `enrichment_checked_at`: the query is
+`external_id is not null and history_backfilled_at is null` — "already
+enriched, not yet checked" is the queue. A discovered opponent gets its
+own `fighters`/`fights` rows (so Elo can rate them as a real graph node)
+but its *own* history is deliberately not chased recursively in the
+same run — unbounded otherwise. If that opponent later becomes
+independently enriched, they reach the front of this same queue on
+their own turn, no special-casing needed.
+
+Once-daily schedule at 18:00 UTC — 6h clear of both `sync.yml` runs and
+`fighter-enrichment.yml`, evenly spacing the four jobs now sharing
+API-Sports' 100/day free-tier budget across the day.
+
+**Verified live against production, and the result was itself
+informative.** The first real run hit the day's quota already exhausted
+— every one of the day's other jobs (two sync runs, the enrichment job,
+plus this session's own testing) had already spent it. All 5 fighters in
+the batch failed identically (`"You have reached the request limit for
+the day"`), and that's exactly the case the design exists to handle
+gracefully: caught per fighter, none marked `history_backfilled_at` (so
+all 5 retry cleanly on the next run), zero partial writes, and the job
+itself still completed and logged a real `job_runs` row — confirmed
+directly: `status: "success"`, `failed: 5` in the summary. A batch job
+completing with every individual item failing is the correct shape
+(same as I2's own `failed` field), not a bug to paper over — a systemic,
+permanent failure would show the identical pattern forever, so if `job_runs`
+ever shows `fight_history_backfill` failing every attempt for several
+days running, that's the signal to look, not something a health banner
+currently surfaces automatically (none was added, matching I2's own
+precedent).
+
+**Stated honestly:** the happy path — a real fighter's history actually
+being fetched and written — has *not yet* been observed live, only the
+graceful-degradation path. The very next scheduled run (once today's
+quota resets) is that first real proof; check `job_runs` for
+`fight_history_backfill` to see it.
 | I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | not started |
 | I5 | Derive `wins`/`losses`/`draws` from the fight graph; surface record + tale-of-the-tape in the UI | not started |
 

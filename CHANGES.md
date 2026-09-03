@@ -2308,3 +2308,40 @@ Tafa untouched, 146 total fights (150 - 4).
 **Status:** All open conflicts and known latent duplicates resolved,
 except the one genuinely-ambiguous case (Louie Sutherland) that needs a
 real person identified. I3-I5 not started.
+
+## Phase 55 — I3: fight-history backfill 2022-2024 (2026-09-03)
+
+fetchFighterSeasonHistory hits the same /fights resource the existing
+recent-results sync already uses, scoped by fighter+season instead of
+date, sharing its UFC-only filter. processFightHistoryEntries.ts
+extracted the event/fighter/fight upsert sequence out of syncJob.ts once
+this became the second caller needing it -- syncJob.ts unchanged in
+behaviour, no longer duplicating the logic.
+
+backfillFightHistory.ts is self-throttling and resumable with no new
+queue table, same shape as I2's enrichment_checked_at: the query is
+external_id is not null and history_backfilled_at is null. A discovered
+opponent gets its own rows so Elo can rate them, but its own history
+isn't chased recursively in the same run -- unbounded otherwise; if they
+later become independently enriched, they reach the front of this same
+queue on their own.
+
+Once-daily at 18:00 UTC -- 6h clear of both sync.yml runs and
+fighter-enrichment.yml, evenly spacing the four jobs now sharing
+API-Sports' 100/day budget.
+
+Verified live, and the result was itself informative: the first real run
+hit the day's quota already exhausted (every other job had already spent
+it). All 5 fighters in the batch failed identically, exactly the case
+the design exists to handle gracefully -- caught per fighter, none
+marked history_backfilled_at, zero partial writes, job itself still
+completed and logged a real job_runs row (status: success, failed: 5 in
+the summary -- the same shape I2's own failed field already uses).
+
+Stated honestly: the happy path -- a real fighter's history actually
+being fetched and written -- has not yet been observed live, only the
+graceful-degradation path. The next scheduled run, once quota resets, is
+the first real proof.
+
+**Status:** I3 done, happy path unverified pending quota reset. I4-I5
+not started.
