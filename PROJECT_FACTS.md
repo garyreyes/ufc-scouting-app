@@ -364,6 +364,17 @@ Decided 2026-08-29, user-originated.
     against the authenticated session's own PDS host (`bsky.social`)
     instead: real rate limit `3000 requests / 300s` (from the response's
     own `ratelimit-*` headers, not a docs page).
+- **Bluesky `com.atproto.server.createSession` has its own, far stricter
+  limiter: 30 per 5 minutes AND 300 per day, per account** (this one *is*
+  documented — docs.bsky.app — but was missed). It took the scheduled
+  Rumour scan job down for two days (Phase 56, 2026-09-03): the job
+  scans ~14 fights with two concurrent `searchMmaPosts` each, and a cold
+  session cache meant ~28 `createSession` attempts per run, which
+  rate-limited the account and then never let it recover. `bluesky.ts`
+  now single-flights the auth and applies a 5-minute post-failure
+  cooldown, capping it at one attempt per run. **Rule going forward: a
+  new Bluesky-backed job must reuse `bluesky.ts`'s cached session, never
+  authenticate per unit of work.**
   - **Gemini**: free-tier RPD is **not published anywhere** — Google's own
     rate-limits page explicitly points to the per-account AI Studio
     dashboard instead of a fixed number. That dashboard showed every full
