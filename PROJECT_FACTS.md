@@ -143,16 +143,30 @@ Decided 2026-08-29, user-originated.
   (`namesMatchExactly.ts`, `upsertFighter.ts`). Confirmed live before the
   fix: "Andre Lima" (API-Sports, enriched) and "André Lima" (Wikipedia
   placeholder) never merged.
-- **A live consequence of that bug is still sitting in production,
-  unresolved**: two `fights` rows for the same real bout (Andre Lima vs.
-  Namsrai Batbayar, UFC Fight Night: Nurmagomedov vs. Song, 2026-08-29) —
-  one per sync source, because the two Limas never resolved to one
-  fighter. The I2b code fix stops this from happening again; it does not
-  merge what's already there. A2's own disputed-opponent detection
-  (Fork 5) should have caught this and provably did not (zero
-  `data_conflicts` rows exist for either fight) — why is not yet
-  understood, tracked as I2c. Do not "fix" this by deleting either row
-  without re-reading I2c's findings first.
+- **A2's disputed-opponent detection only ever runs on a live write — it
+  has never swept fights already in the table before it shipped
+  (2026-09-01), and cannot re-check a past event once its sync window
+  closes.** Confirmed by replaying the check directly against real data:
+  the logic itself was never broken. Resolved for the 8 clean cases via
+  a one-time backfill (I2c, `sweepLatentDisputedOpponents.ts`) — but if
+  a similar systemic gap is ever suspected again, replay the check
+  yourself before assuming the detection logic is at fault; it very
+  likely isn't.
+- **Not every "same fighter, different name" gap is a diacritic
+  problem.** I2c's sweep of the whole table found 10 real duplicate
+  clusters; only 2 were diacritics (which I2b now catches). The other 6
+  were nicknames (Wesley/Wes, Stan/Stanley), name order swapped
+  (Liu Ce/Ce Liu), and missing spaces in transliterated names (Aori
+  Qileng/Aoriqileng) — none of which `namesMatchExactly.ts` catches, and
+  none of which should be silently auto-merged; they're real, different-
+  looking strings, and only a human confirming via `/conflicts` should
+  decide they're the same person.
+- **Two real 3-fight duplicate clusters remain, deliberately unresolved**
+  (I2d): "Gauge Young" implicated across three rows on one card, and
+  "Ce Liu"/"Junior Tafa"/"Levi Rodrigues Jr." similarly. The existing
+  disputed-opponent conflict shape is exactly one-kept-vs-one-candidate;
+  forcing a real three-way chain into it would lose information rather
+  than surface it.
 - **Ten past fights legitimately show no result** (UFC 330 and UFC Fight
   Night: Hernandez vs. Rodrigues, August 2026). Their recorded winners
   were provably wrong and were cleared; the app genuinely does not know

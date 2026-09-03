@@ -2176,3 +2176,55 @@ unilaterally.
 **Status:** I2b done (the code fix, prevents future occurrences). I2c
 (why A2 missed the live duplicate) and the live data repair itself are
 both open, pending a decision. I3-I5 not started.
+
+## Phase 52 — I2c: retroactively applying A2 to data that predates it (2026-09-03)
+
+A2's disputed-opponent detection was never broken -- replayed directly
+against the real Lima/Batbayar duplicate and it fires correctly, both
+directions. It only ever runs on a live write, and never retroactively
+checked fights already in the table before it shipped 2026-09-01. This
+event is dated 2026-08-29; once a past event's sync window closes,
+nothing calls upsertFight for it again, so a duplicate from before A2
+existed stays permanently invisible to it.
+
+Swept the whole table, not assumed one-off: clusterFightsBySharedFighter.ts
+(pure, mutation-verified -- union-find over A2's own relation) found 10
+real clusters across 158 fights, not 13 isolated pairs. Two were genuine
+3-fight chains (Gauge Young implicated across three rows; Ce Liu/Junior
+Tafa/Levi Rodrigues Jr. similarly) that a naive pairwise sweep would
+have double-resolved. Caught a real gap in the test suite along the
+way: the first mutation test run passed against a mutation that only
+checked array-adjacent pairs, because every fixture happened to place
+connected fights next to each other -- closed with a fixture placing
+them apart before trusting the suite.
+
+Of the 10 clusters, only 2 were the diacritic case I2b fixes (André/Andre
+Lima, Márcio/Marcio Barbosa). The other 6 span nickname forms, name-order
+swaps, and missing spaces in transliterated names -- none catchable by
+I2b's exact-after-fold match, several genuinely different-looking names
+an automatic merge should never attempt.
+
+sweepLatentDisputedOpponents.ts resolves the 8 clean 2-fight clusters
+through the EXISTING disputed-opponent conflict machinery, unmodified --
+zero new UI. Deletes the candidate's own row as part of opening the
+conflict (unlike the live path, where a candidate never has a row of its
+own) -- confirmed zero downstream references on all 22 involved rows
+first.
+
+Live run failed on the first attempt, caught by the database, not
+assumed safe in advance: fighter_elo_history has an FK on fight_id, and
+several duplicates carry a real result I1's recompute had already
+rated. Confirmed nothing partially wrote before fixing it, then cleared
+each candidate's own Elo rows before deleting it and ran one full
+recomputeEloRatings() after the sweep.
+
+Verified live against the real tables: 150 fights (158 - 8), 9 open
+conflicts (8 new + the 1 pre-existing) with correct kept/candidate
+pairings, the 6 untouched three-way-cluster fights still present, Elo
+at 82 rows -- exactly 94 minus the 12 cleared.
+
+The 2 three-way clusters are deliberately untouched -- the existing
+conflict shape is one-kept-vs-one-candidate, not N-way. Tracked as I2d.
+
+**Status:** I2b, I2c done. I2d (resolve the 2 three-way clusters) and
+I3-I5 not started.
