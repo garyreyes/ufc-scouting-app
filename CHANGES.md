@@ -2092,3 +2092,55 @@ does not know it. I4's past-event backfill is what re-derives the real
 winners.
 
 **Status:** I1 and I1b done. I2-I5 not started.
+
+## Phase 50 — I2: fighter matching + enrichment (2026-09-03)
+
+Matches name-only fighters against API-Sports, mirroring
+lib/odds/matchFights.ts's auto-match/review-queue shape. nameSimilarity
+moved from lib/odds/ to a neutral lib/text/ once a third feature needed
+it (lib/rumours/ already imported across from lib/odds/ before this
+move even started).
+
+decideFighterMatch.ts (mutation-tested): >=0.85 confidence auto-applies
+the candidate's full record; below it opens a new
+low_confidence_fighter_match data_conflicts row with the FULL ranked
+candidate list, not just the top guess, so the owner's /conflicts review
+can correct the algorithm. No candidates at all is not a conflict -- a
+real debutant or recent signee simply hasn't reached API-Sports yet.
+
+enrichFighters.ts is self-throttling and resumable with no new queue
+table -- external_id is null and enrichment_checked_at is null IS the
+queue. 0032_fighter_enrichment.sql adds weight_kg/nickname/team/
+enrichment_checked_at plus the 4th data_conflicts kind.
+LowConfidenceFighterMatchCard wired into ConflictCard's exhaustive
+switch. Once-daily scheduled job at 06:00 UTC, between sync.yml's two
+runs, DEFAULT_BATCH_SIZE=40.
+
+Verified live against production TWICE, at the real batch size, not a
+token sample. First run: 40 attempted, 28 matched, 0 queued, 3 absent,
+9 failed -- every one on the identical error, a real previously-
+undocumented API-Sports limit: /fighters?search= rejects diacritics,
+hyphens, apostrophes, and trailing periods. Fixed same-day with
+sanitizeSearchQuery.ts (folds diacritics via a new foldDiacritics.ts,
+extracted from nameSimilarity's own internal fold), the 9 real failures
+kept as regression fixtures. Re-ran live: 40 attempted, 26 matched, 0
+queued, 13 not found, 1 failed -- down from 9.
+
+The one remaining failure is a real, separate finding, not an I2 bug: a
+unique-constraint rejection because two DIFFERENT fighters rows already
+existed for the same real person ("Andre Lima" already enriched,
+"André Lima" a Wikipedia-only placeholder) -- upsertFighter.ts's
+name-matching fallback never folds diacritics, so the two were never
+recognized as one fighter. Predates I2, reaches beyond it into the core
+sync path, and deserves its own test-first pass rather than a rushed fix
+here -- tracked as I2b.
+
+Combined: 80 fighters attempted, 54 matched, 0 queued for review (the
+review-queue UI itself is unit/mutation-tested but not yet live-
+exercised -- no real attempt landed below threshold with a candidate),
+16 confirmed absent, 1 known diagnosed failure. 152 fighters now enriched
+(98 pre-existing + 54 new), 105 remaining in queue -- clears over the
+next ~3 daily runs.
+
+**Status:** I2 done. I2b (fix upsertFighter.ts's diacritic-blind
+matching) tracked, not started. I3-I5 not started.

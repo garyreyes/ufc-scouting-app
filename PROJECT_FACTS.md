@@ -130,6 +130,21 @@ Decided 2026-08-29, user-originated.
   reads as a **real draw** — silently promoting excluded junk into
   rating-moving fabricated draws. They arrive together from one write;
   they get cleared together.
+- **API-Sports' `/fighters?search=` rejects diacritics, hyphens,
+  apostrophes, and trailing periods** — found live 2026-09-03 (I2), not
+  documented anywhere: "The Search field may only contain alpha-numeric
+  characters and spaces." Every outgoing search goes through
+  `sanitizeSearchQuery.ts` first; the ACTUAL match comparison
+  (`decideFighterMatch.ts`) still uses the real, unsanitized name against
+  whatever the API returns, since the API's own stored names keep their
+  real accents.
+- **`fighters` can and does hold two separate rows for the same real
+  person** when their name carries a diacritic — `upsertFighter.ts`'s
+  name-matching fallback is an exact case-insensitive match, and never
+  folds accents. Confirmed live: "Andre Lima" (API-Sports, enriched) and
+  "André Lima" (Wikipedia placeholder) never merged. Not yet fixed
+  (tracked as I2b, `ROADMAP.md`) — a fix belongs in `upsertFighter.ts`
+  itself, not papered over per-caller.
 - **Ten past fights legitimately show no result** (UFC 330 and UFC Fight
   Night: Hernandez vs. Rodrigues, August 2026). Their recorded winners
   were provably wrong and were cleared; the app genuinely does not know

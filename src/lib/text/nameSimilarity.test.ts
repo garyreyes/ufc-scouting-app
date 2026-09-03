@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nameSimilarity } from "./similarity";
+import { nameSimilarity } from "./nameSimilarity";
 
 // This is the correctness-critical core of odds<->fight matching
 // (ARCHITECTURE.md item #6): a wrong match silently corrupts every

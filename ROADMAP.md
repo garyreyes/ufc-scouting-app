@@ -1287,7 +1287,7 @@ plan:
 | # | Sub-phase | Status |
 |---|---|---|
 | I1 | ⚠️ Elo reads *happened-and-has-a-winner*, ordered by **event date**, not `settled_at`. Unlocks the 57 existing results; every later sub-phase depends on it | **done** (2026-09-03) |
-| I2 | ⚠️ Fighter matching + enrichment — resolve the 146 orphans to API-Sports ids, low-confidence → `data_conflicts`; populate external_id, height/reach/stance, weight, nickname, team | not started |
+| I2 | ⚠️ Fighter matching + enrichment — resolve the 146 orphans to API-Sports ids, low-confidence → `data_conflicts`; populate external_id, height/reach/stance, weight, nickname, team | **done** (2026-09-03) |
 | I3 | Fight-history backfill 2022–2024 — resumable and quota-aware, creating opponent rows so Elo can propagate opponent quality | not started |
 | I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | not started |
 | I5 | Derive `wins`/`losses`/`draws` from the fight graph; surface record + tale-of-the-tape in the UI | not started |
@@ -1301,6 +1301,84 @@ which is the very reason `recomputeEloRatings` does a full rebuild.
 requests against a 100/day free-tier cap, shared with the twice-daily
 sync. This cannot be a one-shot script — it needs a resumable job that
 works a queue over several days and tracks its own progress.
+
+**I2 result.** `decideFighterMatch.ts` mirrors `lib/odds/matchFights.ts`'s
+auto-match/review-queue shape exactly — same 0.85 threshold reasoning,
+own constant so the two are free to diverge. `nameSimilarity` moved from
+`lib/odds/` to a neutral `lib/text/` the moment a third feature needed
+it — `lib/rumours/` was already importing across from `lib/odds/` before
+this move even started, so the move was overdue, not premature.
+
+`enrichFighters.ts` is self-throttling and resumable with **no new queue
+table**: the query is `external_id is null and enrichment_checked_at is
+null` — "not yet enriched, not yet even attempted" IS the queue, the
+same one-table preference D1 already established. Checked on every
+attempt regardless of outcome, so a fighter is only ever searched once.
+A low-confidence best guess opens a fourth `data_conflicts` kind
+(`low_confidence_fighter_match`) with the **full ranked candidate list**
+snapshotted, not just the top guess — same reasoning `rankFightMatches`
+already serves B6's queue — wired into `/conflicts` via a new
+`LowConfidenceFighterMatchCard`, `ConflictCard`'s exhaustive switch
+extended to match.
+
+Test-first, mutation-verified throughout: `matchFighterCandidate.ts` (the
+threshold gate), `resolveFighterMatch.ts` (the owner's manual
+resolution — refusing an external id that isn't one of the conflict's own
+snapshotted candidates, rather than silently treating it as "no match").
+
+**Verified live against production, twice, at the real scheduled batch
+size (40) — not a token sample.** First run: 40 attempted, 28 matched, 0
+queued, 3 genuinely absent from API-Sports, **9 failed**. Every failure
+was the identical error: `"The Search field may only contain
+alpha-numeric characters and spaces."` — a real, previously-undocumented
+API-Sports limit (found live, the same way Phase 5's date-window and
+rate-limit cutoffs were), rejecting diacritics (Maurício, José, Álvarez),
+hyphens (Doo-ho, Joo-sang), an apostrophe (O'Neill), and a trailing
+period (Aswell Jr.).
+
+Fixed same-day with `sanitizeSearchQuery.ts` (folds diacritics via a new
+`foldDiacritics.ts` — itself extracted from `nameSimilarity`'s own
+internal fold once a second consumer needed it — then replaces any
+remaining disallowed character with a space, never a delete, so
+"Doo-ho" becomes "Doo ho" rather than the harder-to-match "Dooho").
+Applied only to the outgoing query; the actual match comparison still
+uses the real name, diacritics and all. All 9 real failures became
+regression fixtures. Re-ran live immediately after: **40 attempted, 26
+matched, 0 queued, 13 not found, 1 failed** — down from 9.
+
+**The one remaining failure is a real, separate finding, not an I2
+bug.** `fighters_external_id_key` rejected the write because that
+external_id was already claimed — by a **second row for the same real
+person**: Wikipedia's sync had written "André Lima" (accented, no
+`external_id`) while an earlier API-Sports sync had already written
+"Andre Lima" (unaccented, already enriched) as a separate row.
+`upsertFighter.ts`'s name-matching fallback is a plain case-insensitive
+exact match that never folds diacritics, so the two were never
+recognized as the same fighter. This predates I2 and reaches beyond it
+— `syncJob.ts`/`syncSchedule.ts`'s core matching, not just enrichment —
+so it is not patched inside this pass. Tracked as **I2b** below rather
+than rushed: fixing `upsertFighter.ts`'s own matching is a higher-blast-
+radius change than a review queue, and deserves its own test-first pass
+rather than a late addition to this one. In the meantime this specific
+row retries (and fails identically) once per scheduled run — one wasted
+request/day, small and bounded, not a reason to delay I2b.
+
+Combined across both live runs: 80 fighters attempted, 54 matched, 0
+queued for review, 16 confirmed absent from API-Sports, 1 known,
+diagnosed, tracked failure. Queried directly afterward, not the summary
+lines: 152 fighters now hold an `external_id` (98 pre-existing + 54 new),
+16 checked with no API-Sports match, 105 remaining in the queue — will
+clear over the next ~3 daily runs at the real batch size.
+
+**Stated honestly:** the `low_confidence_fighter_match` conflict path
+(the review queue itself) has **not** been exercised live — zero of the
+80 real attempts landed below the 0.85 threshold with at least one real
+candidate. Unit- and mutation-tested, not yet proven against a real
+queued row; worth a first live check once one actually occurs.
+
+| # | Follow-up | Status |
+|---|---|---|
+| I2b | `upsertFighter.ts`'s name-fallback doesn't fold diacritics, producing duplicate rows across sync sources for accented names (found live: "André Lima" / "Andre Lima", external_id 2679) | not started |
 
 **I1 result.** `isResolvedForElo.ts` (pure, mutation-verified) replaces
 `settled_at IS NOT NULL` as the eligibility rule, and ordering moved to

@@ -1,4 +1,4 @@
-import { nameSimilarity } from "../odds/similarity";
+import { nameSimilarity } from "../text/nameSimilarity";
 import type { CandidatePost } from "./types";
 
 // Two posts are treated as the same claim, not two independent ones, once

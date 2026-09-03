@@ -7,8 +7,9 @@ import { isOwner } from "@/lib/auth";
 import { buildDisputedOpponentResolution } from "./resolveDisputedOpponent";
 import type { DisputedOpponentChoice } from "./resolveDisputedOpponent";
 import { buildLowConfidenceResolution } from "./resolveLowConfidence";
+import { buildFighterMatchResolution } from "./resolveFighterMatch";
 import { getOpenConflictCount } from "./api";
-import type { DisputedOpponentConflict, LowConfidenceConflict } from "./types";
+import type { DisputedOpponentConflict, LowConfidenceConflict, LowConfidenceFighterMatchConflict } from "./types";
 
 /**
  * Same pattern as job-health/actions.ts: data_conflicts, fights, and
@@ -142,6 +143,63 @@ export async function resolveLowConfidenceAction(
   // correct outcome, not an error to work around.
   const { error: snapshotError } = await admin.from("odds_snapshots").insert(resolution.snapshotInsert);
   if (snapshotError) throw snapshotError;
+
+  const { error: conflictError } = await admin
+    .from("data_conflicts")
+    .update(resolution.conflictUpdate)
+    .eq("id", conflictId);
+  if (conflictError) throw conflictError;
+
+  revalidatePath("/conflicts");
+}
+
+/**
+ * `chosenExternalId` null means "none of these" -- the owner rejecting
+ * every candidate. The fighter stays unenriched, exactly as it was
+ * before this conflict was raised; it will not be re-searched
+ * automatically (enrichFighters.ts's queue is `enrichment_checked_at is
+ * null`, and this fighter's was already set the moment the conflict was
+ * detected).
+ */
+export async function resolveFighterMatchAction(
+  conflictId: string,
+  chosenExternalId: string | null,
+): Promise<void> {
+  await requireOwner();
+  const admin = getSupabaseAdmin();
+
+  const { data: row, error } = await admin
+    .from("data_conflicts")
+    .select("id, details")
+    .eq("id", conflictId)
+    .eq("kind", "low_confidence_fighter_match")
+    .is("resolved_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) throw new Error("Conflict not found or already resolved");
+
+  const conflict: LowConfidenceFighterMatchConflict = {
+    id: row.id,
+    kind: "low_confidence_fighter_match",
+    fightId: null,
+    detectedAt: "", // unused by buildFighterMatchResolution
+    details: row.details as LowConfidenceFighterMatchConflict["details"],
+  };
+
+  const resolution = buildFighterMatchResolution(conflict, chosenExternalId);
+
+  if (resolution.fightersUpdate) {
+    // Same real safety net as the odds-side manual resolution: if this
+    // external_id was independently claimed by another fighter row
+    // between detection and now, the fighters.external_id unique
+    // constraint rejects the write rather than silently creating two
+    // rows pointing at the same real person.
+    const { error: fightersError } = await admin
+      .from("fighters")
+      .update(resolution.fightersUpdate)
+      .eq("id", conflict.details.fighterId);
+    if (fightersError) throw fightersError;
+  }
 
   const { error: conflictError } = await admin
     .from("data_conflicts")

@@ -1,18 +1,21 @@
 // Dice's coefficient over character bigrams. Hand-rolled rather than an
 // external library on purpose: this is the correctness-critical core of
-// odds<->fight matching (ARCHITECTURE.md item #6 -- "a wrong match
-// silently corrupts every downstream number"), and a small, fully-tested
+// every fuzzy name match in this codebase, and a small, fully-tested
 // implementation of a well-specified algorithm is a smaller risk surface
 // here than trusting a dependency whose edge-case behaviour was never
 // verified against fighter names specifically.
+//
+// Moved here from lib/odds/ (2026-09-03, I2) once a second and third
+// feature needed it -- lib/rumours/ was already importing across from
+// lib/odds/ (matchFighterMention.ts, collapseNearDuplicates.ts) before
+// this move, and I2's fighter-record matching is the third consumer.
+// lib/text/ is neutral ground: no feature's fuzzy matching is a special
+// case of another's.
+
+import { foldDiacritics } from "./foldDiacritics";
 
 function normalize(name: string): string {
-  return name
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // strip combining diacritical marks (é -> e, ñ -> n)
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ");
+  return foldDiacritics(name).toLowerCase().trim().replace(/\s+/g, " ");
 }
 
 // Known limitation: precomposed letters that aren't decomposable via NFD
