@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { BlueskyAuthError } from "../bluesky";
 import { scanFightForRumours } from "./scanFightForRumours";
 import type { FightToScan } from "./scanFightForRumours";
 
@@ -90,6 +91,13 @@ export async function runRumourScanJob(supabase: SupabaseClient): Promise<Rumour
       summary.flagsWritten += result.flagsWritten;
       summary.sourcesWritten += result.sourcesWritten;
     } catch (err) {
+      // A Bluesky auth failure (rate limit or bad credentials) is
+      // card-wide, not one fight's bad luck -- every remaining fight would
+      // hit the same wall, and bluesky.ts's post-failure cooldown means
+      // they would all fail without even a network call. Abort now so the
+      // job fails fast with one clear error instead of 14 identical ones,
+      // and so the run makes exactly one createSession attempt.
+      if (err instanceof BlueskyAuthError) throw err;
       summary.failedFights++;
       console.error(`Rumour scan failed for fight ${fight.id}:`, err);
     }

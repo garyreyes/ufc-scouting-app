@@ -873,6 +873,19 @@ words already distinguish the three outcomes without one).
 
 Phase F is now fully done — F1 through F4 all shipped.
 
+**F reliability fix (Phase 56, 2026-09-03).** The scheduled Rumour scan
+job had failed every run since it shipped (2026-09-02) — `429` on
+Bluesky's `com.atproto.server.createSession`, which is capped at 30/5min
+and 300/day per account. The job re-authenticated per cold-cache call
+(~28 `createSession` attempts per run across ~14 fights × 2 concurrent
+searches), rate-limited its own account, and never recovered.
+`bluesky.ts` now single-flights the auth and adds a 5-minute
+post-failure cooldown — one attempt per run, whatever the outcome — and
+`runRumourScanJob` aborts the card on a `BlueskyAuthError` instead of
+retrying it per fight. See `CHANGES.md` Phase 56 and `PROJECT_FACTS.md`.
+Live recovery still pending a clean scheduled run once the daily cap
+ages out.
+
 **F1 result.** Started as a verification spike for the originally-planned
 source (Reddit) and ended up re-deciding the social source entirely —
 `ARCHITECTURE.md` Fork 9 has the full reasoning; this is the build-log

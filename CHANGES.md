@@ -2345,3 +2345,54 @@ the first real proof.
 
 **Status:** I3 done, happy path unverified pending quota reset. I4-I5
 not started.
+
+## Phase 56 — the rumour scan job's createSession retry storm (2026-09-03)
+
+Every scheduled Rumour scan run had failed since the job shipped
+(2026-09-02) -- 6 for 6, all `429 RateLimitExceeded` on
+`com.atproto.server.createSession`. Not a credentials problem: the job
+was rate-limiting its own Bluesky account and never letting it recover.
+
+**Root cause.** `com.atproto.server.createSession` is rate-limited to
+**30 per 5 minutes and 300 per day, per account** (verified against
+docs.bsky.app -- a separate, far stricter limiter than the 3000/5min
+global cap F1 already documented). `bluesky.ts`'s session cache only
+helped once it was warm: `scanFightForRumours` runs
+`Promise.all([search(f1), search(f2)])` per fight, so on a cold cache
+both calls raced into their own `createSession`, and once that 429'd the
+cache never populated -- so all ~14 fights retried it. ~28 attempts per
+run, 4 runs/day, plus F1-F4's own dev testing on 2026-09-02: comfortably
+past 300/day, and every subsequent run's 28 attempts kept it there.
+
+**Fix, in `bluesky.ts`:**
+
+- **Single-flight** -- concurrent cold-cache callers await one in-flight
+  `createSession` (`pendingAuth`), not one each.
+- **Failure cooldown** -- after any auth failure, every caller fails fast
+  with no network call for 5 minutes (one full rate-limit window). One
+  job run now makes at most one `createSession` attempt, success or
+  failure.
+- `decideAuthAction()` extracted as a pure, tested helper so the
+  precedence (valid cache > cooldown > join in-flight > authenticate) is
+  asserted, not implied.
+- New `BlueskyAuthError`; a 200 response with no `accessJwt` now throws
+  instead of caching a dead session for the full 30-minute TTL.
+
+**Fix, in `runRumourScanJob.ts`:** a `BlueskyAuthError` from any fight
+aborts the card immediately (re-thrown, not swallowed like a per-fight
+network blip) -- one clear job_runs error instead of 14 identical stack
+traces, and zero further `createSession` attempts that run.
+
+Test-first (`bluesky.test.ts`, 12 cases): the regression *is* a
+call-count bug, so the tests stub `fetch` and assert `createSession` is
+hit exactly once across 10 concurrent searches whether auth succeeds or
+429s, and not again inside the cooldown. `npm run lint`, `npm run test`
+(350 pass), `npm run build` all green.
+
+**Honest caveat:** if the account is still inside its 300/day cap, the
+next scheduled run will still 429 -- but once, cleanly, then stop, so the
+limit ages out and a later run goes green. Watch `job_runs` for
+`rumour_scan` / the Actions tab to confirm.
+
+**Status:** fix merged, live recovery pending a clean scheduled run.
+I4-I5 not started.
