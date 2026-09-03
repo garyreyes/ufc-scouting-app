@@ -1775,7 +1775,7 @@ Next: G2, edge-gated betting.
 ## Phase 42 — Production outage: OWNER_USER_ID never set on Vercel (2026-09-02)
 
 `/events/[id]` and `/scoreboard` both hard-crashed in production the
-first time the real owner (signed in as gary_reyes@dlsu.edu.ph) opened
+first time the real owner (signed in as `gary_reyes@dlsu.edu.ph`) opened
 them. Root cause: `OWNER_USER_ID` was never configured on Vercel --
 present on GitHub Actions (for the batch jobs) but nobody had added the
 app's own separate copy. `isOwner()` short-circuits to `false` for a
@@ -1786,8 +1786,8 @@ throw with no explanation beyond a generic Vercel error digest.
 
 Confirmed the real fix has two independent parts, live against
 production: `OWNER_USER_ID=80ae2af8-4f13-42fc-b9b3-3e07d13e762b`
-(gary_reyes@dlsu.edu.ph -- confirmed with the user directly; the other
-real account on this app, garyludelq@gmail.com, is not the owner) added
+(`gary_reyes@dlsu.edu.ph` -- confirmed with the user directly; the other
+real account on this app, `garyludelq@gmail.com`, is not the owner) added
 on Vercel, and `SUPABASE_SERVICE_ROLE_KEY` confirmed present. Also fixed
 a second, separate drift found while confirming `is_owner()`'s live
 value: `0017_owner_allowlist.sql` in git still contains the literal
@@ -2241,6 +2241,7 @@ through would have done. Each write was guarded by a sanity check that
 the kept row still matched what had been analysed.
 
 Two were genuinely wrong data, confirmed against Wikipedia:
+
 - Nathaniel Wood's opponent was Mairon Santos in the DB; Wikipedia's
   live page says Pavel Andrusca. Santos was the replaced opponent, and
   this is on the upcoming 2026-09-05 card.
