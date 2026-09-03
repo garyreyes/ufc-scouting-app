@@ -2228,3 +2228,51 @@ conflict shape is one-kept-vs-one-candidate, not N-way. Tracked as I2d.
 
 **Status:** I2b, I2c done. I2d (resolve the 2 three-way clusters) and
 I3-I5 not started.
+
+## Phase 53 — Resolved 8 of the 9 open conflicts (2026-09-03)
+
+Data operation, no code change. Each conflict was judged against
+Wikipedia (the app's own parser, not eyeballing the page) rather than
+guessed at, then applied using the SAME buildDisputedOpponentResolution
+pure function the /conflicts buttons use -- the action itself is
+cookies()-gated and can't run outside a request, but its logic lives
+entirely in that pure function, so nothing diverged from what clicking
+through would have done. Each write was guarded by a sanity check that
+the kept row still matched what had been analysed.
+
+Two were genuinely wrong data, confirmed against Wikipedia:
+- Nathaniel Wood's opponent was Mairon Santos in the DB; Wikipedia's
+  live page says Pavel Andrusca. Santos was the replaced opponent, and
+  this is on the upcoming 2026-09-05 card.
+- Miles Johns was recorded against "Jessie Rosas"; Wikipedia says
+  "Miles Johns def. Gianni Vázquez (TKO punches, R1)" -- exact match for
+  the candidate.
+
+Six were the same real bout recorded twice under name variants
+(diacritics, nicknames, name-order swaps, missing spaces). Resolved
+toward whichever side carried ENRICHED fighter identities plus a
+recorded winner, since that is what feeds Elo and the intern; method
+text is cosmetic and the settlement job can refill it.
+
+A prediction of mine turned out wrong, in a good way: I expected
+choosing "candidate" to lose the richer Wikipedia method text.
+buildDisputedOpponentResolution runs stripNullish, so a null method on
+the candidate never overwrites a real one on the kept row -- Barbosa and
+Johns kept both the enriched fighter AND their method.
+
+One left open deliberately: Louie Sutherland. Wikipedia now says "José
+Montanha def. Louie Sutherland", which matches NEITHER stored name
+("Henrique da Silva Lopes" from API-Sports, "José Luiz" from an older
+Wikipedia scrape -- the page was edited between our sync and now). All
+three could be the same Brazilian fighter under different name
+conventions and a nickname, or not. Not guessed at.
+
+Verified against the real tables: 1 open conflict remaining, 8 resolved
+with the correct resolution strings, every changed bout showing the
+expected fighters/winner. Elo rebuilt afterward since several
+resolutions added recorded winners -- 45 fights processed, 90 snapshots
+(up from 41/82), because four bouts gained a real result. Re-ran the
+intern job: 1 pick written, 0 held by a conflict (down from 1).
+
+**Status:** 1 conflict open (Sutherland, needs a human call). I2d and
+I3-I5 not started.

@@ -161,6 +161,20 @@ Decided 2026-08-29, user-originated.
   none of which should be silently auto-merged; they're real, different-
   looking strings, and only a human confirming via `/conflicts` should
   decide they're the same person.
+- **One conflict is open on purpose and should stay open until someone
+  identifies the fighter**: Louie Sutherland's opponent at UFC Fight
+  Night: Gamrot vs. Salkilld. Wikipedia currently says "José Montanha
+  def. Louie Sutherland (Submission neck crank, R1)" — matching neither
+  stored name ("Henrique da Silva Lopes" from API-Sports, enriched and
+  recorded as the winner; "José Luiz" from an older Wikipedia scrape,
+  since edited). Plausibly all one Brazilian fighter under different
+  name conventions plus a nickname, but not confirmed. Resolve it by
+  identifying the person, not by picking whichever row looks tidier.
+- **`buildDisputedOpponentResolution` runs `stripNullish`, so choosing
+  "candidate" never blanks a field the kept row already had.** Worth
+  knowing before assuming a resolution trades one source's detail for
+  the other's — resolving toward an enriched fighter kept the richer
+  Wikipedia method text in practice (verified live 2026-09-03).
 - **Two real 3-fight duplicate clusters remain, deliberately unresolved**
   (I2d): "Gauge Young" implicated across three rows on one card, and
   "Ce Liu"/"Junior Tafa"/"Levi Rodrigues Jr." similarly. The existing
