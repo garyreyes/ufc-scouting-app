@@ -2062,3 +2062,33 @@ re-deriving the real winners.
 
 **Status:** I1 done. I1b (repair the 10 impossible winners) and I2-I5 not
 started.
+
+## Phase 49 — I1b: cleared 10 fabricated results, and made the state impossible (2026-09-03)
+
+Listing the 10 bad rows in full before touching them caught something
+that would have made the repair worse than the disease: method and round
+were populated too ("KO (punches)", round 1), stamped from the same
+collided write and describing a different bout's finish. Clearing
+winner_id alone would have left the method behind -- and isResolvedForElo
+returns true on a method alone, while computeEloHistory reads
+winner-null-plus-non-NC-method as a REAL DRAW. The 10 rows would have
+gone from "excluded" to "fabricated draws that move ratings". All three
+fields cleared together instead.
+
+Verified against the real table rather than the write's return value: 0
+rows still holding any result value, 0 impossible winners anywhere, 47
+fights still carrying a valid recorded winner. Re-ran the Elo rebuild:
+47 processed, 94 snapshots -- identical to before the repair, proving
+the cleared rows contributed nothing and no rating moved.
+
+0031_winner_must_be_in_the_bout.sql then makes the state unrepresentable
+rather than merely absent: a CHECK that a winner is one of the bout's own
+two fighters, matching what 0019_picks.sql already enforces for a pick's
+predicted fighter. Live-tested in a rolled-back transaction -- an
+outsider is rejected, a real participant still accepted.
+
+Ten past fights now correctly show no result, because the app genuinely
+does not know it. I4's past-event backfill is what re-derives the real
+winners.
+
+**Status:** I1 and I1b done. I2-I5 not started.
