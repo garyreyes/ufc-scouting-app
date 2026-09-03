@@ -138,13 +138,21 @@ Decided 2026-08-29, user-originated.
   (`decideFighterMatch.ts`) still uses the real, unsanitized name against
   whatever the API returns, since the API's own stored names keep their
   real accents.
-- **`fighters` can and does hold two separate rows for the same real
-  person** when their name carries a diacritic — `upsertFighter.ts`'s
-  name-matching fallback is an exact case-insensitive match, and never
-  folds accents. Confirmed live: "Andre Lima" (API-Sports, enriched) and
-  "André Lima" (Wikipedia placeholder) never merged. Not yet fixed
-  (tracked as I2b, `ROADMAP.md`) — a fix belongs in `upsertFighter.ts`
-  itself, not papered over per-caller.
+- **`fighters` could hold two separate rows for the same real person**
+  when their name carries a diacritic — fixed in I2b
+  (`namesMatchExactly.ts`, `upsertFighter.ts`). Confirmed live before the
+  fix: "Andre Lima" (API-Sports, enriched) and "André Lima" (Wikipedia
+  placeholder) never merged.
+- **A live consequence of that bug is still sitting in production,
+  unresolved**: two `fights` rows for the same real bout (Andre Lima vs.
+  Namsrai Batbayar, UFC Fight Night: Nurmagomedov vs. Song, 2026-08-29) —
+  one per sync source, because the two Limas never resolved to one
+  fighter. The I2b code fix stops this from happening again; it does not
+  merge what's already there. A2's own disputed-opponent detection
+  (Fork 5) should have caught this and provably did not (zero
+  `data_conflicts` rows exist for either fight) — why is not yet
+  understood, tracked as I2c. Do not "fix" this by deleting either row
+  without re-reading I2c's findings first.
 - **Ten past fights legitimately show no result** (UFC 330 and UFC Fight
   Night: Hernandez vs. Rodrigues, August 2026). Their recorded winners
   were provably wrong and were cleared; the app genuinely does not know

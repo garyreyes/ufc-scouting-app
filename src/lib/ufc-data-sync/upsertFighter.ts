@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripNullish } from "./stripNullish";
+import { namesMatchExactly } from "../text/namesMatchExactly";
 
 export interface FighterWrite {
   name: string;
@@ -57,6 +58,27 @@ export async function upsertFighter(
       .eq("id", byName.id);
     if (updateError) throw updateError;
     return byName.id;
+  }
+
+  // The plain exact match above missed a real duplicate live in
+  // production (I2b, 2026-09-03): Wikipedia's "André Lima" and
+  // API-Sports' "Andre Lima" are the same person, but `ilike` alone is
+  // diacritic-sensitive, so each source kept its own separate row.
+  // Fetching every name and comparing with namesMatchExactly (fold
+  // diacritics, then require an EXACT match -- never fuzzy) is the same
+  // "fetch broadly, decide in tested code" pattern this codebase already
+  // uses elsewhere, and cheap at this table's size; only paid on the
+  // (rare) path where a plain exact match found nothing.
+  const { data: allFighters, error: allError } = await supabase.from("fighters").select("id, name");
+  if (allError) throw allError;
+  const foldedMatch = (allFighters ?? []).find((f) => namesMatchExactly(f.name as string, fighter.name));
+  if (foldedMatch) {
+    const { error: updateError } = await supabase
+      .from("fighters")
+      .update(updatePayload)
+      .eq("id", foldedMatch.id);
+    if (updateError) throw updateError;
+    return foldedMatch.id;
   }
 
   const { data: inserted, error: insertError } = await supabase
