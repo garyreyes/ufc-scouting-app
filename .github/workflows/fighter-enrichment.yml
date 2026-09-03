@@ -1,6 +1,12 @@
 name: Fighter enrichment job
 
 on:
+  # TEMPORARY, for live verification only -- removed before this PR is
+  # final. workflow_dispatch needs the file on the default branch first,
+  # so a push trigger is how a brand-new workflow gets its first real run
+  # from a feature branch.
+  push:
+    branches: [feat/i2-fighter-matching-enrichment]
   schedule:
     # Once daily, at 06:00 UTC -- squarely between sync.yml's 00:00 and
     # 12:00 runs, a 6h buffer on both sides. Not time-sensitive the way
