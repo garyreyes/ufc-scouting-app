@@ -175,12 +175,16 @@ Decided 2026-08-29, user-originated.
   knowing before assuming a resolution trades one source's detail for
   the other's — resolving toward an enriched fighter kept the richer
   Wikipedia method text in practice (verified live 2026-09-03).
-- **Two real 3-fight duplicate clusters remain, deliberately unresolved**
-  (I2d): "Gauge Young" implicated across three rows on one card, and
-  "Ce Liu"/"Junior Tafa"/"Levi Rodrigues Jr." similarly. The existing
-  disputed-opponent conflict shape is exactly one-kept-vs-one-candidate;
-  forcing a real three-way chain into it would lose information rather
-  than surface it.
+- **Both 3-fight duplicate clusters (I2d) were a replaced-opponent
+  booking, same as several of the conflict-queue fixes** — not
+  ambiguous once checked against Wikipedia's current page, so handled
+  as a direct repair (fill in the real result, delete the two stale
+  rows) rather than routed through `data_conflicts`. That queue is for
+  genuine ambiguity an owner needs to judge; a third-party source
+  already settling the question isn't that. A real correctness bug came
+  out of it, not just tidiness: the Gauge Young/Dorsainvil result had
+  been counted TWICE by Elo before this, one real result rated as two
+  separate fights.
 - **Ten past fights legitimately show no result** (UFC 330 and UFC Fight
   Night: Hernandez vs. Rodrigues, August 2026). Their recorded winners
   were provably wrong and were cleared; the app genuinely does not know
