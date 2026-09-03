@@ -1,4 +1,4 @@
-import { nameSimilarity } from "./similarity";
+import { nameSimilarity } from "../text/nameSimilarity";
 import type { FightForMatching, OddsEvent } from "./types";
 
 // Below this, a match is confident enough to write odds_snapshots

@@ -1,4 +1,4 @@
-import { nameSimilarity } from "../odds/similarity";
+import { nameSimilarity } from "../text/nameSimilarity";
 import type { FighterCandidate } from "./types";
 
 // Candidates are always scoped to one fight's own two fighters, never the

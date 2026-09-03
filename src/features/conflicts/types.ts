@@ -62,7 +62,47 @@ export interface DisputedResultConflict {
   details: DisputedResultDetails;
 }
 
-export type Conflict = DisputedOpponentConflict | LowConfidenceConflict | DisputedResultConflict;
+// I2's fourth kind: a name-only fighter's best API-Sports search result
+// didn't clear the auto-match threshold. Candidates are the FULL ranked
+// list, snapshotted at detection time -- same "don't re-derive live"
+// reasoning DisputedResultDetails already documents (a search re-run
+// later could return different results, and re-querying at resolution
+// time would spend another request against the shared quota for no
+// reason). fight_id null, same shape low_confidence_odds_match already
+// established for "no bout is implicated, real candidates live in
+// details."
+export interface FighterMatchCandidate {
+  externalId: string;
+  name: string;
+  confidence: number;
+  heightCm: number | null;
+  reachCm: number | null;
+  weightKg: number | null;
+  weightClass: string | null;
+  stance: string | null;
+  nickname: string | null;
+  team: string | null;
+}
+
+export interface LowConfidenceFighterMatchDetails {
+  fighterId: string;
+  storedName: string;
+  candidates: FighterMatchCandidate[];
+}
+
+export interface LowConfidenceFighterMatchConflict {
+  id: string;
+  kind: "low_confidence_fighter_match";
+  fightId: null;
+  detectedAt: string;
+  details: LowConfidenceFighterMatchDetails;
+}
+
+export type Conflict =
+  | DisputedOpponentConflict
+  | LowConfidenceConflict
+  | DisputedResultConflict
+  | LowConfidenceFighterMatchConflict;
 
 // A fight in the same date window as a low-confidence conflict's odds
 // event -- the candidate pool the owner picks from, ranked by the
@@ -122,4 +162,19 @@ export interface DisputedResultDisplay {
   apiSportsWinnerName: string | null;
 }
 
-export type ConflictDisplay = DisputedOpponentDisplay | LowConfidenceDisplay | DisputedResultDisplay;
+// Every field the card needs is already sitting in details -- unlike the
+// other three kinds, this display shape needs no extra fetch to build
+// (see resolveFighterMatchDisplays in api.ts).
+export interface LowConfidenceFighterMatchDisplay {
+  id: string;
+  kind: "low_confidence_fighter_match";
+  detectedAt: string;
+  storedName: string;
+  candidates: FighterMatchCandidate[];
+}
+
+export type ConflictDisplay =
+  | DisputedOpponentDisplay
+  | LowConfidenceDisplay
+  | DisputedResultDisplay
+  | LowConfidenceFighterMatchDisplay;

@@ -1,4 +1,5 @@
 import { apiSportsGet } from "./client";
+import { parseHeightToCm, parseReachToCm } from "./parseMeasurements";
 
 interface ApiSportsFighter {
   id: number;
@@ -17,21 +18,6 @@ export interface FighterRow {
   weight_class: string | null;
   stance: string | null;
   synced_at: string;
-}
-
-// API returns "6' 0'" (feet' inches')
-function parseHeightToCm(height: string | null): number | null {
-  const match = height?.match(/(\d+)'\s*(\d+)/);
-  if (!match) return null;
-  const [, feet, inches] = match;
-  return Math.round(Number(feet) * 30.48 + Number(inches) * 2.54);
-}
-
-// API returns "66'" (inches only)
-function parseReachToCm(reach: string | null): number | null {
-  const match = reach?.match(/(\d+)/);
-  if (!match) return null;
-  return Math.round(Number(match[1]) * 2.54);
 }
 
 export async function fetchFighter(apiSportsId: number): Promise<FighterRow | null> {

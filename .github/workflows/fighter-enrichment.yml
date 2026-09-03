@@ -1,0 +1,40 @@
+name: Fighter enrichment job
+
+on:
+  schedule:
+    # Once daily, at 06:00 UTC -- squarely between sync.yml's 00:00 and
+    # 12:00 runs, a 6h buffer on both sides. Not time-sensitive the way
+    # odds/rumour jobs are: this is a backfill against a fixed, slowly-
+    # growing population (name-only fighters landing on newly-announced
+    # cards), so twice-daily would only spend quota faster for no benefit.
+    # Shares API-Sports' 100/day free-tier budget with sync.yml's results
+    # sync (~10-15 requests/run); DEFAULT_BATCH_SIZE (40) leaves real
+    # headroom either side of it.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Matches up to 40 name-only fighters against API-Sports per run
+      # (enrichFighters.ts) -- auto-applies a confident match, opens a
+      # low_confidence_fighter_match conflict for a real but uncertain
+      # guess, and marks a genuine miss checked so it's never re-searched.
+      # Recorded in job_runs as "fighter_enrichment".
+      - name: Enrich name-only fighters
+        run: npx tsx src/lib/ufc-data-sync/runFighterEnrichmentJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          UFC_API_SPORTS_KEY: ${{ secrets.UFC_API_SPORTS_KEY }}

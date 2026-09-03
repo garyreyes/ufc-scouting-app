@@ -1,4 +1,4 @@
-import { nameSimilarity } from "./similarity";
+import { nameSimilarity } from "../text/nameSimilarity";
 import type { FighterPrices, OddsEvent, OddsOutcome } from "./types";
 
 const DRAW_OUTCOME_NAME = "draw";

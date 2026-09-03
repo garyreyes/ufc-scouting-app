@@ -2,7 +2,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { rankFightMatches } from "@/lib/odds/matchFights";
 import { fetchUnpricedFights } from "@/lib/odds/eligibleUnpricedFights";
-import type { DisputedOpponentDetails, DisputedResultDetails, LowConfidenceDetails, ConflictDisplay } from "./types";
+import type {
+  DisputedOpponentDetails,
+  DisputedResultDetails,
+  LowConfidenceDetails,
+  LowConfidenceFighterMatchDetails,
+  ConflictDisplay,
+} from "./types";
 
 // data_conflicts has no client SELECT grant at all (0014_data_conflicts.sql
 // -- deliberately closed by default, loosened only for the owner via the
@@ -52,9 +58,9 @@ export async function getOpenDisputedFightIds(fightIds: string[]): Promise<Set<s
 
 interface ConflictRow {
   id: string;
-  kind: "disputed_opponent" | "low_confidence_odds_match" | "disputed_result";
+  kind: "disputed_opponent" | "low_confidence_odds_match" | "disputed_result" | "low_confidence_fighter_match";
   fight_id: string | null;
-  details: DisputedOpponentDetails | LowConfidenceDetails | DisputedResultDetails;
+  details: DisputedOpponentDetails | LowConfidenceDetails | DisputedResultDetails | LowConfidenceFighterMatchDetails;
   detected_at: string;
 }
 
@@ -74,16 +80,24 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
   const disputedOpponent = conflicts.filter((c) => c.kind === "disputed_opponent");
   const lowConfidence = conflicts.filter((c) => c.kind === "low_confidence_odds_match");
   const disputedResult = conflicts.filter((c) => c.kind === "disputed_result");
+  const lowConfidenceFighter = conflicts.filter((c) => c.kind === "low_confidence_fighter_match");
 
-  const [disputedOpponentDisplays, lowConfidenceDisplays, disputedResultDisplays] = await Promise.all([
-    resolveDisputedDisplays(admin, disputedOpponent),
-    resolveLowConfidenceDisplays(admin, lowConfidence),
-    resolveDisputedResultDisplays(admin, disputedResult),
-  ]);
+  const [disputedOpponentDisplays, lowConfidenceDisplays, disputedResultDisplays, lowConfidenceFighterDisplays] =
+    await Promise.all([
+      resolveDisputedDisplays(admin, disputedOpponent),
+      resolveLowConfidenceDisplays(admin, lowConfidence),
+      resolveDisputedResultDisplays(admin, disputedResult),
+      resolveFighterMatchDisplays(lowConfidenceFighter),
+    ]);
 
-  // Restore detected_at order rather than the three-group split above.
+  // Restore detected_at order rather than the four-group split above.
   const byId = new Map(
-    [...disputedOpponentDisplays, ...lowConfidenceDisplays, ...disputedResultDisplays].map((d) => [d.id, d]),
+    [
+      ...disputedOpponentDisplays,
+      ...lowConfidenceDisplays,
+      ...disputedResultDisplays,
+      ...lowConfidenceFighterDisplays,
+    ].map((d) => [d.id, d]),
   );
   return conflicts.map((c) => byId.get(c.id)).filter((d): d is ConflictDisplay => d !== undefined);
 }
@@ -180,6 +194,27 @@ async function resolveLowConfidenceDisplays(
       oddsHomeTeam: details.oddsEvent.home_team,
       oddsAwayTeam: details.oddsEvent.away_team,
       candidates,
+    };
+  });
+}
+
+/**
+ * The one conflict kind that needs no extra fetch to display -- I2's
+ * enrichFighters.ts already snapshots the fighter's stored name and the
+ * FULL ranked candidate list into `details` at detection time (same
+ * "don't re-derive live" reasoning resolveDisputedResultDisplays'
+ * comment documents for disputed_result), so this is a plain reshape,
+ * not a query.
+ */
+function resolveFighterMatchDisplays(rows: ConflictRow[]): import("./types").LowConfidenceFighterMatchDisplay[] {
+  return rows.map((r) => {
+    const details = r.details as LowConfidenceFighterMatchDetails;
+    return {
+      id: r.id,
+      kind: "low_confidence_fighter_match" as const,
+      detectedAt: r.detected_at,
+      storedName: details.storedName,
+      candidates: details.candidates,
     };
   });
 }
