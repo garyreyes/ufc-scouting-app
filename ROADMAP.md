@@ -1286,7 +1286,7 @@ plan:
 
 | # | Sub-phase | Status |
 |---|---|---|
-| I1 | ⚠️ Elo reads *happened-and-has-a-winner*, ordered by **event date**, not `settled_at`. Unlocks the 57 existing results; every later sub-phase depends on it | not started |
+| I1 | ⚠️ Elo reads *happened-and-has-a-winner*, ordered by **event date**, not `settled_at`. Unlocks the 57 existing results; every later sub-phase depends on it | **done** (2026-09-03) |
 | I2 | ⚠️ Fighter matching + enrichment — resolve the 146 orphans to API-Sports ids, low-confidence → `data_conflicts`; populate external_id, height/reach/stance, weight, nickname, team | not started |
 | I3 | Fight-history backfill 2022–2024 — resumable and quota-aware, creating opponent rows so Elo can propagate opponent quality | not started |
 | I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | not started |
@@ -1301,6 +1301,41 @@ which is the very reason `recomputeEloRatings` does a full rebuild.
 requests against a 100/day free-tier cap, shared with the twice-daily
 sync. This cannot be a one-shot script — it needs a resumable job that
 works a queue over several days and tracks its own progress.
+
+**I1 result.** `isResolvedForElo.ts` (pure, mutation-verified) replaces
+`settled_at IS NOT NULL` as the eligibility rule, and ordering moved to
+the event's own date. Both halves were wrong before: production had 57
+fights with a recorded winner and **zero** settled fights, so the rebuild
+ran over an empty set; and settlement order is not chronological order,
+so even once fights did settle they would have been rated in the wrong
+sequence — silently, since Elo is sequential. `0030_elo_occurred_at.sql`
+renames `fight_settled_at` → `fight_occurred_at`, since the column now
+holds an event date and the old name would mislead the next reader.
+Applied live to `vrwlfcywyfzfczajpdoh` with confirmation.
+
+Ran the settlement chain live afterward: **57 resolved fights processed,
+94 rating snapshots written**, up from 0. Real ratings now exist.
+
+**A real data-integrity problem surfaced by doing this, worth its own
+entry.** 57 fights went in but only 47 were rated. The 10 skipped were
+caught by `computeEloHistory`'s defensive guard — written in G1b as a
+"this should never happen" check — for having a `winner_id` matching
+**neither of the bout's own two fighters**. All 10 are still on the old
+positional `external_id`, and the pattern is unmistakable: `UFC 330:7`
+(Luque vs Gore) records **Donte Johnson** as winner, who is the fighter
+at `UFC 330:6`; `UFC 330:8` records **Tresean Gore**, who is at `:7`.
+This is the same position-collision bug fixed in Phase 47, but from
+before D1 — back then `upsertFight` wrote `winner_id` directly, so a
+shifted card stamped the wrong bout's winner onto the row. Those 10 rows
+therefore record a factually impossible result. Not yet repaired: no
+picks have settled against them so nothing is mis-scored today, but I5
+(deriving records from the fight graph) must not read them, and the
+honest repair is I4's past-event Wikipedia backfill re-deriving the true
+winners. Tracked as **I1b** below.
+
+| # | Follow-up | Status |
+|---|---|---|
+| I1b | Repair the 10 fights whose `winner_id` matches neither fighter — clear the impossible values, then let I4's past-event backfill re-derive the real ones | not started |
 
 ---
 

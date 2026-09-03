@@ -2027,3 +2027,38 @@ mistake -- every actual Supabase query checks its error.
 
 **Status:** Bug fixed and live data repaired. Phase I (fighter
 enrichment + history backfill) is planned and confirmed, not started.
+
+## Phase 48 — I1: Elo rates fights that happened, in the order they happened (2026-09-03)
+
+Elo read `settled_at IS NOT NULL`, ordered by settled_at. Both halves
+were wrong. Production had 57 fights with a recorded winner and ZERO
+settled fights, so the rebuild ran over an empty set -- Elo has been
+computing nothing this whole time. And settlement order is not
+chronological order (a disputed bout settles days after later fights
+already did), so even once fights settled they would have been rated in
+the wrong sequence -- silently, because Elo is sequential.
+
+isResolvedForElo.ts (pure, mutation-verified) is the new eligibility
+rule: a fight belongs in the rebuild if it has a recorded outcome,
+whether or not THIS app's settlement pipeline was what recorded it.
+Ordering moved to the event's own date. 0030_elo_occurred_at.sql renames
+fight_settled_at -> fight_occurred_at to match what the column now holds.
+
+Applied live to vrwlfcywyfzfczajpdoh with confirmation, then ran the
+settlement chain: 57 resolved fights processed, 94 rating snapshots
+written, up from 0.
+
+Surfaced a real data-integrity problem while doing it: only 47 of the 57
+were actually rated. computeEloHistory's defensive guard -- written in
+G1b as a "this should never happen" check -- caught 10 fights whose
+winner_id matches NEITHER of the bout's own two fighters. All 10 are
+still on the old positional external_id, and the pattern is clear: UFC
+330:7 (Luque vs Gore) records Donte Johnson as winner, who is the fighter
+at UFC 330:6. Same position-collision bug as Phase 47, but from before
+D1, when upsertFight wrote winner_id directly. Nothing is mis-scored
+today (no picks have settled against them), but the rows are factually
+wrong. Tracked as I1b; the honest repair is I4's past-event backfill
+re-deriving the real winners.
+
+**Status:** I1 done. I1b (repair the 10 impossible winners) and I2-I5 not
+started.

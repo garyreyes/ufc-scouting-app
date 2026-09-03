@@ -1,6 +1,6 @@
 import { DEFAULT_RATING, kFactorForPriorFightCount, updateRatings } from "./eloMath";
 
-export interface SettledFightForElo {
+export interface FightForElo {
   fightId: string;
   fighter1Id: string;
   fighter2Id: string;
@@ -10,14 +10,21 @@ export interface SettledFightForElo {
   // scoring). method is what disambiguates them here.
   winnerId: string | null;
   method: string | null;
-  settledAt: string;
+  // When the fight actually HAPPENED (its event's date), not when this
+  // app got around to settling it. Elo is sequential, so the ordering
+  // key has to be real chronology: settlement order is not chronological
+  // order -- a disputed bout can settle days after later fights already
+  // did, which is the very reason recomputeEloRatings does a full
+  // rebuild rather than an incremental patch. Ordering by settlement
+  // time would have rated those fights in the wrong sequence (I1).
+  occurredAt: string;
 }
 
 export interface EloSnapshot {
   fighterId: string;
   fightId: string;
   rating: number;
-  fightSettledAt: string;
+  fightOccurredAt: string;
 }
 
 // A No Contest is not a real competitive result -- officially, it is as
@@ -50,9 +57,9 @@ function isNoContestOrAmbiguous(method: string | null): boolean {
  * and by any caller resolving "this fighter's rating right now" with no
  * history to look up).
  */
-export function computeEloHistory(fights: SettledFightForElo[]): EloSnapshot[] {
+export function computeEloHistory(fights: FightForElo[]): EloSnapshot[] {
   const sorted = [...fights].sort(
-    (a, b) => new Date(a.settledAt).getTime() - new Date(b.settledAt).getTime(),
+    (a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime(),
   );
 
   const currentRating = new Map<string, number>();
@@ -98,13 +105,13 @@ export function computeEloHistory(fights: SettledFightForElo[]): EloSnapshot[] {
       fighterId: fighter1Id,
       fightId: fight.fightId,
       rating: newRating1,
-      fightSettledAt: fight.settledAt,
+      fightOccurredAt: fight.occurredAt,
     });
     snapshots.push({
       fighterId: fighter2Id,
       fightId: fight.fightId,
       rating: newRating2,
-      fightSettledAt: fight.settledAt,
+      fightOccurredAt: fight.occurredAt,
     });
   }
 
