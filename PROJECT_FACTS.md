@@ -122,6 +122,19 @@ Decided 2026-08-29, user-originated.
   Wikipedia — not either fighter's home division.** Worth knowing before
   "fixing" a catchweight or short-notice bout that looks wrong for the
   fighters involved.
+- **A fight's result is a triple — `winner_id`, `method`, `round` — and
+  it is never safe to clear or trust one of them alone.** Learned in
+  I1b: 10 rows carried a winner who was not in the bout, and clearing
+  just `winner_id` would have left the (equally bogus) method behind,
+  which `isResolvedForElo` treats as "resolved" and `computeEloHistory`
+  reads as a **real draw** — silently promoting excluded junk into
+  rating-moving fabricated draws. They arrive together from one write;
+  they get cleared together.
+- **Ten past fights legitimately show no result** (UFC 330 and UFC Fight
+  Night: Hernandez vs. Rodrigues, August 2026). Their recorded winners
+  were provably wrong and were cleared; the app genuinely does not know
+  who won them until Phase I4 re-derives it from Wikipedia. A past card
+  displaying "Upcoming" bouts is that, not a new bug.
 
 ## Odds
 

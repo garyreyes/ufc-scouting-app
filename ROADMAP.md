@@ -1335,7 +1335,34 @@ winners. Tracked as **I1b** below.
 
 | # | Follow-up | Status |
 |---|---|---|
-| I1b | Repair the 10 fights whose `winner_id` matches neither fighter — clear the impossible values, then let I4's past-event backfill re-derive the real ones | not started |
+| I1b | Repair the 10 fights whose `winner_id` matches neither fighter — clear the impossible values, then let I4's past-event backfill re-derive the real ones | **done** (2026-09-03) |
+
+**I1b result.** Listing the rows in full before touching them caught
+something that would have made the repair worse than the disease:
+`method` and `round` were populated too ("KO (punches)", round 1, and
+so on), stamped from the same collided write, describing a different
+bout's finish. Clearing `winner_id` alone would have left a method
+behind — and `isResolvedForElo` returns true on a method alone, while
+`computeEloHistory` reads winner-null-plus-non-NC-method as a **real
+draw**. The 10 rows would have been promoted from "excluded" to
+"fabricated draws that move ratings". All three fields were cleared
+together.
+
+Verified against the real table afterward, not the write's return value:
+0 rows still holding any result value, 0 impossible winners remaining
+anywhere, 47 fights still carrying a valid recorded winner. Re-ran the
+Elo rebuild: **47 processed, 94 snapshots** — byte-identical to before
+the repair, which is the proof that the cleared rows were contributing
+nothing and no rating moved.
+
+`0031_winner_must_be_in_the_bout.sql` then makes the state
+unrepresentable rather than merely absent: a CHECK that a winner is one
+of the bout's own two fighters, matching what `0019_picks.sql` already
+enforces for a pick's predicted fighter. Elo's app-level guard stays as
+defence in depth — it is what caught this in the first place, and it
+protects the ordering logic that a column constraint cannot see.
+Live-tested in a rolled-back transaction: an outsider is rejected, a
+real participant still accepted.
 
 ---
 
