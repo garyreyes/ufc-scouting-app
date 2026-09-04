@@ -1,9 +1,6 @@
 import { listUpcomingUfcEventTitles, fetchEventSchedule } from "./fetchSchedule";
 import { getSupabaseAdmin } from "../supabase/admin";
-import { buildWikiFightExternalId } from "./buildWikiFightExternalId";
-import { upsertFighter } from "./upsertFighter";
-import { upsertEvent } from "./upsertEvent";
-import { upsertFight } from "./upsertFight";
+import { processScheduleEvent } from "./processScheduleEvent";
 
 export async function runScheduleSync() {
   const supabase = getSupabaseAdmin();
@@ -16,44 +13,12 @@ export async function runScheduleSync() {
     const event = await fetchEventSchedule(title);
     if (!event.date || event.bouts.length === 0) continue;
 
-    const eventId = await upsertEvent(supabase, {
-      external_id: title,
-      name: title,
-      event_date: event.date,
-    });
+    // upsertEvent / upsertFighter / upsertFight all fall back to name- or
+    // fighter-pair matching, so this merges into rows syncJob.ts already
+    // created from API-Sports instead of leaving one bout as two.
+    const result = await processScheduleEvent(supabase, title, event);
     eventCount++;
-
-    for (const [index, bout] of event.bouts.entries()) {
-      const fighter1Id = await upsertFighter(supabase, { name: bout.fighter1Name });
-      const fighter2Id = await upsertFighter(supabase, { name: bout.fighter2Name });
-      // fetchEventSchedule only ever reports fighter1 as the winner (the
-      // wiki template lists winner first: "Winner | def. | Loser").
-      const winnerId = bout.winnerName ? fighter1Id : null;
-
-      // upsertFight falls back to matching on (event, unordered fighter
-      // pair), so this merges into a fight syncJob.ts already created
-      // from API-Sports instead of leaving one bout as two rows.
-      await upsertFight(supabase, {
-        // Keyed on the fighter pair, NOT the card position -- see
-        // buildWikiFightExternalId.ts for the real production bug that
-        // forced this change (a reshuffled card silently stamped one
-        // bout's weight class onto another and swallowed three fights).
-        external_id: buildWikiFightExternalId(title, fighter1Id, fighter2Id),
-        event_id: eventId,
-        fighter1_id: fighter1Id,
-        fighter2_id: fighter2Id,
-        source: "wikipedia",
-        winner_id: winnerId,
-        method: bout.method,
-        round: bout.round,
-        weight_class: bout.weightClass,
-        // The wikitext template lists bouts main-card-first, so this
-        // array index is already the correct card order -- it was
-        // previously used only for external_id and discarded otherwise.
-        bout_order: index,
-      });
-      fightCount++;
-    }
+    fightCount += result.fightCount;
   }
 
   console.log(`Schedule sync (Wikipedia): ${eventCount} events, ${fightCount} fights.`);

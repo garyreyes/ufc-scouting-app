@@ -58,6 +58,51 @@ export async function listUpcomingUfcEventTitles(): Promise<string[]> {
     .filter((title) => title.startsWith("UFC"));
 }
 
+/**
+ * A category member that is an actual UFC MMA event page with a fight
+ * card — not a grappling card ("UFC BJJ 3", which carries no
+ * `{{MMAevent bout}}` templates), a list/navigation page, or a
+ * non-event topic that happens to be filed under the year category.
+ */
+export function isUfcMmaEventTitle(title: string): boolean {
+  if (!title.startsWith("UFC")) return false;
+  if (/^UFC BJJ\b/.test(title)) return false;
+  if (title.startsWith("List of")) return false;
+  return true;
+}
+
+/**
+ * Every UFC event page filed under `Category:<year> in UFC`, paginated
+ * (a year has ~46 and the API caps a page at 500, but `cmcontinue` is
+ * handled anyway so this can't silently truncate). I3 filled 2022-2024
+ * fight history from API-Sports; its free tier refuses 2025+, so I4's
+ * backfill discovers the 2025-to-now events here instead. `ns: 0` keeps
+ * it to real articles, not category/template pages.
+ */
+export async function listUfcEventTitlesInCategoryYear(year: number): Promise<string[]> {
+  const titles: string[] = [];
+  let cmcontinue: string | undefined;
+
+  do {
+    const json = await wikipediaQuery<{
+      query: { categorymembers: { title: string; ns: number }[] };
+      continue?: { cmcontinue: string };
+    }>({
+      action: "query",
+      list: "categorymembers",
+      cmtitle: `Category:${year} in UFC`,
+      cmlimit: "500",
+      ...(cmcontinue ? { cmcontinue } : {}),
+    });
+    for (const member of json.query.categorymembers) {
+      if (member.ns === 0 && isUfcMmaEventTitle(member.title)) titles.push(member.title);
+    }
+    cmcontinue = json.continue?.cmcontinue;
+  } while (cmcontinue);
+
+  return titles;
+}
+
 export async function fetchEventSchedule(title: string): Promise<ScheduledEvent> {
   const json = await wikipediaQuery<{ parse: { wikitext: { "*": string } } }>({
     action: "parse",
