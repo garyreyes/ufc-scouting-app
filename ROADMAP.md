@@ -1351,8 +1351,33 @@ being fetched and written — has *not yet* been observed live, only the
 graceful-degradation path. The very next scheduled run (once today's
 quota resets) is that first real proof; check `job_runs` for
 `fight_history_backfill` to see it.
-| I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | not started |
+| I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | **done, gap-only** (2026-09-03) |
+| I4b | Merge the duplicate "UFC 330" (2026-08-15) / "UFC 330: Makhachev vs. Machado Garry" (2026-08-16) events; this also settles the 10 I1b fights and the 1 open conflict on them | not started |
 | I5 | Derive `wins`/`losses`/`draws` from the fight graph; surface record + tale-of-the-tape in the UI | not started |
+
+**I4 result.** The spike passed — Wikipedia's `{{MMAevent bout}}` template
+is identical for finished and upcoming cards, so `fetchEventSchedule`
+reads a past event's results with no changes. `0034` adds
+`events.wikipedia_backfilled_at`; `selectBackfillEvents.ts` (test-first)
+is the queue filter; `processScheduleEvent.ts` was extracted from
+`syncSchedule.ts` (I3-style) for the shared one-event pipeline;
+`backfillWikipediaHistory.ts` + `wikipedia-history-backfill.yml` (daily
+21:00 UTC, zero API-Sports budget) work the queue 15 events/run at 1.5s
+spacing.
+
+**~65 gap events (Jan 2025 → Aug 2026) backfilled clean** — fights
+146 → ~970, fighters 273 → ~786, every bout with real winner/method/round;
+`upsertFighter`'s I2b fold held (only ~3-4 duplicate identities, all
+known name-order/diacritic cases).
+
+**The scope pick (Option A, "all past events") was wrong and was
+recovered live.** Reprocessing 3 already-curated events (Phases 52-54)
+opened ~9 spurious `disputed_opponent` conflicts. The job is now
+**gap-only permanently** — it skips any event that already has fights.
+The 2 contaminated non-330 events were reverted to their exact pre-I4
+state (8 conflicts deleted, `wikipedia_*` cleared on 18 adopted rows, no
+fight rows were inserted so none deleted). Settlement + Elo propagate the
+new depth on the normal schedule.
 
 **I1 is also a correctness fix, not just an unlock.** Ordering Elo by
 settlement timestamp rather than by when the fight actually happened is

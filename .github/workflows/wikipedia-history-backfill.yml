@@ -1,0 +1,40 @@
+name: Wikipedia history backfill job
+
+on:
+  schedule:
+    # Once daily at 21:00 UTC. Unlike the other four batch jobs this one
+    # spends ZERO API-Sports budget -- it reads Wikipedia (no key) and
+    # writes Supabase only -- so the slot is about keeping the job_runs
+    # log and Actions runners uncontended, not quota. 21:00 sits 3h after
+    # fight-history-backfill (18:00) and 3h before sync (00:00).
+    # Not time-sensitive: a fixed backlog of ~55 past events, clears in
+    # ~4 runs, then each run just re-checks the year categories for
+    # anything newly finished.
+    - cron: "0 21 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Backfills the 2025-to-now fight-history hole from Wikipedia's
+      # per-year UFC categories (API-Sports' free tier refuses 2025+).
+      # Up to 15 event pages per run (backfillWikipediaHistory.ts), each
+      # parsed with the same {{MMAevent bout}} reader syncSchedule.ts uses
+      # for upcoming cards. Recorded in job_runs as
+      # "wikipedia_history_backfill".
+      - name: Backfill past-event fight history
+        run: npx tsx src/lib/ufc-data-sync/runWikipediaHistoryBackfillJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

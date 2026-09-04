@@ -397,6 +397,27 @@ Decided 2026-08-29, user-originated.
   run at 18:00 even gets a turn most days. If a fifth API-Sports-backed
   job is ever added, the four existing jobs' batch sizes may need
   shrinking rather than assuming there's headroom.
+- **Wikipedia's API rate-limits an unauthenticated caller after ~6 rapid
+  requests** (`429 "You are making too many requests to the API"`) —
+  found live building I4, 2026-09-03. `backfillWikipediaHistory.ts`
+  spaces every call 1.5s; anything hammering `en.wikipedia.org/w/api.php`
+  must do the same. It spends **zero** API-Sports budget (no key), so it
+  is genuinely independent of the 100/day constraint above.
+- **Past UFC event pages carry the same `{{MMAevent bout}}` template as
+  upcoming ones**, just with the result fields filled — so
+  `fetchEventSchedule` reads a finished card with no changes. Discovery
+  of past events is `Category:<year> in UFC`
+  (`listUfcEventTitlesInCategoryYear`), the same category-members
+  mechanism `listUpcomingUfcEventTitles` already uses.
+- **The Wikipedia history backfill (I4) is gap-only, permanently.** It
+  MUST NOT reprocess an event that already has fights from another sync
+  path. Learned the hard way 2026-09-03: the first run used an
+  "all past events" scope, reprocessed 3 hand-curated events (Phases
+  52-54), and `upsertFight`'s disputed-opponent guard turned Wikipedia's
+  version of every already-settled bout into a spurious conflict.
+  `backfillWikipediaHistory` now filters `pending` down to events with
+  no bouts yet. Same principle for any future bulk re-import: a curated
+  row is not a gap.
 
 ## Infrastructure
 

@@ -2396,3 +2396,55 @@ limit ages out and a later run goes green. Watch `job_runs` for
 
 **Status:** fix merged, live recovery pending a clean scheduled run.
 I4-I5 not started.
+
+## Phase 57 — I4: Wikipedia past-event fight-history backfill (2026-09-03)
+
+**The spike passed.** Wikipedia uses the identical `{{MMAevent bout}}`
+template for finished cards as for upcoming ones -- `fetchEventSchedule`
+reads a past event's results table with no changes (UFC 311: 13 bouts,
+all with winner/method/round). Discovery works the same way
+`listUpcomingUfcEventTitles` already does: `Category:2025 in UFC` /
+`Category:2026 in UFC` (~46 event pages each). One live finding:
+Wikipedia's API 429s after ~6 rapid requests, so the job spaces every
+call 1.5s.
+
+**New:** `0034_wikipedia_history_backfill.sql` adds
+`events.wikipedia_backfilled_at` (the resumable queue marker, mirror of
+I3's `fighters.history_backfilled_at`). `selectBackfillEvents.ts`
+(test-first, 11 cases) is the date-window + done-set queue filter.
+`fetchSchedule.ts` gains `listUfcEventTitlesInCategoryYear` +
+`isUfcMmaEventTitle` (test, 4 cases). `processScheduleEvent.ts` extracted
+from `syncSchedule.ts` (I3-style, once `backfillWikipediaHistory.ts`
+became a second caller -- `syncSchedule` behaviour unchanged).
+`.github/workflows/wikipedia-history-backfill.yml`, daily 21:00 UTC,
+spends zero API-Sports budget (Wikipedia has no key).
+
+**Live result: ~65 gap events (Jan 2025 -> Aug 2026) backfilled clean.**
+fights 146 -> ~970, fighters 273 -> ~786, every bout with real
+winner/method/round. `upsertFighter`'s I2b fold held up -- only ~3-4
+duplicate identities, all the known name-order/diacritic hard cases.
+
+**A real mistake, caught live and recovered.** The first run used the
+"all past events" scope (the confirmed fork pick) and reprocessed 3
+events that were already synced and hand-curated in Phases 52-54
+(Hernandez vs. Rodrigues, Nurmagomedov vs. Song, and the duplicate
+"UFC 330"). Feeding Wikipedia's version of already-settled bouts through
+`upsertFight` fired its `sharesExactlyOneFighter` guard and opened ~9
+spurious `disputed_opponent` conflicts, partly undoing Phase 53.
+
+Recovery: `backfillWikipediaHistory` narrowed permanently to **gap-only**
+-- it now skips any event that already carries fights (synced by another
+path). The 2 contaminated non-330 events were reverted exactly to their
+pre-I4 state: 8 conflicts deleted, `wikipedia_*` cleared on the 18
+adopted rows (zero fight rows were inserted on them, so no deletes),
+markers unset. Verified against the real tables: both back to 13 rows,
+0 wiki columns; 44 authoritative winners unchanged so no Elo recompute
+needed; the ~65 gap events untouched.
+
+**Not done here, tracked as I4b:** the duplicate "UFC 330" (2026-08-15)
+vs "UFC 330: Makhachev vs. Machado Garry" (2026-08-16) event merge, and
+with it the 10 I1b fights and their 1 remaining open conflict. Also I5
+(derive W/L/D, tale-of-the-tape UI). Settlement + Elo propagate the new
+graph depth on the normal schedule over the next 24-48h.
+
+**Status:** I4 shipped (gap-only). I4b (UFC 330 dedup) and I5 not started.
