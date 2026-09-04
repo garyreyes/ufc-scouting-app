@@ -185,11 +185,18 @@ Decided 2026-08-29, user-originated.
   out of it, not just tidiness: the Gauge Young/Dorsainvil result had
   been counted TWICE by Elo before this, one real result rated as two
   separate fights.
-- **Ten past fights legitimately show no result** (UFC 330 and UFC Fight
-  Night: Hernandez vs. Rodrigues, August 2026). Their recorded winners
-  were provably wrong and were cleared; the app genuinely does not know
-  who won them until Phase I4 re-derives it from Wikipedia. A past card
-  displaying "Upcoming" bouts is that, not a new bug.
+- **The ten I1b fights are resolved.** Their provably-wrong winners were
+  cleared in I1b; **I4b** (2026-09-04) re-derived the real UFC 330 card
+  from Wikipedia and settled all 12 bouts. UFC 330 also turned out to be
+  a **duplicate event** ("UFC 330" vs "UFC 330: Makhachev vs. Machado
+  Garry") — the two sources disagreed on the card, Wikipedia's version
+  was made authoritative, the API-Sports row deleted. See `CHANGES.md`
+  Phase 58.
+- **API-Sports fighter names can arrive mojibake'd** (latin1 bytes read
+  as UTF-8): "Kauê Fernandes" came through as "KauÃª Fernandes" on a real
+  row, found in I4b. Not yet root-caused in `fetchFighter.ts` /
+  `fetchFightHistory.ts` — if accented API-Sports names recur garbled,
+  that decode is where to look.
 
 ## Odds
 
