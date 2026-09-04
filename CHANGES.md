@@ -2448,3 +2448,49 @@ with it the 10 I1b fights and their 1 remaining open conflict. Also I5
 graph depth on the normal schedule over the next 24-48h.
 
 **Status:** I4 shipped (gap-only). I4b (UFC 330 dedup) and I5 not started.
+
+## Phase 58 — I4b: the UFC 330 duplicate-event reconciliation (2026-09-04)
+
+Two `events` rows for one real card: "UFC 330" (2026-08-15, from
+Wikipedia via I4) and "UFC 330: Makhachev vs. Machado Garry" (2026-08-16,
+from API-Sports). Investigation showed they weren't identical -- they
+genuinely disagreed:
+
+- Wikipedia had the **complete 12-bout card** with method + round;
+  API-Sports had 11 bouts, no methods.
+- Njokuani's opponent: Wikipedia **Joel Álvarez**, API-Sports **Geoff
+  Neal** (the original booking -- same late-replacement pattern as I2d).
+- API-Sports listed **Blanchfield vs. Jasudavicius** on this card;
+  that bout is actually on UFC Fight Night: Buckley vs. Malott (Oct
+  2026) -- a misdated row.
+- `Eric McConico` (API-Sports, id 2770) vs `Eric McConico Jr.`
+  (Wikipedia) -- same person, and `Kauê Fernandes` vs `KauÃª Fernandes`
+  (an API-Sports latin1/utf8 mojibake).
+
+**Wikipedia's "UFC 330" was made authoritative** (user-confirmed). Done
+as a direct repair, not routed through `data_conflicts` -- Wikipedia,
+one of the app's two trusted sources, settled it, same call as I2d.
+
+- Merged `KauÃª Fernandes` (kept id 2632 + height/reach/stance) into
+  `Kauê Fernandes`; deleted the orphan `Eric McConico Jr.`
+- Resolved the one open `disputed_opponent` on the Donte Johnson bout
+  (a `McConico`/`McConico Jr.` name-variant artifact) by applying the
+  candidate's data to the kept row.
+- **Settled all 12 UFC 330 bouts** from their Wikipedia winner/method/
+  round -- a deliberate one-off (`settled_from='wikipedia_only_24h'`),
+  bypassing the 24h single-source wait because API-Sports' free tier
+  can *never* report a 2026 event, so waiting buys nothing.
+- Deleted "UFC 330: Makhachev vs. Machado Garry" -- its 18
+  `fighter_elo_history` rows, 11 fights, then the event row (0 picks /
+  odds / rumours referenced it).
+- Renamed "UFC 330" -> "UFC 330: Makhachev vs. Machado Garry"
+  (`external_id` stays "UFC 330"); deleted the 2 now-orphan fighters.
+- **Elo recomputed: 44 -> 57 fights, 106 snapshots.**
+
+Verified live: one UFC 330 event, 12 fights all settled with winner +
+method, 0 dangling FK refs, the McConico/Kauê variants gone. The 5
+remaining open conflicts are unrelated (4 from a concurrent API-Sports
+sync on Hooker vs. Parnasse, 1 pre-existing).
+
+**Status:** I4 + I4b done. I5 (derive W/L/D, tale-of-the-tape UI) not
+started. All open conflicts are now non-I4.

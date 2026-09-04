@@ -1352,7 +1352,7 @@ graceful-degradation path. The very next scheduled run (once today's
 quota resets) is that first real proof; check `job_runs` for
 `fight_history_backfill` to see it.
 | I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | **done, gap-only** (2026-09-03) |
-| I4b | Merge the duplicate "UFC 330" (2026-08-15) / "UFC 330: Makhachev vs. Machado Garry" (2026-08-16) events; this also settles the 10 I1b fights and the 1 open conflict on them | not started |
+| I4b | Merge the duplicate "UFC 330" (2026-08-15) / "UFC 330: Makhachev vs. Machado Garry" (2026-08-16) events; this also settles the 10 I1b fights and the 1 open conflict on them | **done** (2026-09-04) |
 | I5 | Derive `wins`/`losses`/`draws` from the fight graph; surface record + tale-of-the-tape in the UI | not started |
 
 **I4 result.** The spike passed — Wikipedia's `{{MMAevent bout}}` template
