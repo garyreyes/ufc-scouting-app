@@ -2674,3 +2674,41 @@ now names itself as the fix for both, for whenever that pass happens.
 
 **Status:** all fixes re-verified — `npm run lint`, `npm run test` (393
 passing, up from 386), `npm run build` all green.
+
+## Phase 60 — scoreboard 500 hotfix + a note on the conflict flood (2026-09-05)
+
+**The `/scoreboard` page was returning a hard 500 in production.** Not
+an I5 regression — the scoreboard's code was untouched — but the I3/I4
+backfill, settled by the scheduled runs over the past day, took
+`fights.settled_at is not null` from ~50 rows to 832, and
+`getScoreboardData` had an `.in("fight_id", [...every settled fight])`
+on `odds_snapshots`. At 832 UUIDs that query string is ~30KB and the
+PostgREST edge rejects it (URI too long), throwing straight through to
+a 500 on the whole page.
+
+Fixed by switching the three whole-table reads (`fights`, `picks`,
+`odds_snapshots`) to `selectAllPages` (the keyset-paged helper added in
+Phase 59) and filtering `settled_at is not null` in JS — the same
+"read broadly, decide in code" split the Elo eligibility check already
+uses. `odds_snapshots` is one immutable row per ever-priced fight (~15),
+so it's read whole and matched in memory rather than with an `.in()` at
+all. `buildPickHistory`'s own `.in("id", [...every settled fighter])`
+was the same bug one `mePicks.length === 0` early-return away from being
+live — it now scopes to just the fights the owner actually picked.
+
+Verified against production data: the page now assembles cleanly and
+renders its "no settled picks yet" empty state (there are 0 settled
+*user* picks, and none of the 832 settled fights was priced at
+settlement time — the backfilled history predates odds collection, so
+the chalk line has nothing yet either. Both correct.)
+
+**The `/conflicts` count jumped to 42** — 5 pre-existing
+`disputed_opponent` rows plus **37 new `low_confidence_odds_match`**,
+all dated 2026-09-05, all for tonight's card, all at ~8% confidence.
+This is the odds matcher (`matchAndSnapshot.ts`, Phase B3) failing to
+place tonight's incoming odds against DB fights and queuing each miss
+for review. The ~3x-larger fighter table from the I2/I3/I4 enrichment
+is the likely cause — more rows to disambiguate against drags every
+candidate score down. Not corrupting anything, but the matcher's
+confidence threshold or candidate selection wants re-tuning against the
+bigger roster. Left as a flagged follow-up, not fixed here.
