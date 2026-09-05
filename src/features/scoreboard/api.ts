@@ -173,7 +173,7 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
   };
 }
 
-interface SettledFightRow {
+export interface SettledFightRow {
   id: string;
   event_id: string;
   fighter1_id: string;
@@ -186,7 +186,7 @@ interface SettledFightRow {
   settled_at: string | null;
 }
 
-interface SettledPickRow {
+export interface SettledPickRow {
   id: string;
   author: string;
   fight_id: string;
@@ -219,7 +219,7 @@ interface OddsSnapshotRow {
  * getCardView, features/conflicts/api.ts) over trusting a PostgREST
  * embed shape that hasn't been verified live.
  */
-async function buildPickHistory(
+export async function buildPickHistory(
   supabase: SupabaseClient,
   settledFights: SettledFightRow[],
   mePicks: SettledPickRow[],
@@ -298,8 +298,12 @@ async function buildPickHistory(
         predictedFighterName: predictedFighter.name,
         pickCorrect: pick.pick_correct,
         betFighterName: betFighter?.name ?? null,
-        stakeUnits: pick.stake_units,
-        pnlUnits: pick.pnl_units,
+        // numeric over PostgREST is a STRING -- convert at the boundary
+        // (same as toBetResult / toCalibrationEntry above) so the client
+        // table's units sum and formatUnits() get real numbers, not
+        // "0.75" that concatenates into "00.75-1.00" and crashes .toFixed.
+        stakeUnits: pick.stake_units === null ? null : Number(pick.stake_units),
+        pnlUnits: pick.pnl_units === null ? null : Number(pick.pnl_units),
         favoriteOrUnderdog,
         stanceMatchup: describeStanceMatchup(fighter1.stance, fighter2.stance),
         // Always false until Phase F -- rumour_flags doesn't exist yet.

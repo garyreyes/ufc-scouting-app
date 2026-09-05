@@ -54,8 +54,8 @@ export function PickHistoryTable({ rows }: { rows: PickTableRow[] }) {
 
   const accuracy = aggregateAccuracyLine(filteredRows.map((r) => r.pickCorrect));
   const betResults: BetResult[] = filteredRows
-    .filter((r) => r.pnlUnits !== null)
-    .map((r) => ({ stakeUnits: r.stakeUnits as number, pnlUnits: r.pnlUnits as number }));
+    .filter((r): r is PickTableRow & { stakeUnits: number; pnlUnits: number } => r.pnlUnits !== null)
+    .map((r) => ({ stakeUnits: r.stakeUnits, pnlUnits: r.pnlUnits }));
   const units = aggregateUnitsLine(betResults);
 
   return (

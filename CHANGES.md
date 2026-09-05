@@ -2829,3 +2829,34 @@ show a >5% edge against fresh odds before the next cron places the bet,
 which read as a bug); and `fetchExistingPickFields` now drops a
 non-enum `predicted_method` rather than carrying it into a save that
 `upsertPick`'s guard would then reject.
+
+## Phase 64 — scoreboard pick-history P&L: numeric-as-string, before it settles (2026-09-06)
+
+A `reviewer` pass on Phase 63 confirmed the scoreboard's **pick-history**
+path still had the `numeric`-as-string bug that Phase 60 fixed for the
+boards themselves. `buildPickHistory` returned `stake_units` / `pnl_units`
+straight from PostgREST — strings. `PickHistoryTable` then re-aggregates
+them client-side: `netUnits += "0.75"` concatenates (`"00.75-1.00"`), the
+win/loss/void split misreads, and `formatUnits(netUnits)` calls
+`.toFixed` on a string — a hard crash of the table.
+
+Dormant only because nothing had settled. Last window's card settles
+tonight, so this went in first.
+
+- `buildPickHistory` now converts both columns at the read boundary,
+  same as `toBetResult` / `toCalibrationEntry` 150 lines up in the same
+  file. Exported, with `buildPickHistory.test.ts` — a fake client feeds
+  it the stringified rows PostgREST really sends and asserts the output
+  is numeric and sums correctly (test written failing first).
+- `PickHistoryTable`'s `as number` casts replaced with a real narrowing
+  filter — after the fix the values genuinely are numbers.
+- `settlePicks.ts` converts `stake_units` before `scoreBetPnl` too. No
+  behaviour change there (the arithmetic already coerced correctly), but
+  the value now matches the `number` it's typed as.
+
+**Status:** `npm run lint` / `npm run test` (423, +3) / `npm run build`
+all green.
+
+**Still unconverted, owned by PR #54 (Phase 63), not this change:**
+`getMyPicksForFights` / `getInternPicksForFights` / `fetchExistingPickFields`
+in `features/picks/`.
