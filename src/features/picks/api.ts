@@ -43,12 +43,17 @@ export async function getMyPicksForFights(
       {
         fightId: row.fight_id as string,
         predictedFighterId: row.predicted_fighter_id as string,
-        estimatedProbability: row.estimated_probability as number,
+        // estimated_probability and stake_units are numeric columns
+        // (0019_picks.sql); PostgREST serialises numeric as a STRING to
+        // preserve precision. Convert at the read boundary so every
+        // downstream consumer (edge math, cardRead.ts, BetRow prefill)
+        // gets a real number, not "0.9300" that only works by coercion.
+        estimatedProbability: Number(row.estimated_probability),
         confidence: row.confidence as number,
         predictedMethod: row.predicted_method as PickFields["predictedMethod"],
         reasoning: row.reasoning as string | null,
         betFighterId: row.bet_fighter_id as string | null,
-        stakeUnits: row.stake_units as number | null,
+        stakeUnits: row.stake_units === null ? null : Number(row.stake_units),
       },
     ]),
   );
@@ -87,12 +92,14 @@ export async function getInternPicksForFights(
       {
         fightId: row.fight_id as string,
         predictedFighterId: row.predicted_fighter_id as string,
-        estimatedProbability: row.estimated_probability as number,
+        // numeric over PostgREST arrives as a string -- convert here, see
+        // the matching note in getMyPicksForFights above.
+        estimatedProbability: Number(row.estimated_probability),
         confidence: row.confidence as number,
         reasoning: row.reasoning as string | null,
         predictedMethod: row.predicted_method as PickFields["predictedMethod"],
         betFighterId: row.bet_fighter_id as string | null,
-        stakeUnits: row.stake_units as number | null,
+        stakeUnits: row.stake_units === null ? null : Number(row.stake_units),
       },
     ]),
   );
