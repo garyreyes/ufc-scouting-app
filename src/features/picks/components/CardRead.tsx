@@ -19,7 +19,7 @@ const COPY: Record<Perspective, { title: string; probHeader: string; footnote: s
     title: "Your card",
     probHeader: "You",
     footnote:
-      "Market/You/Edge describe the bet fighter where there's a bet, otherwise the pick. Market % is de-vigged; \"You\" is the probability you entered.",
+      "Market/You/Edge describe the bet fighter where there's a bet, otherwise the pick. Market % is de-vigged; \"You\" is the probability you entered. A bet is highlighted when your number beats the price by 5%+.",
   },
   intern: {
     title: "Intern's read",
@@ -103,7 +103,7 @@ export function CardRead({
                 <td className={styles.left}>
                   {row.betName ? (
                     <span className={styles.betCell}>
-                      {row.betName} {Number(row.stakeUnits)}u
+                      {row.betName} {row.stakeUnits}u
                     </span>
                   ) : (
                     <span className={styles.noBet}>—</span>

@@ -972,6 +972,7 @@ works, not just the underlying API calls it's built on.
 | G2 | Edge-gated betting — threshold plus confidence sizing, and **free to decline entirely** | **done** (2026-09-02) |
 | G3 | Intern lines on both boards + a calibration check | **done** (2026-09-03) |
 | G4 | The intern predicts method of victory too (DECISION / KO_TKO / SUBMISSION), and a card-level "Intern's read" panel on `/events/[id]` | **done** (2026-09-05) — not in the original roadmap; added after a user question about the intern's pick-vs-bet logic |
+| G5 | A twin "Your card" panel for the owner's own picks/bets, same table, next to the intern's | **done** (2026-09-06) — not in the original roadmap; `CHANGES.md` Phase 63 |
 
 **G2 note.** Silence on an unbackable favourite is the intern working, not
 failing. A -6000 shot is 98.4% implied; it needs better than that to have any
