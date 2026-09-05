@@ -5,6 +5,8 @@ import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
 import { decideInternBet } from "./decideInternBet";
 import type { InternBetDecision } from "./decideInternBet";
 import { decideInternPick } from "./decideInternPick";
+import { predictInternMethod } from "./predictInternMethod";
+import type { InternMethodDecision } from "./predictInternMethod";
 import type { InternFlag, InternPickDecision } from "./types";
 
 export interface InternPicksSummary {
@@ -20,6 +22,7 @@ export interface InternPicksSummary {
 
 interface EmbeddedFight {
   id: string;
+  weight_class: string | null;
   fighter1: { id: string; name: string };
   fighter2: { id: string; name: string };
 }
@@ -30,6 +33,7 @@ interface ExistingPick {
   estimatedProbability: number;
   confidence: number;
   reasoning: string | null;
+  predictedMethod: string | null;
   betFighterId: string | null;
   stakeUnits: number | null;
 }
@@ -85,7 +89,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
 
   const { data: rawFights, error: fightsError } = await supabase
     .from("fights")
-    .select("id, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)")
+    .select("id, weight_class, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)")
     .in("event_id", eventIds);
   if (fightsError) throw fightsError;
 
@@ -143,10 +147,16 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       odds,
     );
     if (bet.betFighterId !== null) summary.betsPlaced++;
-    const reasoning = `${decision.reasoning} ${bet.note}`;
+
+    // A third judgment alongside the pick and the bet -- how the fight
+    // ends. Deterministic, base-rate + lopsidedness + weight class, since
+    // no finish-rate data exists (predictInternMethod.ts).
+    const method = predictInternMethod(decision.estimatedProbability, fight.weight_class);
+
+    const reasoning = `${decision.reasoning} ${bet.note} ${method.note}`;
 
     const existing = existingByFightId.get(fight.id);
-    if (existing && isUnchanged(existing, decision, bet, reasoning)) {
+    if (existing && isUnchanged(existing, decision, bet, method, reasoning)) {
       summary.picksUnchanged++;
       continue;
     }
@@ -161,6 +171,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
           estimated_probability: decision.estimatedProbability,
           confidence: decision.confidence,
           reasoning,
+          predicted_method: method.method,
           bet_fighter_id: bet.betFighterId,
           stake_units: bet.stakeUnits,
         },
@@ -185,6 +196,7 @@ function isUnchanged(
   existing: ExistingPick,
   decision: InternPickDecision,
   bet: InternBetDecision,
+  method: InternMethodDecision,
   reasoning: string,
 ): boolean {
   return (
@@ -194,6 +206,7 @@ function isUnchanged(
     Math.abs(existing.estimatedProbability - decision.estimatedProbability) < 0.00005 &&
     existing.confidence === decision.confidence &&
     existing.reasoning === reasoning &&
+    existing.predictedMethod === method.method &&
     existing.betFighterId === bet.betFighterId &&
     // numeric(6,2) -- same precision reasoning as estimated_probability
     // above. Both null is the "no bet, still no bet" case.
@@ -262,7 +275,7 @@ async function fetchExistingInternPicks(
   const { data, error } = await supabase
     .from("picks")
     .select(
-      "fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning, bet_fighter_id, stake_units",
+      "fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning, predicted_method, bet_fighter_id, stake_units",
     )
     .eq("author", "INTERN")
     .in("fight_id", fightIds);
@@ -277,6 +290,7 @@ async function fetchExistingInternPicks(
         estimatedProbability: Number(row.estimated_probability),
         confidence: row.confidence as number,
         reasoning: row.reasoning as string | null,
+        predictedMethod: row.predicted_method as string | null,
         betFighterId: row.bet_fighter_id as string | null,
         stakeUnits: row.stake_units === null ? null : Number(row.stake_units),
       },

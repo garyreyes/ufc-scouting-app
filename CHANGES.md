@@ -2756,3 +2756,76 @@ concatenates. Dormant only because nothing has settled; now coerced with
 
 **Status:** `npm run lint` / `npm run test` (399, +6) / `npm run build`
 all green. Scoreboard data verified against production.
+
+## Phase 62 — intern method prediction + the "Intern's read" card panel (2026-09-05)
+
+Both came out of a user question about *why* the intern bets underdogs
+so often (answer: `edge = prob × odds − 1`, and a small probability
+disagreement times a 3–4x underdog price clears the +5% bar that the
+same disagreement times a 1.3x favourite price never would — plus
+rumour flags only push probability *down*, so a flagged favourite
+inflates its opponent's edge).
+
+**The intern now predicts method of victory** —
+`predictInternMethod.ts` (pure, test-first): UFC base rates (~48%
+decision / 33% KO-TKO / 17% submission), shifted toward a finish by how
+lopsided the matchup is (`|estimatedProbability − 0.5|` — a mismatch
+ends early) and toward KO by a weight-class keyword bucket (heavier →
+KO, lighter → decision/sub). argmax of the three. **There is no
+finish-rate data in this app**, so this is base rates plus the two
+signals it has — a stated assumption, gradeable once method scoring
+exists (still a PRD Could-have, not built here). Wired into
+`generateInternPicks` as a third judgment beside the pick and bet;
+`predicted_method` joins the `isUnchanged` check.
+
+**`predicted_method` is now a 3-value enum** (`DECISION` / `KO_TKO` /
+`SUBMISSION`) — `0035` adds the CHECK constraint (all 102 existing rows
+are null, nothing to migrate), `lib/scoring/fightMethod.ts` owns the
+type + labels, and the human pick form's free-text method `<input>`
+became a 3-chip control matching the "Back"/confidence chips already in
+`BetRow`. `upsertPick` re-checks the value server-side.
+
+**New "Intern's read" panel on `/events/[id]`** (owner-only, collapsed
+by default) — every fight the intern has an opinion on in one table:
+pick, method, bet + stake, de-vigged market %, the intern's %, and the
+edge, with the bet rows accent-marked. `buildInternCardReadRows` is
+pure and tested — the column values describe the *bet* fighter when
+there's a bet (the intern often bets the opposite fighter from its
+pick), not the picked one, which is the `probabilityForFighter` hazard
+worth a test.
+
+**`devigTwoWay.ts`** — extracted from `decideInternPick`'s inline anchor
+math into `lib/scoring/` so the panel and the intern quote the same
+market number, the same way `edge` / `impliedProbability` are each their
+own file.
+
+**Status:** `npm run lint` / `npm run test` (418, +19) / `npm run build`
+all green. `0035` committed but **not yet applied** — must go on after
+merge (the current free-text form could otherwise write a violating
+value in between).
+
+## Phase 62 addendum — reviewer caught a dead branch in the method heuristic (2026-09-05)
+
+A `reviewer` pass brute-forced `predictInternMethod` over the whole
+input space and found two bugs with one root cause: **`SUBMISSION` was
+mathematically unreachable** (it started 0.16 below `KO_TKO` and every
+adjustment widened the gap), and **every heavyweight fight predicted
+`KO_TKO` regardless of matchup** (the weight tilt was a larger swing
+than the base decision→KO gap, so KO won even at 50/50). The docstring
+described behaviour the constants couldn't produce, and the tests missed
+it because the lopsided case only asserted `.not.toBe("DECISION")`.
+
+Restructured: **lopsidedness is now the master dial** (finish vs
+decision), and **weight class only splits the finish pool between KO and
+submission** (`KO_SHARE` per bucket — heavy 0.85, mid 0.62, light 0.40).
+So a close fight at any weight is a decision, a lopsided heavyweight is a
+KO, a lopsided flyweight is a submission, and a competitive heavyweight
+can still be a decision. A brute-force reachability test over the input
+grid now guards against any future tuning re-creating a dead branch.
+
+Also from the review: the panel's edge accent no longer fires on a
+fight the intern hasn't actually bet (a pick made while unpriced could
+show a >5% edge against fresh odds before the next cron places the bet,
+which read as a bug); and `fetchExistingPickFields` now drops a
+non-enum `predicted_method` rather than carrying it into a save that
+`upsertPick`'s guard would then reject.

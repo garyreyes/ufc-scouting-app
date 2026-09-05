@@ -65,8 +65,7 @@
   color: var(--accent-foreground);
 }
 
-.stakeInput,
-.textInput {
+.stakeInput {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;

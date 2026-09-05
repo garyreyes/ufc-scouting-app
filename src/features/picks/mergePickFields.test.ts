@@ -17,7 +17,7 @@ const FULL_ROW: PickFields = {
   predictedFighterId: FIGHTER_A,
   estimatedProbability: 0.65,
   confidence: 4,
-  predictedMethod: "Decision",
+  predictedMethod: "DECISION",
   reasoning: "Better wrestling",
   betFighterId: FIGHTER_B,
   stakeUnits: 2,

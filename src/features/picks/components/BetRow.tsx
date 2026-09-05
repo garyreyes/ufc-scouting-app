@@ -8,6 +8,7 @@ import { applyProbabilityDelta } from "@/lib/scoring/applyProbabilityDelta";
 import { probabilityForFighter } from "@/lib/scoring/probabilityForFighter";
 import { priceForFighter } from "@/lib/scoring/priceForFighter";
 import { edge } from "@/lib/scoring/edge";
+import { FIGHT_METHODS, fightMethodLabel, type FightMethod } from "@/lib/scoring/fightMethod";
 import type { MyPick } from "../types";
 import styles from "./BetRow.module.css";
 
@@ -46,7 +47,9 @@ export function BetRow({
   const initialBand = nearestBetProbabilityBand(impliedForPredicted, myPick.estimatedProbability);
 
   const [confidence, setConfidence] = useState(myPick.confidence);
-  const [predictedMethod, setPredictedMethod] = useState(myPick.predictedMethod ?? "");
+  const [predictedMethod, setPredictedMethod] = useState<FightMethod | null>(
+    myPick.predictedMethod ?? null,
+  );
   const [reasoning, setReasoning] = useState(myPick.reasoning ?? "");
   const [delta, setDelta] = useState(initialBand.delta);
   const [betFighterId, setBetFighterId] = useState(myPick.betFighterId ?? predictedFighterId);
@@ -73,7 +76,7 @@ export function BetRow({
         await saveBetAction(fightId, {
           estimatedProbability,
           confidence,
-          predictedMethod: predictedMethod.trim() === "" ? null : predictedMethod.trim(),
+          predictedMethod,
           reasoning: reasoning.trim() === "" ? null : reasoning.trim(),
           betFighterId: stakeUnits === null ? null : betFighterId,
           stakeUnits,
@@ -188,16 +191,19 @@ export function BetRow({
       )}
 
       <div className={styles.field}>
-        <label className={styles.label} htmlFor={`method-${fightId}`}>
-          Predicted method (optional)
-        </label>
-        <input
-          id={`method-${fightId}`}
-          type="text"
-          value={predictedMethod}
-          onChange={(e) => setPredictedMethod(e.target.value)}
-          className={styles.textInput}
-        />
+        <span className={styles.label}>Predicted method (optional)</span>
+        <div className={styles.chips}>
+          {FIGHT_METHODS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`${styles.chip} ${predictedMethod === m ? styles.chipSelected : ""}`}
+              onClick={() => setPredictedMethod(predictedMethod === m ? null : m)}
+            >
+              {fightMethodLabel(m)}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className={styles.field}>

@@ -971,6 +971,7 @@ works, not just the underlying API calls it's built on.
 | G1b | Elo rating as a third, bounded adjustment — opponent quality, using only data this app already owns | **done** (2026-09-02) |
 | G2 | Edge-gated betting — threshold plus confidence sizing, and **free to decline entirely** | **done** (2026-09-02) |
 | G3 | Intern lines on both boards + a calibration check | **done** (2026-09-03) |
+| G4 | The intern predicts method of victory too (DECISION / KO_TKO / SUBMISSION), and a card-level "Intern's read" panel on `/events/[id]` | **done** (2026-09-05) — not in the original roadmap; added after a user question about the intern's pick-vs-bet logic |
 
 **G2 note.** Silence on an unbackable favourite is the intern working, not
 failing. A -6000 shot is 98.4% implied; it needs better than that to have any
@@ -1007,6 +1008,25 @@ Test-first, mutation-verified: `flagPenalty.ts` and `decideInternPick.ts`
 (19 tests) — the market-anchor de-vig and the rumour-adjustment direction
 are the two things easiest to get silently backwards, and both mutations
 were caught.
+
+**G4 result.** `predictInternMethod.ts` (test-first) is a third pure
+judgment alongside pick and bet: UFC base rates (~48/33/17 dec/KO/sub),
+shifted toward a finish by matchup lopsidedness (a mismatch ends early)
+and toward KO by a weight-class keyword bucket. **There is no
+finish-rate data anywhere in this app**, so this is base rates plus the
+two signals it does have — a stated assumption, gradeable once method
+scoring exists (still a PRD Could-have, deliberately not built here).
+`0035` makes `predicted_method` a 3-value enum; the human pick form's
+free-text field became a 3-chip control to match.
+
+The `InternCardRead` panel (`features/picks/`) is the whole card in one
+collapsible table — pick, method, bet+stake, de-vigged market %, intern
+%, edge — owner-only, above the fight list. `devigTwoWay.ts` was
+extracted from `decideInternPick`'s inline anchor math so the panel and
+the intern quote one market number. The fighter-mapping in
+`buildInternCardReadRows` (the columns describe the *bet* fighter when
+there's a bet, not the pick) is the tested bit — same
+`probabilityForFighter` hazard G1 already had.
 
 Run live against production (81 real upcoming fights, every future
 event): 81 picks written, 0 failures. Spot-checked three real flagged
