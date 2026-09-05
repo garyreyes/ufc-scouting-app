@@ -2803,3 +2803,29 @@ own file.
 all green. `0035` committed but **not yet applied** — must go on after
 merge (the current free-text form could otherwise write a violating
 value in between).
+
+## Phase 62 addendum — reviewer caught a dead branch in the method heuristic (2026-09-05)
+
+A `reviewer` pass brute-forced `predictInternMethod` over the whole
+input space and found two bugs with one root cause: **`SUBMISSION` was
+mathematically unreachable** (it started 0.16 below `KO_TKO` and every
+adjustment widened the gap), and **every heavyweight fight predicted
+`KO_TKO` regardless of matchup** (the weight tilt was a larger swing
+than the base decision→KO gap, so KO won even at 50/50). The docstring
+described behaviour the constants couldn't produce, and the tests missed
+it because the lopsided case only asserted `.not.toBe("DECISION")`.
+
+Restructured: **lopsidedness is now the master dial** (finish vs
+decision), and **weight class only splits the finish pool between KO and
+submission** (`KO_SHARE` per bucket — heavy 0.85, mid 0.62, light 0.40).
+So a close fight at any weight is a decision, a lopsided heavyweight is a
+KO, a lopsided flyweight is a submission, and a competitive heavyweight
+can still be a decision. A brute-force reachability test over the input
+grid now guards against any future tuning re-creating a dead branch.
+
+Also from the review: the panel's edge accent no longer fires on a
+fight the intern hasn't actually bet (a pick made while unpriced could
+show a >5% edge against fresh odds before the next cron places the bet,
+which read as a bug); and `fetchExistingPickFields` now drops a
+non-enum `predicted_method` rather than carrying it into a save that
+`upsertPick`'s guard would then reject.

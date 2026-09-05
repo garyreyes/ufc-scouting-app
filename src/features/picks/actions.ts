@@ -35,7 +35,11 @@ async function fetchExistingPickFields(
     predictedFighterId: data.predicted_fighter_id,
     estimatedProbability: data.estimated_probability,
     confidence: data.confidence,
-    predictedMethod: data.predicted_method,
+    // Drop anything that isn't one of the three enum values -- there is
+    // no such data today (0035 + every row null), but if a legacy
+    // free-text method ever existed, carrying it forward on an edit
+    // would trip upsertPick's guard and block the save entirely.
+    predictedMethod: isFightMethod(data.predicted_method) ? data.predicted_method : null,
     reasoning: data.reasoning,
     betFighterId: data.bet_fighter_id,
     stakeUnits: data.stake_units,

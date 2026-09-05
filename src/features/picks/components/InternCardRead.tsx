@@ -83,7 +83,13 @@ export function InternCardRead({
                 </td>
                 <td>{pct(row.marketProb)}</td>
                 <td>{pct(row.internProb)}</td>
-                <td className={row.edgePct !== null && row.edgePct >= 0.05 ? styles.edgeLive : ""}>
+                {/* The accent only fires on a fight the intern ACTUALLY
+                    bet. A pick made while the fight was unpriced can show
+                    a >5% edge here against fresh odds before the next
+                    cron places the bet -- highlighting that would read as
+                    "the intern found an edge and didn't act," a bug it
+                    isn't. */}
+                <td className={row.betName && row.edgePct !== null && row.edgePct >= 0.05 ? styles.edgeLive : ""}>
                   {edgeText(row.edgePct)}
                 </td>
               </tr>

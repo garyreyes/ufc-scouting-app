@@ -7,17 +7,25 @@ export interface InternMethodDecision {
 
 // Rough UFC base rates across all divisions -- the honest starting point,
 // since nothing in this app measures a fighter's own finish rate (no
-// such data source exists). These are a stated assumption, and the first
-// numbers to revisit if method predictions turn out badly calibrated.
+// such data source exists). A stated assumption, and the first numbers
+// to revisit if method predictions turn out badly calibrated.
 const BASE = { DECISION: 0.5, KO_TKO: 0.33, SUBMISSION: 0.17 };
 
-// The most a lopsided matchup can pull out of "decision" and into the
-// two finish methods (split by their base ratio). A near-total mismatch
-// gets close to this; a coin flip gets none of it.
-const MAX_FINISH_SHIFT = 0.25;
+// The most a total mismatch can pull out of "decision" and into the
+// combined finish pool. Tuned so the decision -> finish crossover sits
+// around a 57% favourite for heavy divisions and a ~68% favourite for
+// light ones -- real fights with a clear-but-not-huge favourite still
+// go the distance often enough that a lower value would over-predict
+// finishes.
+const MAX_FINISH_SHIFT = 0.35;
 
-// How far the weight class tilts KO/TKO against the other two.
-const WEIGHT_TILT = 0.12;
+// Of whatever finish mass a fight carries, the fraction that is KO/TKO
+// rather than submission -- set by division. Heavier divisions KO;
+// lighter divisions scramble and submit. These are the only knobs that
+// decide KO vs submission, so both branches are always reachable: a
+// lopsided light-division fight predicts submission, a lopsided
+// heavy-division fight predicts KO, and everything in between leans KO.
+const KO_SHARE: Record<WeightBucket, number> = { heavy: 0.85, mid: 0.62, light: 0.4 };
 
 type WeightBucket = "heavy" | "light" | "mid";
 
@@ -44,41 +52,39 @@ function weightBucket(weightClass: string | null): WeightBucket {
  * Pure and deterministic, same as the other two, so the eventual
  * method-scoring pass (docs/PRD.md Could-have) can grade a rule rather
  * than a mood. There is no finish-rate data anywhere in this app, so
- * this is base rates plus two signals it *does* have:
+ * this is base rates plus the two signals it does have:
  *
- *  - **Lopsidedness.** A mismatch ends early. `|prob - 0.5|` shifts mass
- *    from decision into the finish methods, split by their base ratio.
- *  - **Weight class.** Heavier divisions KO; lighter divisions go the
- *    distance and submit more. Tilts KO/TKO against the other two.
+ *  - **Lopsidedness** decides finish vs decision. `|prob - 0.5|` pulls
+ *    mass out of "decision" and into the finish pool -- a mismatch ends
+ *    early, a close fight goes the distance. This is the master dial.
+ *  - **Weight class** decides KO vs submission *within* that finish
+ *    pool. Heavier -> KO, lighter -> submission.
  *
  * argmax of the adjusted three, ties breaking decision > KO > submission
- * (base-rate order). The `estimatedProbability` passed in is the
- * predicted (winning) fighter's, always >= 0.5, but the `abs` guards a
- * caller that passes the raw number.
+ * (base-rate order). Every method is reachable -- a close fight at any
+ * weight is a decision, a lopsided heavyweight fight is a KO, a lopsided
+ * flyweight fight is a submission (a regression test brute-forces the
+ * input grid to keep it that way).
+ *
+ * The `estimatedProbability` passed in is the predicted (winning)
+ * fighter's, always >= 0.5, but the `abs` guards a caller that passes
+ * the raw number.
  */
 export function predictInternMethod(
   estimatedProbability: number,
   weightClass: string | null,
 ): InternMethodDecision {
   const lopsidedness = Math.min(1, Math.abs(estimatedProbability - 0.5) * 2);
-
-  const scores: Record<FightMethod, number> = { ...BASE };
-
-  const finishShift = lopsidedness * MAX_FINISH_SHIFT;
-  scores.DECISION -= finishShift;
-  scores.KO_TKO += finishShift * (BASE.KO_TKO / BASE.DECISION);
-  scores.SUBMISSION += finishShift * (BASE.SUBMISSION / BASE.DECISION);
-
   const bucket = weightBucket(weightClass);
-  if (bucket === "heavy") {
-    scores.KO_TKO += WEIGHT_TILT;
-    scores.DECISION -= WEIGHT_TILT * 0.66;
-    scores.SUBMISSION -= WEIGHT_TILT * 0.34;
-  } else if (bucket === "light") {
-    scores.KO_TKO -= WEIGHT_TILT;
-    scores.DECISION += WEIGHT_TILT * 0.6;
-    scores.SUBMISSION += WEIGHT_TILT * 0.4;
-  }
+
+  const finishPool = BASE.KO_TKO + BASE.SUBMISSION + lopsidedness * MAX_FINISH_SHIFT;
+  const koShare = KO_SHARE[bucket];
+
+  const scores: Record<FightMethod, number> = {
+    DECISION: BASE.DECISION - lopsidedness * MAX_FINISH_SHIFT,
+    KO_TKO: finishPool * koShare,
+    SUBMISSION: finishPool * (1 - koShare),
+  };
 
   const order: FightMethod[] = ["DECISION", "KO_TKO", "SUBMISSION"];
   const method = order.reduce((best, m) => (scores[m] > scores[best] ? m : best), order[0]);
