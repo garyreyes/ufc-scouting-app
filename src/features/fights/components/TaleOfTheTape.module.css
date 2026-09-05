@@ -1,0 +1,99 @@
+/* Three columns, values pushed to the outer edges with the label
+   floating between them -- the shape reads as a comparison before a
+   single word is parsed, which is the whole point of a tape. Low chrome:
+   one surface, no per-row borders or boxes; the grid and the type weight
+   do the grouping. */
+.tape {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 32px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header,
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.header {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.headerName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.headerLabel {
+  min-width: 64px;
+}
+
+.row {
+  padding: 5px 0;
+}
+
+.label {
+  min-width: 64px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* The accent carries meaning here and nowhere else in this component --
+   it marks which side holds the edge, so the row can be read without
+   doing the subtraction. */
+.advantage {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.edge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--accent);
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.right {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.footnote {
+  margin: 12px 0 0;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Two columns of numbers plus a centred label is already tight on a
+   phone; drop the fixed label gutter and let the values keep the edges
+   rather than wrapping mid-value. */
+@media (max-width: 480px) {
+  .header,
+  .row {
+    gap: 8px;
+  }
+
+  .headerLabel,
+  .label {
+    min-width: 52px;
+  }
+}

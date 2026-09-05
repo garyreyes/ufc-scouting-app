@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { selectAllPages } from "../supabase/selectAllPages";
 import { computeEloHistory } from "./computeEloHistory";
 import type { FightForElo } from "./computeEloHistory";
 import { isResolvedForElo } from "./isResolvedForElo";
@@ -40,15 +41,25 @@ const CHUNK_SIZE = 500;
  * exact moment ratings need to move.
  */
 export async function recomputeEloRatings(supabase: SupabaseClient): Promise<RecomputeEloSummary> {
-  const { data: fights, error: fightsError } = await supabase
-    .from("fights")
-    .select("id, event_id, fighter1_id, fighter2_id, winner_id, method");
-  if (fightsError) throw fightsError;
+  // Paged, not a bare .select() (I5). Both of these are whole-table scans,
+  // and PostgREST can cap a response without raising an error -- a
+  // truncated read here would rebuild every rating from a partial graph
+  // and look completely normal doing it. `fights` passed ~950 rows during
+  // the I4 backfill, so this was close to real.
+  const fights = await selectAllPages<{
+    id: string;
+    event_id: string;
+    fighter1_id: string;
+    fighter2_id: string;
+    winner_id: string | null;
+    method: string | null;
+  }>(supabase, "fights", "id, event_id, fighter1_id, fighter2_id, winner_id, method");
 
-  const { data: events, error: eventsError } = await supabase
-    .from("events")
-    .select("id, event_date");
-  if (eventsError) throw eventsError;
+  const events = await selectAllPages<{ id: string; event_date: string | null }>(
+    supabase,
+    "events",
+    "id, event_date",
+  );
   const eventDateById = new Map(
     (events ?? []).map((e) => [e.id as string, e.event_date as string | null]),
   );

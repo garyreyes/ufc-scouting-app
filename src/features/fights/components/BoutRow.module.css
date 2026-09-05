@@ -86,6 +86,24 @@
   color: var(--muted);
 }
 
+.internPickLine {
+  margin: 0;
+}
+
+/* The reasoning is a full sentence or four, so it needs real line-height
+   and a width that doesn't run the full page. Indented and a shade
+   smaller than the pick line above it: subordinate to the call, but
+   still plainly readable rather than hidden behind a disclosure. */
+.internReason {
+  margin: 4px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  max-width: 70ch;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
 .rumourOutcomeArea {
   grid-column: 1 / -1;
   padding-top: 10px;

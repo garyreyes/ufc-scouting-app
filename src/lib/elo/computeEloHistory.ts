@@ -1,4 +1,8 @@
 import { DEFAULT_RATING, kFactorForPriorFightCount, updateRatings } from "./eloMath";
+// Shared with lib/records/deriveFighterRecords.ts (I5) -- a fighter's
+// rating and their W-L-D must never disagree about what a given fight
+// was. See that module for why this is one file, not two copies.
+import { isNoContestOrAmbiguous } from "./isNoContestOrAmbiguous";
 
 export interface FightForElo {
   fightId: string;
@@ -27,21 +31,6 @@ export interface EloSnapshot {
   fightOccurredAt: string;
 }
 
-// A No Contest is not a real competitive result -- officially, it is as
-// if the fight never happened -- so it must never move a rating the way
-// a real draw does. Wikipedia's own method text is the only signal that
-// distinguishes the two (evaluateFightSettlement.ts's own test fixture:
-// `method: "NC (overturned)"`), and when method itself is null (the
-// api_sports_only_24h settlement path writes it that way,
-// evaluateFightSettlement.ts's own last branch), there is no way to
-// tell a draw from an NC at all -- excluded rather than guessed, the
-// same "ambiguous -> drop, don't guess" rule this project already
-// applies to rumour-flag fighter attribution.
-function isNoContestOrAmbiguous(method: string | null): boolean {
-  if (method === null) return true;
-  return /\bNC\b|no contest/i.test(method);
-}
-
 /**
  * Rebuilds the ENTIRE Elo history from every settled UFC fight, in
  * chronological order -- Elo is inherently sequential, so this is always
@@ -68,6 +57,18 @@ export function computeEloHistory(fights: FightForElo[]): EloSnapshot[] {
 
   for (const fight of sorted) {
     const { fighter1Id, fighter2Id, winnerId, method } = fight;
+
+    // A self-fight -- both sides the same fighter row, an upsertFighter
+    // name-fold artifact (the I4b class of duplicate) -- is not a fight
+    // to rate at all. Left unguarded, updateRatings would return two
+    // DIFFERENT ratings for one fighter/fight pair and push both into
+    // snapshots; fighter_elo_history's own unique(fighter_id, fight_id)
+    // constraint (0029) then rejects the second insert, and by that
+    // point recomputeEloRatings has already deleted the whole table --
+    // one bad row would wipe every rating. Shared with
+    // deriveFighterRecords.ts, which guards the same case for the same
+    // reason.
+    if (fighter1Id === fighter2Id) continue;
 
     if (winnerId === null && isNoContestOrAmbiguous(method)) {
       continue;

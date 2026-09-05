@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_RATING } from "../elo/eloMath";
+import { fetchLatestEloRatings } from "../elo/fetchLatestEloRatings";
 import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
 import { decideInternBet } from "./decideInternBet";
 import type { InternBetDecision } from "./decideInternBet";
@@ -31,11 +32,6 @@ interface ExistingPick {
   reasoning: string | null;
   betFighterId: string | null;
   stakeUnits: number | null;
-}
-
-interface EloInfo {
-  rating: number;
-  ratedFightCount: number;
 }
 
 function isLockedError(err: unknown): boolean {
@@ -286,41 +282,4 @@ async function fetchExistingInternPicks(
       },
     ]),
   );
-}
-
-/**
- * Each fighter's most recent Elo snapshot and how many rated fights it's
- * built on -- fetches the WHOLE history for just the fighters on this
- * card (a small set) and reduces client-side, the same "fetch broadly,
- * merge in JS" pattern used throughout this codebase, rather than one
- * per-fighter query (features/job-health/api.ts's per-tracked-name
- * pattern doesn't scale to a card's worth of fighters the way it does
- * to two job names).
- */
-async function fetchLatestEloRatings(
-  supabase: SupabaseClient,
-  fighterIds: string[],
-): Promise<Map<string, EloInfo>> {
-  if (fighterIds.length === 0) return new Map();
-
-  const { data, error } = await supabase
-    .from("fighter_elo_history")
-    .select("fighter_id, rating, fight_occurred_at")
-    .in("fighter_id", fighterIds)
-    .order("fight_occurred_at", { ascending: true });
-  if (error) throw error;
-
-  const result = new Map<string, EloInfo>();
-  for (const row of data ?? []) {
-    const fighterId = row.fighter_id as string;
-    const existing = result.get(fighterId);
-    // Ascending order means the last row seen per fighter is their most
-    // recent -- overwrite rating each time, but always increment the
-    // count so it ends up as the true total rated-fight count.
-    result.set(fighterId, {
-      rating: Number(row.rating),
-      ratedFightCount: (existing?.ratedFightCount ?? 0) + 1,
-    });
-  }
-  return result;
 }

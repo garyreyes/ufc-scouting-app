@@ -2,7 +2,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 16px;
-  margin-bottom: 32px;
+  margin-bottom: 8px;
   padding: 16px;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -22,6 +22,15 @@
 
 .statValue {
   font-weight: 600;
+}
+
+/* Sits directly under the stats block it qualifies, so the caveat is
+   read with the record rather than hunted for. */
+.recordNote {
+  margin: 0 0 32px;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .history {

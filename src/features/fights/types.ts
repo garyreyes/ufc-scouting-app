@@ -35,6 +35,35 @@ export interface CardView extends EventSummary {
   fights: CardBout[];
 }
 
+// One side of the fight page's tale-of-the-tape (I5, docs/PRD.md
+// should-have "Tale-of-the-tape differentials on the fight page"). Every
+// physical field is nullable because a Wikipedia-only placeholder
+// fighter has none of them until API-Sports enrichment catches up --
+// "Unknown" is a normal state here, not an error.
+//
+// wins/losses/draws are the DERIVED record from lib/records/, counted
+// over this app's own fight graph (~2022 onward, patchy before 2025) --
+// never a career record, and the UI is required to say so. A 0-0-0 total
+// means "no tracked fights," not "never won anything."
+//
+// eloRating is null for a fighter with no rated history at all. That is
+// deliberately not collapsed to eloMath.ts's DEFAULT_RATING the way
+// generateInternPicks.ts does it: the intern needs a number to do
+// arithmetic with, but showing a debutant an invented 1500 would state
+// something the data does not support.
+export interface TapeFighter extends FightFighter {
+  height_cm: number | null;
+  reach_cm: number | null;
+  stance: string | null;
+  wins: number;
+  losses: number;
+  draws: number;
+  eloRating: number | null;
+  ratedFightCount: number;
+}
+
 export interface FightDetail extends FightWithFighters {
   event: EventSummary;
+  fighter1: TapeFighter;
+  fighter2: TapeFighter;
 }

@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/db";
 import { isInvalidIdError } from "@/lib/isInvalidIdError";
-import type { CardBout, CardView, EventSummary, FightDetail } from "./types";
+import { fetchLatestEloRatings } from "@/lib/elo/fetchLatestEloRatings";
+import type { CardBout, CardView, EventSummary, FightDetail, TapeFighter } from "./types";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -91,11 +92,29 @@ export async function getCardView(
   return { ...event, fights: bouts };
 }
 
+/**
+ * The fight detail page's own query. Both fighters come back with the
+ * full tale-of-the-tape (I5): physical attributes and the derived W-L-D
+ * straight off the embedded fighters rows, plus each fighter's current
+ * Elo, which needs its own query because ratings live in
+ * fighter_elo_history rather than on the fighter.
+ *
+ * The Elo lookup is a second round trip rather than a PostgREST embed
+ * because "the latest snapshot per fighter" is a reduction, not a join
+ * -- lib/elo/fetchLatestEloRatings.ts owns that reduction and is shared
+ * with the intern, so both surfaces quote the same two numbers. Public
+ * client throughout: fighters and fighter_elo_history are both anon-read
+ * with a grant, so this stays callable for a logged-out visitor exactly
+ * like the rest of this module.
+ */
 export async function getFightById(fightId: string): Promise<FightDetail | null> {
   const { data, error } = await supabase
     .from("fights")
     .select(
-      "id, weight_class, method, round, winner_id, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name), event:event_id(id, name, event_date)",
+      "id, weight_class, method, round, winner_id, " +
+        "fighter1:fighter1_id(id, name, height_cm, reach_cm, stance, wins, losses, draws), " +
+        "fighter2:fighter2_id(id, name, height_cm, reach_cm, stance, wins, losses, draws), " +
+        "event:event_id(id, name, event_date)",
     )
     .eq("id", fightId)
     .maybeSingle();
@@ -105,5 +124,20 @@ export async function getFightById(fightId: string): Promise<FightDetail | null>
   }
   if (!data) return null;
 
-  return data as unknown as FightDetail;
+  const fight = data as unknown as Omit<FightDetail, "fighter1" | "fighter2"> & {
+    fighter1: Omit<TapeFighter, "eloRating" | "ratedFightCount">;
+    fighter2: Omit<TapeFighter, "eloRating" | "ratedFightCount">;
+  };
+
+  const elo = await fetchLatestEloRatings(supabase, [fight.fighter1.id, fight.fighter2.id]);
+  const withElo = (fighter: Omit<TapeFighter, "eloRating" | "ratedFightCount">): TapeFighter => {
+    const rating = elo.get(fighter.id);
+    return {
+      ...fighter,
+      eloRating: rating?.rating ?? null,
+      ratedFightCount: rating?.ratedFightCount ?? 0,
+    };
+  };
+
+  return { ...fight, fighter1: withElo(fight.fighter1), fighter2: withElo(fight.fighter2) };
 }

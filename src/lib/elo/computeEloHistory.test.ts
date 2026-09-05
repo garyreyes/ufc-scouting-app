@@ -125,6 +125,21 @@ describe("computeEloHistory", () => {
     expect(snapshots).toHaveLength(0);
   });
 
+  it("defensively excludes a self-fight, where both sides are the same fighter row", () => {
+    // upsertFighter's name-fold can collapse two identities onto one row
+    // (the I4b class of duplicate) -- nothing in the schema forbids
+    // fighter1_id === fighter2_id. Left unguarded, updateRatings would
+    // produce two DIFFERENT ratings for that one fighter/fight pair, and
+    // both get pushed into snapshots -- fighter_elo_history's own
+    // `unique (fighter_id, fight_id)` constraint (0029) means the second
+    // insert throws, and by then recomputeEloRatings has already
+    // deleted the whole table. One bad row would wipe every rating.
+    const snapshots = computeEloHistory([
+      fight({ fighter1Id: "a", fighter2Id: "a", winnerId: "a" }),
+    ]);
+    expect(snapshots).toHaveLength(0);
+  });
+
   it("gives a debuting fighter a bigger rating swing than a fighter with a long history, for the same result", () => {
     // "a" has 12 prior fights (all wins, alternating opponents so k
     // settles); "z" is a total debutant facing "a" for the first time.
