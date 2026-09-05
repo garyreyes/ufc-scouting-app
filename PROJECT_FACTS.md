@@ -846,3 +846,34 @@ Decided 2026-08-29, user-originated.
   position. If a future table needs paging and lacks a UUID `id` primary
   key, this exact approach does not transfer without checking the ordering
   guarantee still holds.
+- **The intern predicts method of victory from base rates + matchup
+  lopsidedness + weight class only — there is NO finish-rate data
+  anywhere in this app.** `predictInternMethod.ts`. API-Sports doesn't
+  serve it, Wikipedia parsing doesn't capture it per-fighter, and
+  nothing derives it. So the method prediction is a stated assumption,
+  not a measurement. If it turns out badly calibrated, the base rates
+  (`BASE` constant) and the two shift magnitudes are the dials — same
+  "first dial to turn" note `flagPenalty.ts` carries. Do not wire in a
+  "fighter finish rate" input on the assumption one exists.
+- **`picks.predicted_method` is a 3-value enum** (`DECISION` / `KO_TKO`
+  / `SUBMISSION`) or null, CHECK-constrained by `0035`. `null` stays
+  valid — "no method called" is a real state for a human pick. The type
+  and labels live in `lib/scoring/fightMethod.ts`; both the form and the
+  intern write through it.
+- **Method-of-victory predictions are recorded and displayed but NOT
+  scored.** No scoreboard line, no settlement logic touches them. This
+  is deliberate — method scoring is a PRD Could-have and its own feature
+  (new settlement path + a fourth board line, correctness-critical). The
+  data is being collected now so that feature has history to grade when
+  it's built.
+- **The intern bets underdogs far more than favourites, and this is
+  structural, not a bug.** `edge = probability × decimal_odds − 1`: the
+  odds multiplier is 3–4x on a dog vs ~1.3x on a favourite, so the same
+  small probability disagreement with the market clears the +5% edge
+  threshold on a dog and never does on a short favourite. Rumour flags
+  compound this — they only push probability *down*, so a flagged
+  favourite directly inflates its opponent's edge. The intern also
+  frequently *picks* the favourite to win while *betting* the underdog
+  (pick = who wins, bet = where the price is wrong). If these underdog
+  bets systematically lose once settled, the −12pt max flag penalty
+  (`flagPenalty.ts` `MAX_PENALTY_PER_FIGHTER`) is the thing to dial back.
