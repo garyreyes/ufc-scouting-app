@@ -74,7 +74,7 @@ export async function getInternPicksForFights(
 
   const { data, error } = await supabase
     .from("picks")
-    .select("fight_id, predicted_fighter_id, estimated_probability, confidence")
+    .select("fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning")
     .eq("author", "INTERN")
     .in("fight_id", fightIds);
   if (error) throw error;
@@ -87,6 +87,7 @@ export async function getInternPicksForFights(
         predictedFighterId: row.predicted_fighter_id as string,
         estimatedProbability: row.estimated_probability as number,
         confidence: row.confidence as number,
+        reasoning: row.reasoning as string | null,
       },
     ]),
   );

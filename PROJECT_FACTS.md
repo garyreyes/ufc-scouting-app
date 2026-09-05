@@ -774,3 +774,75 @@ Decided 2026-08-29, user-originated.
   `decideInternPick.ts`'s single coherent probability estimate — but
   that was verified as a near-certainty, not hardcoded as a rule, so
   don't "simplify" this back to "always bet the pick."
+- **The intern does NOT read a fighter's W/L record — it reads Elo, and
+  its confidence is tempered by `ratedFightCount`.** Verified in code
+  2026-09-05 while building I5. `InternFighter` is `{id, name,
+  eloRating, ratedFightCount}` and `decideInternPick.ts` calls
+  `confidenceFor(estimatedProbability, minRatedFightCount)`. Phase I's
+  own framing ("the intern's confidence is capped because no fighter has
+  a record") is therefore wrong about the mechanism — the cap lifts from
+  Elo *depth*, which I1–I4b delivered, not from the record columns. Do
+  not re-derive the "records will fix the intern" theory next session,
+  and do not wire `wins/losses/draws` into `decideInternPick` on the
+  assumption that it was always meant to be there. If the intern should
+  weigh record, that is a new, deliberate design decision.
+- **`fighters.wins/losses/draws` are DERIVED by counting this app's own
+  fight graph, never fetched.** The I5 spike confirmed API-Sports serves
+  no record field at all (`id, name, nickname, photo, gender,
+  birth_date, age, height, weight, reach, stance, category, team,
+  last_update`). `lib/records/` owns the derivation and is the only
+  writer; it recounts in full on every settlement run. **They are
+  tracked-window counts (~2022 onward, thin before 2025), not career
+  records** — a champion can legitimately read `5-1` when their real
+  record is `27-3`, so any surface showing them is required to say so.
+  A total of `0-0-0` means "no tracked fights," never "never won."
+- **A fighter's record and their Elo must never disagree about the same
+  fight, which is why `lib/elo/isNoContestOrAmbiguous.ts` is one shared
+  file rather than two copies of a regex.** An NC counts as nothing in
+  both; a null winner with a null method is ambiguous and skipped rather
+  than guessed (the I1b lesson — ten rows nearly became fabricated draws
+  that move ratings); a `winner_id` matching neither of the bout's own
+  fighters is dropped in both. If a third consumer of "what was this
+  fight's outcome" ever appears, it imports that module too.
+- **Never scan a whole table with a bare `.select()` — use
+  `lib/supabase/selectAllPages.ts`.** PostgREST can cap a response
+  (`db-max-rows`) and returns a **short list with no error**, so a
+  truncated read is indistinguishable from a complete one.
+  `recomputeEloRatings.ts` carried this exposure unnoticed until
+  2026-09-05; with `fights` at ~950 rows after I4 it was within about one
+  event of rebuilding every rating from a partial graph. The helper
+  orders by primary key (PostgREST guarantees no stable order otherwise,
+  so unordered range requests can overlap or skip rows) and advances by
+  rows *returned*, never the size *requested*.
+- **Any job writing to `fighters` must write column-scoped updates, never
+  a whole-row upsert.** That table is concurrently written by the
+  enrichment job and both daily sync runs, so a full-row write assembled
+  from a stale read silently undoes whatever they wrote to
+  `height_cm`/`reach_cm`/`stance`/`external_id` in between.
+  `recomputeFighterRecords.ts` sends only `wins`/`losses`/`draws` for
+  exactly this reason. (`fighters.name` is `not null`, so a PostgREST
+  upsert carrying only the count columns is not a valid shortcut either.)
+- **A self-fight row (`fighter1_id === fighter2_id`) is possible and must
+  be guarded everywhere a fight is processed — nothing in the schema
+  forbids it.** `0031`'s CHECK constrains only `winner_id`, not the two
+  fighter columns, and `upsertFighter`'s diacritic fold-match is exactly
+  the mechanism that can produce one. `computeEloHistory.ts` was missing
+  this guard until a Phase 59 review caught it: left unguarded, it would
+  compute two different ratings for the one fighter/fight pair, both
+  inserts would race `fighter_elo_history`'s `unique(fighter_id,
+  fight_id)` constraint, the second would throw — **after**
+  `recomputeEloRatings` had already deleted the whole table. One bad row
+  would wipe every rating. Both `computeEloHistory.ts` and
+  `deriveFighterRecords.ts` guard it now; any future third reader of
+  "what happened in this fight" needs the same one-line check.
+- **`selectAllPages.ts` uses keyset pagination (`id > cursor`), not
+  offset (`.range()`) — this was a deliberate correction, not the first
+  design.** An offset is positional, so a concurrent insert/delete on a
+  table currently being scanned (real here: the enrichment job and both
+  daily syncs write to `fighters`/`fights` at almost any hour) shifts
+  later pages and can silently skip or double-read a row, with
+  `count: "exact"` still reporting a number that looks right. Keyset
+  pagination is immune because the filter is a value already read, not a
+  position. If a future table needs paging and lacks a UUID `id` primary
+  key, this exact approach does not transfer without checking the ordering
+  guarantee still holds.

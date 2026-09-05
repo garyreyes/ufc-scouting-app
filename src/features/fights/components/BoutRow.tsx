@@ -80,10 +80,27 @@ export function BoutRow({
       {viewerState === "owner" && (
         <div className={styles.pickArea}>
           {internPick && (
-            <p className={styles.internPick}>
-              Intern: {internPick.predictedFighterId === fight.fighter1.id ? fight.fighter1.name : fight.fighter2.name}{" "}
-              ({Math.round(internPick.estimatedProbability * 100)}%, confidence {internPick.confidence}/5)
-            </p>
+            <div className={styles.internPick}>
+              <p className={styles.internPickLine}>
+                Intern:{" "}
+                {internPick.predictedFighterId === fight.fighter1.id
+                  ? fight.fighter1.name
+                  : fight.fighter2.name}{" "}
+                ({Math.round(internPick.estimatedProbability * 100)}%, confidence{" "}
+                {internPick.confidence}/5)
+              </p>
+              {/* The sentence the intern wrote when it made this call --
+                  market anchor, rumour adjustment, Elo, and whether it
+                  took a bet (lib/intern/decideInternPick.ts assembles it).
+                  Shown rather than hidden behind a disclosure: a bare
+                  confidence number is not auditable, and comparing your
+                  own read against the intern's stated reasoning is the
+                  whole exercise. Null for a pick that carries none rather
+                  than rendering an empty line. */}
+              {internPick.reasoning && (
+                <p className={styles.internReason}>{internPick.reasoning}</p>
+              )}
+            </div>
           )}
           <QuickPick
             fightId={fight.id}

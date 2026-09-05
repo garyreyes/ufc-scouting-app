@@ -1353,7 +1353,7 @@ quota resets) is that first real proof; check `job_runs` for
 `fight_history_backfill` to see it.
 | I4 | Verification spike + Wikipedia backfill for the 2025–mid-2026 hole (only if the spike shows the existing parser can read a past event's results table) | **done, gap-only** (2026-09-03) |
 | I4b | Merge the duplicate "UFC 330" (2026-08-15) / "UFC 330: Makhachev vs. Machado Garry" (2026-08-16) events; this also settles the 10 I1b fights and the 1 open conflict on them | **done** (2026-09-04) |
-| I5 | Derive `wins`/`losses`/`draws` from the fight graph; surface record + tale-of-the-tape in the UI | not started |
+| I5 | Derive `wins`/`losses`/`draws` from the fight graph; surface record + tale-of-the-tape in the UI | **done** (2026-09-05) |
 
 **I4 result.** The spike passed — Wikipedia's `{{MMAevent bout}}` template
 is identical for finished and upcoming cards, so `fetchEventSchedule`
@@ -1378,6 +1378,39 @@ The 2 contaminated non-330 events were reverted to their exact pre-I4
 state (8 conflicts deleted, `wikipedia_*` cleared on 18 adopted rows, no
 fight rows were inserted so none deleted). Settlement + Elo propagate the
 new depth on the normal schedule.
+
+**I5 result.** No migration — `fighters.wins/losses/draws` have existed
+since `0001` and were already selected and typed; they were simply always
+`0`, displayed nowhere, while the fighter page rendered a *different*
+number counted on read. `deriveFighterRecords.ts` (pure, test-first, 11
+tests) does the counting; `recomputeFighterRecords.ts` does the I/O and
+rides the settlement chain as a fourth tracked step, `recompute_records`.
+Every exclusion rule is shared with Elo via the extracted
+`isNoContestOrAmbiguous.ts` rather than re-decided, so a record and a
+rating can never describe the same fight differently. The tape
+(`TaleOfTheTape.tsx`) shows record / height / reach / stance / Elo with
+differentials, and both surfaces state that the record covers tracked
+fights only, never a career total.
+
+**Correcting this phase's own premise, on the record.** Phase I was
+justified by "the intern's confidence is capped because no fighter has a
+record." That is not what the code does — `InternFighter` is `{id, name,
+eloRating, ratedFightCount}`, and `decideInternPick.ts` tempers
+confidence by `minRatedFightCount`. **The intern has never read a W/L
+record.** The cap was already lifting from I1–I4b's Elo depth. I5 is a
+human-facing feature (`docs/PRD.md` should-have), not the intern fix
+this phase advertised.
+
+**A latent Elo bug was found while building I5 and fixed in the same
+pass.** `recomputeEloRatings.ts` scanned `fights` and `events` with bare
+`.select()` calls. PostgREST can cap a response (`db-max-rows`) and
+returns a **short list with no error** — and `fights` passed ~950 rows
+during the I4 backfill. Elo was within roughly one event of rebuilding
+every rating from a silently partial graph. `lib/supabase/selectAllPages.ts`
+now pages both scans (and the record job's): ordered by primary key,
+because PostgREST guarantees no stable order otherwise and unordered
+ranges can overlap or skip rows, and advancing by rows *returned* rather
+than the size *requested*.
 
 **I1 is also a correctness fix, not just an unlock.** Ordering Elo by
 settlement timestamp rather than by when the fight actually happened is

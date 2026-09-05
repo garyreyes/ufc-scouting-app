@@ -5,6 +5,7 @@ import { getReportsForFighter } from "@/features/scouting-reports/api";
 import { getMyClans } from "@/features/clans/api";
 import { createClient } from "@/lib/supabase/server";
 import { FighterReportColumn } from "@/features/scouting-reports/components/FighterReportColumn";
+import { formatRecord } from "@/shared/utils/formatRecord";
 import styles from "./page.module.css";
 
 export default async function FighterProfilePage({ params }: PageProps<"/fighters/[id]">) {
@@ -24,9 +25,6 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
     : [[], []];
 
   const { fighter, fights } = result;
-  const decided = fights.filter((f) => f.winner_id);
-  const wins = decided.filter((f) => f.winner_id === fighter.id).length;
-  const losses = decided.length - wins;
 
   // Placeholder fighters synced from Wikipedia (upcoming fights only, no
   // API-Sports profile yet) have no weight_class of their own -- fall back
@@ -45,8 +43,19 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
         <Stat label="Height" value={fighter.height_cm ? `${fighter.height_cm} cm` : "Unknown"} />
         <Stat label="Reach" value={fighter.reach_cm ? `${fighter.reach_cm} cm` : "Unknown"} />
         <Stat label="Stance" value={fighter.stance ?? "Unknown"} />
-        <Stat label="Record" value={decided.length > 0 ? `${wins}-${losses}` : "No decided fights yet"} />
+        {/* The stored, derived record (I5) rather than a count taken over
+            the fight list below. The two would usually agree, but the
+            stored one is the only version that applies the shared
+            exclusion rules -- a No Contest counts as nothing, an
+            uninterpretable void is skipped rather than guessed, and a
+            fight whose winner matches neither fighter is dropped. Counting
+            here would quietly re-decide all three. */}
+        <Stat label="Record" value={formatRecord(fighter)} />
       </dl>
+      <p className={styles.recordNote}>
+        Record counts only fights this app tracks (2022 onward, thinner before 2025) — not a full
+        career total.
+      </p>
 
       <h2>Fight History</h2>
       {fights.length === 0 ? (

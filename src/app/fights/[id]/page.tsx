@@ -12,6 +12,7 @@ import { ReportList } from "@/features/scouting-reports/components/ReportList";
 import { FighterReportColumn } from "@/features/scouting-reports/components/FighterReportColumn";
 import { getRumourFlagsForFight } from "@/features/rumours/api";
 import { RumourSection } from "@/features/rumours/components/RumourSection";
+import { TaleOfTheTape } from "@/features/fights/components/TaleOfTheTape";
 import styles from "./page.module.css";
 
 export default async function FightDetailPage({ params }: PageProps<"/fights/[id]">) {
@@ -75,6 +76,13 @@ export default async function FightDetailPage({ params }: PageProps<"/fights/[id
       </p>
 
       {ownerConfigError && <OwnerConfigNotice message={ownerConfigError} />}
+
+      {/* Public, like the odds and rumour data around it -- fighters and
+          fighter_elo_history are both anon-read, and the tape is exactly
+          the context a visitor needs before reading anything else on the
+          page. Sits above the rumour section so the matchup is framed
+          before it is qualified. */}
+      <TaleOfTheTape fighter1={fight.fighter1} fighter2={fight.fighter2} />
 
       <RumourSection
         fighter1={fight.fighter1}

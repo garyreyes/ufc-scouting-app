@@ -2494,3 +2494,183 @@ sync on Hooker vs. Parnasse, 1 pre-existing).
 
 **Status:** I4 + I4b done. I5 (derive W/L/D, tale-of-the-tape UI) not
 started. All open conflicts are now non-I4.
+
+## Phase 59 — I5: derived fighter records + tale-of-the-tape (2026-09-05)
+
+**The payoff of Phase I, with one correction to the phase's own premise.**
+`ROADMAP.md` justified I5 as lifting the intern off 1-2/5 confidence.
+The code says otherwise: `InternFighter` is `{id, name, eloRating,
+ratedFightCount}` and `decideInternPick.ts` tempers confidence by
+`minRatedFightCount` — **the intern has never read a W/L record.** That
+cap was already lifting on its own from I1-I4b, which took rated fights
+from 57 into the hundreds. I5's payoff is for the human reading the
+page, and it is still worth having (`docs/PRD.md` should-have,
+"Tale-of-the-tape differentials on the fight page") — but it is not the
+intern fix the roadmap described.
+
+**No migration.** `fighters.wins/losses/draws` have existed since
+`0001_init_schema.sql`, were already selected in
+`features/fighters/api.ts` and already in the `Fighter` type — and were
+always `0`, displayed nowhere, while the fighter page computed a
+*different* number on read. That was the real defect underneath I5.
+
+**Changed — the counting layer (correctness-critical, test-first):**
+
+- `lib/elo/isNoContestOrAmbiguous.ts` (+ test) — extracted verbatim from
+  `computeEloHistory.ts` once records became its second caller. A
+  fighter's rating and their record are two readings of one graph; two
+  copies of this regex would eventually disagree about the same row,
+  silently, and a fight Elo discarded as an NC would surface as a draw
+  on the record.
+- `lib/records/deriveFighterRecords.ts` (+ 11 tests, written and
+  observed failing first) — pure W-L-D counting. Every exclusion rule is
+  shared with Elo, not re-decided: an NC counts as nothing, a null
+  winner with a null method is ambiguous and skipped rather than guessed
+  (the I1b lesson), a `winner_id` matching neither of the bout's own
+  fighters is dropped, and a self-fight (an `upsertFighter` name-fold
+  artifact) is guarded. A fighter with no countable outcome is **absent**
+  from the map rather than present at 0-0-0.
+- `lib/records/recomputeFighterRecords.ts` — the I/O half, shaped like
+  `recomputeEloRatings.ts`. Full recount every run, never an incremental
+  patch. **Writes are column-scoped by hard requirement, not style:**
+  `fighters` rows are concurrently written by the enrichment job and both
+  sync runs, so a whole-row upsert built from this function's own read
+  would silently undo their height/reach/stance/external_id. Only
+  changed fighters are written, grouped by identical W-L-D so the roster
+  goes out in a handful of requests.
+- `runSettlementJobsOnce.ts` gains a fourth tracked step,
+  `recompute_records`, after the Elo rebuild — a new result changes a
+  record at exactly the moment it changes a rating. Runs last: nothing
+  downstream needs its output, so a failure costs the chain nothing.
+
+**Changed — a latent bug found while building it:**
+
+- `lib/supabase/selectAllPages.ts` — PostgREST can cap a response
+  (`db-max-rows`) and returns a **short list with no error**, so a
+  whole-table `.select()` truncates invisibly.
+  **`recomputeEloRatings.ts` was carrying exactly this exposure** on both
+  its `fights` and `events` scans, and `fights` passed ~950 rows during
+  the I4 backfill — within one event of rebuilding every rating from a
+  partial graph while looking completely normal. Both it and the new
+  record job now page. Orders by primary key (PostgREST guarantees no
+  stable order otherwise, so unordered ranges can overlap or skip) and
+  advances by rows *returned*, never by the size *requested*.
+
+**Changed — the display (judgment/presentation, no tests):**
+
+- `features/fights/components/TaleOfTheTape.tsx` — record, height, reach,
+  stance, and Elo (`1523 · 8 rated`, the same pairing the intern's own
+  reasoning line quotes). The accent marks which side holds the edge and
+  carries the `+5 cm` differential. A row where **both** sides are
+  unknown is dropped rather than rendered "Unknown vs Unknown" — the
+  common case on an upcoming card full of Wikipedia-only placeholders.
+- `shared/utils/formatRecord.ts` (+ test) — in `shared/` because both
+  features need it. Encodes one real rule: **a 0-0-0 total is not a
+  record**, it reads "No tracked fights," since rendering it literally
+  would say "fought and never won" about someone the app simply has no
+  completed fights for.
+- The fighter page now reads the stored columns instead of counting
+  inline — the inline count silently re-decided all three exclusion
+  rules. Both surfaces carry a caveat that the record covers only
+  tracked fights (2022 onward, thinner before 2025), never a career
+  total.
+- `lib/elo/fetchLatestEloRatings.ts` — moved out of
+  `lib/intern/generateInternPicks.ts`, unchanged, now that the fight page
+  is a second caller.
+
+**Changed — the intern's reasoning is now visible (user request):**
+
+- `BoutRow.tsx` shows the intern's reasoning sentence under its
+  confidence line. The data was always there — `picks.reasoning` is
+  written on every intern pick — but `InternPickSummary` had
+  deliberately dropped it as "too much for a collapsed row." Reversed:
+  a confidence of 1/5 with nothing to explain it is a number taken on
+  faith, and auditing the intern against your own read is the entire
+  point of the scoreboard.
+
+**Status:** `npm run lint`, `npm run test` (386 passing, up from 365),
+and `npm run build` all green.
+
+**Sequencing note, stated plainly:** the fighter page previously derived
+its record on read, so it showed a real number. It now reads the stored
+columns, which are `0` for everyone until `recompute_records` has
+actually run — so between deploy and the first run, every fighter reads
+"No tracked fights." Run `npm run settlement:run-jobs` right after merge
+to close that window; no new script was needed, since that existing
+command is the same chain the scheduled job runs and now carries the
+record step as its fourth stage.
+
+## Phase 59 addendum — reviewer findings and fixes (2026-09-05)
+
+A `reviewer` pass on Phase 59 before opening its PR found one severe gap
+and several smaller real ones. All fixed in the same branch, before merge.
+
+**HIGH, fixed — `computeEloHistory.ts` had no self-fight guard, and I5's
+own claim that it shares every exclusion rule with `deriveFighterRecords`
+was false because of it.** A self-fight (`fighter1_id === fighter2_id`,
+an `upsertFighter` name-fold artifact — nothing in the schema forbids it,
+`0031`'s CHECK constrains only `winner_id`) left `computeEloHistory`
+computing two *different* ratings for one fighter/fight pair and pushing
+both into `snapshots`. `fighter_elo_history`'s own
+`unique(fighter_id, fight_id)` then rejects the second insert — **after**
+`recomputeEloRatings` has already deleted the whole table, so one bad row
+would wipe every rating in production. `deriveFighterRecords.ts` already
+guarded this case; `computeEloHistory.ts` now does too, test-first
+(failing test added and observed failing before the one-line fix).
+
+**MEDIUM, fixed — `selectAllPages.ts`'s first cut used offset
+(`.range()`) pagination, which does not actually deliver the guarantee
+its own docstring claimed.** An offset is positional: a concurrent
+insert or delete (the enrichment job and both daily syncs write to these
+same tables while a scan is in flight) shifts every later page, silently
+skipping or double-reading a row — with `count: "exact"` still landing
+on a number that looks correct. Rewritten to keyset pagination
+(`id > <last id read>`, ordered by `id`, no count query needed —
+termination is a short page). Given its own test file for the first
+time: 6 cases, including one that simulates a row being deleted between
+two page fetches and asserts nothing after the cursor is skipped — the
+exact failure mode the rewrite exists to close.
+
+**MEDIUM, fixed — the tale-of-the-tape's own doc/behaviour mismatch.**
+Its comment claimed a row with both sides unknown is dropped, but
+Record and Elo always produce a string ("No tracked fights", "Unrated")
+so the drop-filter (`left !== null`) never fired for them — two total
+UFC debutants on the same card would have rendered "No tracked fights
+vs No tracked fights." Added an explicit `leftInformative`/
+`rightInformative` per row, decoupled from the display string, so the
+row-visibility check and the rendered text can disagree on purpose. One
+side alone being uninformative is still shown (a real debutant next to
+a real 12-3 is a genuine contrast); both together is now actually
+dropped, matching what the comment always claimed.
+
+**MEDIUM, fixed — the Elo row on a settled fight's page showed today's
+rating framed as if it described that fight.** For an upcoming fight,
+"current rating" is exactly right — it's the same number the intern's
+reasoning already uses. For a fight from 2023, presenting 2026's rating
+next to it (with a `+37`-style advantage marker) asserts an edge that
+may have run the other way at the time. Relabeled the row "Elo
+(current)" and extended the footnote to say plainly that Elo reflects
+today, not the fight's date. A true "rating as of this fight" view is
+possible later — `fighter_elo_history` keeps full history for exactly
+this reason (`0029`'s own comment) — but is a separate piece of work,
+not folded into this fix.
+
+**LOW, fixed — the record recompute's own summary numbers.**
+`fightersUpdated` counted ids *sent* to `.update()`, not rows actually
+matched; a fighter deleted between the read and the write would have
+been over-reported as updated. Now reads the real count off
+`.update(...).select("id")`. The console log line was also renamed
+from "fights counted" to "fights read," since it sits directly beside
+Elo's post-filter "fights processed" and the two numbers measuring
+different populations was reading like a bug.
+
+**Flagged, not fixed — pre-existing and out of this phase's scope:**
+`upsertFighter.ts`'s diacritic fold-match and `features/fighters/api.ts`'s
+`getFighters` both still do a bare unpaged `.select()` over `fighters`.
+Neither was touched by I5, and fixing the fold-match in particular
+touches sync correctness broadly enough to deserve its own review pass
+rather than riding in on this one. `selectAllPages.ts`'s own docstring
+now names itself as the fix for both, for whenever that pass happens.
+
+**Status:** all fixes re-verified — `npm run lint`, `npm run test` (393
+passing, up from 386), `npm run build` all green.
