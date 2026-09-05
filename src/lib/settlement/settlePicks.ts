@@ -101,7 +101,10 @@ export async function settlePicks(supabase: SupabaseClient): Promise<SettlePicks
           `Pick ${pick.id}'s bet_fighter_id (${pick.bet_fighter_id}) is not one of fight ${pick.fight_id}'s two fighters.`,
         );
       }
-      pnlUnits = scoreBetPnl(pick.bet_fighter_id as string, pick.stake_units as number, price, outcome);
+      // Number(): stake_units is a numeric column -> a string over
+      // PostgREST. scoreBetPnl's arithmetic coerces it correctly today,
+      // but the value it's handed must match the number it's typed as.
+      pnlUnits = scoreBetPnl(pick.bet_fighter_id as string, Number(pick.stake_units), price, outcome);
     }
 
     const { error: updateError } = await supabase
