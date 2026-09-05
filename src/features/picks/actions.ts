@@ -33,7 +33,10 @@ async function fetchExistingPickFields(
   if (!data) return null;
   return {
     predictedFighterId: data.predicted_fighter_id,
-    estimatedProbability: data.estimated_probability,
+    // numeric columns come back as strings over PostgREST -- convert at
+    // the boundary (same as features/picks/api.ts) so the merged shape
+    // is genuinely PickFields, not PickFields-with-two-strings.
+    estimatedProbability: Number(data.estimated_probability),
     confidence: data.confidence,
     // Drop anything that isn't one of the three enum values -- there is
     // no such data today (0035 + every row null), but if a legacy
@@ -42,7 +45,7 @@ async function fetchExistingPickFields(
     predictedMethod: isFightMethod(data.predicted_method) ? data.predicted_method : null,
     reasoning: data.reasoning,
     betFighterId: data.bet_fighter_id,
-    stakeUnits: data.stake_units,
+    stakeUnits: data.stake_units === null ? null : Number(data.stake_units),
   };
 }
 

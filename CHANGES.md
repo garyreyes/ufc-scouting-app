@@ -2830,6 +2830,42 @@ which read as a bug); and `fetchExistingPickFields` now drops a
 non-enum `predicted_method` rather than carrying it into a save that
 `upsertPick`'s guard would then reject.
 
+## Phase 63 — a "Your card" read panel next to the intern's (2026-09-06)
+
+The card page's owner-only "Intern's read" panel (Phase 62) now has a
+twin: **"Your card"**, the same collapsed table for the owner's own
+picks and bets — pick, confidence, called method, bet + stake, and the
+owner's entered probability vs the de-vigged market with the resulting
+edge. Both panels render above the fight list; the owner reads their
+whole card against the machine's at a glance.
+
+One builder, one component. `MyPick` and `InternPickSummary` are the
+same shape by `0019_picks.sql`, so `internCardRead.ts` →
+`cardRead.ts` (`buildCardReadRows`) and `InternCardRead.tsx` →
+`CardRead.tsx` with a `perspective="you"|"intern"` prop that changes
+only the words. Added a **Conf** column to both — the owner sets
+confidence deliberately and it was invisible on the card view until now.
+
+**Numeric-as-string fix (db-read-safety, inline).**
+`picks.estimated_probability` and `stake_units` are `numeric` columns;
+PostgREST serialises `numeric` as a JSON **string**. `getMyPicksForFights`,
+`getInternPicksForFights`, and `fetchExistingPickFields` all did
+`row.x as number` — an assertion, not a conversion. The intern panel
+rendered correctly only because JS coerces strings inside `*` and `-`.
+Now converted with `Number(...)` at each read boundary. A `reviewer`
+pass confirmed the write-back path (`mergePickFields` → `upsertPick`) is
+unaffected and found no other consumer that depended on the string.
+
+**Status:** `npm run lint` / `npm run test` (421) / `npm run build` all
+green. Reviewer pass: clean, Low/nits only (both applied — `you`
+footnote now explains the edge accent, redundant `Number()` dropped).
+
+**Known, separate, not in this change:** the `reviewer` also confirmed
+the scoreboard's *pick-history* path (`buildPickHistory` →
+`aggregateUnitsLine`) has the same `numeric`-as-string bug and is not
+yet fixed — dormant only because nothing has settled. It goes live the
+moment the first real bet settles. Tracked for its own change.
+
 ## Phase 64 — scoreboard pick-history P&L: numeric-as-string, before it settles (2026-09-06)
 
 A `reviewer` pass on Phase 63 confirmed the scoreboard's **pick-history**
@@ -2855,8 +2891,5 @@ tonight, so this went in first.
   the value now matches the `number` it's typed as.
 
 **Status:** `npm run lint` / `npm run test` (423, +3) / `npm run build`
-all green.
-
-**Still unconverted, owned by PR #54 (Phase 63), not this change:**
-`getMyPicksForFights` / `getInternPicksForFights` / `fetchExistingPickFields`
-in `features/picks/`.
+all green. With Phase 63 (the `features/picks/` read sites) this closes
+every known `numeric`-as-string read of `picks` in the app.

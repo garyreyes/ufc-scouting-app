@@ -4,7 +4,7 @@ import { isOwner } from "@/lib/auth";
 import { getCardView } from "@/features/fights/api";
 import { BoutRow } from "@/features/fights/components/BoutRow";
 import { getMyPicksForFights, getInternPicksForFights } from "@/features/picks/api";
-import { InternCardRead } from "@/features/picks/components/InternCardRead";
+import { CardRead } from "@/features/picks/components/CardRead";
 import { getOpenDisputedFightIds } from "@/features/conflicts/api";
 import { getRumourFlagSummaries } from "@/features/rumours/api";
 import { RumourHealthNotice } from "@/features/rumours/components/RumourHealthNotice";
@@ -102,7 +102,10 @@ export default async function EventDetailPage({
       {ownerConfigError && <OwnerConfigNotice message={ownerConfigError} />}
       <RumourHealthNotice />
       {viewerIsOwner && event.fights.length > 0 && (
-        <InternCardRead fights={event.fights} internPicks={internPicks} />
+        <>
+          <CardRead perspective="you" fights={event.fights} picks={myPicks} />
+          <CardRead perspective="intern" fights={event.fights} picks={internPicks} />
+        </>
       )}
       {event.fights.length === 0 ? (
         <p className={styles.empty}>No fights match the selected filter.</p>
