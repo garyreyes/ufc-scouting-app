@@ -1,5 +1,5 @@
 import { applyProbabilityDelta } from "../scoring/applyProbabilityDelta";
-import { impliedProbability } from "../scoring/impliedProbability";
+import { devigTwoWay } from "../scoring/devigTwoWay";
 import { eloAdjustment } from "../elo/eloAdjustment";
 import { flagPenalty } from "./flagPenalty";
 import type { InternPickDecision, InternPickInput } from "./types";
@@ -61,9 +61,7 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
   let anchorNote: string;
 
   if (odds !== null) {
-    const raw1 = impliedProbability(odds.fighter1Price);
-    const raw2 = impliedProbability(odds.fighter2Price);
-    anchor1 = raw1 / (raw1 + raw2);
+    anchor1 = devigTwoWay(odds.fighter1Price, odds.fighter2Price).prob1;
     anchorNote =
       `Market anchor ${pct(anchor1)} ${fighter1.name} ` +
       `(de-vigged from ${odds.fighter1Price} / ${odds.fighter2Price}).`;

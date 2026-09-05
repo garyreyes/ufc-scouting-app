@@ -5,6 +5,7 @@ import { RumourBadge } from "@/features/rumours/components/RumourBadge";
 import { RumourOutcomeMarking } from "@/features/rumours/components/RumourOutcomeMarking";
 import type { RumourFlagSummary } from "@/features/rumours/types";
 import type { InternPickSummary, MyPick } from "@/features/picks/types";
+import { fightMethodLabel } from "@/lib/scoring/fightMethod";
 import type { CardBout } from "../types";
 import styles from "./BoutRow.module.css";
 
@@ -90,6 +91,9 @@ export function BoutRow({
                   : fight.fighter2.name}{" "}
                 ({Math.round(internPick.estimatedProbability * 100)}%, confidence{" "}
                 {internPick.confidence}/5)
+                {internPick.predictedMethod
+                  ? ` · ${fightMethodLabel(internPick.predictedMethod)}`
+                  : ""}
               </p>
               {/* A pick and a bet are two different calls -- the intern
                   bets on well under half its picks (edge-gated, UC-2).

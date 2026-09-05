@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { InternPickSummary, MyPick } from "./types";
+import type { InternPickSummary, MyPick, PickFields } from "./types";
 
 /**
  * The owner's own USER picks among a given set of fights -- the full row
@@ -45,7 +45,7 @@ export async function getMyPicksForFights(
         predictedFighterId: row.predicted_fighter_id as string,
         estimatedProbability: row.estimated_probability as number,
         confidence: row.confidence as number,
-        predictedMethod: row.predicted_method as string | null,
+        predictedMethod: row.predicted_method as PickFields["predictedMethod"],
         reasoning: row.reasoning as string | null,
         betFighterId: row.bet_fighter_id as string | null,
         stakeUnits: row.stake_units as number | null,
@@ -75,7 +75,7 @@ export async function getInternPicksForFights(
   const { data, error } = await supabase
     .from("picks")
     .select(
-      "fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning, bet_fighter_id, stake_units",
+      "fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning, predicted_method, bet_fighter_id, stake_units",
     )
     .eq("author", "INTERN")
     .in("fight_id", fightIds);
@@ -90,6 +90,7 @@ export async function getInternPicksForFights(
         estimatedProbability: row.estimated_probability as number,
         confidence: row.confidence as number,
         reasoning: row.reasoning as string | null,
+        predictedMethod: row.predicted_method as PickFields["predictedMethod"],
         betFighterId: row.bet_fighter_id as string | null,
         stakeUnits: row.stake_units as number | null,
       },

@@ -1,0 +1,88 @@
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  margin-bottom: 20px;
+}
+
+.summary {
+  padding: 12px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+.panel[open] .summary::before {
+  content: "▾ ";
+}
+
+.scroll {
+  overflow-x: auto;
+  padding: 0 16px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.table th,
+.table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-top: 1px solid var(--border);
+}
+
+/* The bet rows carry a left accent in the app's one accent colour, same
+   device as BoutRow's bet marker -- so the fights with money on them are
+   findable without reading the Bet column. */
+.betRow td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.table th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.left {
+  text-align: left;
+}
+
+.vs {
+  color: var(--muted);
+}
+
+.betCell {
+  font-weight: 600;
+}
+
+.noBet {
+  color: var(--muted);
+}
+
+.edgeLive {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.footnote {
+  margin: 0;
+  padding: 10px 16px 14px;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--muted);
+}

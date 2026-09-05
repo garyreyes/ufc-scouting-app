@@ -1,3 +1,5 @@
+import type { FightMethod } from "@/lib/scoring/fightMethod";
+
 // The full application-level shape of one picks row, minus the columns
 // the caller always knows from context (fight_id, author, user_id) --
 // shared by the read path (features/picks/api.ts), the merge helper
@@ -7,11 +9,14 @@
 // nullable split exactly: predictedFighterId/estimatedProbability/
 // confidence are always set; predictedMethod/reasoning/betFighterId/
 // stakeUnits are optional layers on top.
+//
+// predictedMethod is one of three fixed values (0035) or null; the form
+// only emits those, and upsertPick re-checks before writing.
 export interface PickFields {
   predictedFighterId: string;
   estimatedProbability: number;
   confidence: number;
-  predictedMethod: string | null;
+  predictedMethod: FightMethod | null;
   reasoning: string | null;
   betFighterId: string | null;
   stakeUnits: number | null;
@@ -29,28 +34,23 @@ export interface MyPick extends PickFields {
 // The intern's own pick, as read back for the card view (docs/user-flows.md
 // Flow 1: the collapsed bout row shows "odds, rumour flags, intern's
 // pick" -- built alongside the calibration check since both read the
-// same author="INTERN" picks rows). Still a narrower slice than MyPick:
-// predicted_method belongs to a closer look, not to a collapsed row.
+// same author="INTERN" picks rows).
 //
-// **reasoning was added in I5**, reversing this type's original call to
-// leave it out. A confidence of 1/5 with nothing to explain it is a
-// number the reader has to take on faith; the sentence underneath is the
-// only thing that makes the pick auditable, and auditing the intern
-// against yourself is the entire point of the scoreboard. Nullable
-// because 0019_picks.sql allows it -- an owner's hand-written pick may
-// carry none, and this same column is shared by both authors.
-//
-// **bet fields added alongside**: a pick ("who wins", free) and a bet
-// (edge-gated, real units, the intern is free to decline) are two
-// different judgments -- UC-2 -- and the card view was showing only the
-// first. betFighterId is null on the ~90% of picks the intern does not
-// bet; non-null means it staked stakeUnits on that fighter.
+// This started as a narrow slice, and has widened deliberately with each
+// thing the card view turned out to actually need: **reasoning** (I5 --
+// a bare confidence number is not auditable, and auditing the intern
+// against yourself is the whole point of the scoreboard), **bet fields**
+// (a pick and a bet are two different calls -- UC-2 -- and the row was
+// showing only the first), and **predictedMethod** (the intern now
+// predicts how a fight ends too -- predictInternMethod.ts). betFighterId
+// is null on the ~90% of picks the intern does not bet.
 export interface InternPickSummary {
   fightId: string;
   predictedFighterId: string;
   estimatedProbability: number;
   confidence: number;
   reasoning: string | null;
+  predictedMethod: FightMethod | null;
   betFighterId: string | null;
   stakeUnits: number | null;
 }

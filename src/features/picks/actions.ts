@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_QUICK_PICK_CONFIDENCE } from "./quickPickBands";
 import { mergePickFields } from "./mergePickFields";
+import { isFightMethod } from "@/lib/scoring/fightMethod";
 import type { PickFields } from "./types";
 
 async function requireUser() {
@@ -55,6 +56,14 @@ async function upsertPick(
   updates: Partial<PickFields>,
 ): Promise<void> {
   const merged = mergePickFields(existing, updates);
+
+  // The form only ever emits one of the three enum values or null, and
+  // 0035's CHECK constraint is the real backstop -- but a server action
+  // is a trust boundary, so reject a bad value here with a clear message
+  // rather than letting it surface as an opaque DB constraint error.
+  if (merged.predictedMethod !== null && !isFightMethod(merged.predictedMethod)) {
+    throw new Error(`Invalid predicted method: ${merged.predictedMethod}`);
+  }
 
   const { error } = await supabase.from("picks").upsert(
     {
