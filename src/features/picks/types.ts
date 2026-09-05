@@ -30,8 +30,7 @@ export interface MyPick extends PickFields {
 // Flow 1: the collapsed bout row shows "odds, rumour flags, intern's
 // pick" -- built alongside the calibration check since both read the
 // same author="INTERN" picks rows). Still a narrower slice than MyPick:
-// predicted_method and the bet fields belong to a closer look, not to a
-// collapsed row already showing a lot per fighter.
+// predicted_method belongs to a closer look, not to a collapsed row.
 //
 // **reasoning was added in I5**, reversing this type's original call to
 // leave it out. A confidence of 1/5 with nothing to explain it is a
@@ -40,10 +39,18 @@ export interface MyPick extends PickFields {
 // against yourself is the entire point of the scoreboard. Nullable
 // because 0019_picks.sql allows it -- an owner's hand-written pick may
 // carry none, and this same column is shared by both authors.
+//
+// **bet fields added alongside**: a pick ("who wins", free) and a bet
+// (edge-gated, real units, the intern is free to decline) are two
+// different judgments -- UC-2 -- and the card view was showing only the
+// first. betFighterId is null on the ~90% of picks the intern does not
+// bet; non-null means it staked stakeUnits on that fighter.
 export interface InternPickSummary {
   fightId: string;
   predictedFighterId: string;
   estimatedProbability: number;
   confidence: number;
   reasoning: string | null;
+  betFighterId: string | null;
+  stakeUnits: number | null;
 }

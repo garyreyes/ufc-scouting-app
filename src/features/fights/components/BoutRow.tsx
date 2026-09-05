@@ -80,7 +80,9 @@ export function BoutRow({
       {viewerState === "owner" && (
         <div className={styles.pickArea}>
           {internPick && (
-            <div className={styles.internPick}>
+            <div
+              className={`${styles.internPick} ${internPick.betFighterId ? styles.internPickBet : ""}`}
+            >
               <p className={styles.internPickLine}>
                 Intern:{" "}
                 {internPick.predictedFighterId === fight.fighter1.id
@@ -89,6 +91,23 @@ export function BoutRow({
                 ({Math.round(internPick.estimatedProbability * 100)}%, confidence{" "}
                 {internPick.confidence}/5)
               </p>
+              {/* A pick and a bet are two different calls -- the intern
+                  bets on well under half its picks (edge-gated, UC-2).
+                  This line only renders on the ones it actually staked,
+                  so a card can be scanned for "where did the intern put
+                  money" at a glance rather than by reading every
+                  reasoning string. */}
+              {internPick.betFighterId && (
+                <p className={styles.betLine}>
+                  <span className={styles.betBadge}>
+                    BET {Number(internPick.stakeUnits)}u
+                  </span>{" "}
+                  on{" "}
+                  {internPick.betFighterId === fight.fighter1.id
+                    ? fight.fighter1.name
+                    : fight.fighter2.name}
+                </p>
+              )}
               {/* The sentence the intern wrote when it made this call --
                   market anchor, rumour adjustment, Elo, and whether it
                   took a bet (lib/intern/decideInternPick.ts assembles it).
