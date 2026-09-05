@@ -7,6 +7,7 @@ import { UnitsBoard } from "@/features/scoreboard/components/UnitsBoard";
 import { AccuracyBoard } from "@/features/scoreboard/components/AccuracyBoard";
 import { CalibrationTable } from "@/features/scoreboard/components/CalibrationTable";
 import { PickHistoryTable } from "@/features/scoreboard/components/PickHistoryTable";
+import { PendingSummary } from "@/features/scoreboard/components/PendingSummary";
 import styles from "./page.module.css";
 
 const SMALL_SAMPLE_THRESHOLD = 10;
@@ -56,15 +57,23 @@ export default async function ScoreboardPage() {
   }
 
   const data = await getScoreboardData(supabase);
+  const hasPending = data.pending.me.picks > 0 || data.pending.intern.picks > 0;
 
   // The state for the first card or two (docs/user-flows.md) -- a blank
-  // chart here is a failure, so this gets real copy explaining why,
-  // rather than an empty board or nothing at all.
-  if (data.accuracy.me.total === 0) {
+  // chart here is a failure. The gate is now "neither side has a settled
+  // pick," not "I have none": the intern picks far more fights than the
+  // owner ever will, so it settles picks first, and its board line
+  // should show the moment it has one rather than waiting on the owner.
+  // The pending summary still renders here so the page says what's
+  // riding even when nothing has scored.
+  if (data.accuracy.me.total === 0 && data.accuracy.intern.total === 0) {
     return (
       <div>
         <h1>Scoreboard</h1>
-        <p className={styles.empty}>No settled picks yet — the chalk line appears after the first card.</p>
+        {hasPending && <PendingSummary pending={data.pending} />}
+        <p className={styles.empty}>
+          No picks have settled yet — the boards fill in as fights resolve.
+        </p>
       </div>
     );
   }
@@ -74,6 +83,8 @@ export default async function ScoreboardPage() {
   return (
     <div>
       <h1>Scoreboard</h1>
+
+      {hasPending && <PendingSummary pending={data.pending} />}
 
       {isSmallSample && (
         <p className={styles.notice}>

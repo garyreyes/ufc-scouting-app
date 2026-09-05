@@ -1,8 +1,9 @@
 import type { UnitsLine } from "@/lib/scoring/aggregateUnitsLine";
 import type { AccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
 import type { CalibrationBucket } from "@/lib/scoring/computeCalibrationBuckets";
+import type { PendingSummary, PendingSide } from "@/lib/scoring/summarizePendingPicks";
 
-export type { UnitsLine, AccuracyLine, CalibrationBucket };
+export type { UnitsLine, AccuracyLine, CalibrationBucket, PendingSummary, PendingSide };
 
 // The intern's accuracy carries two numbers, not one (docs/PRD.md UC-4):
 // head-to-head on fights both the owner and the intern picked is the
@@ -62,6 +63,11 @@ export interface ScoreboardData {
   // should be rare). Counted in accuracy, excluded from units, and said
   // so on screen (docs/user-flows.md).
   unpricedSettledPickCount: number;
+  // Picks and bets riding on fights that haven't settled yet, per side.
+  // Shown above the boards so the page is informative before the first
+  // card of a window scores -- the boards themselves stay strictly about
+  // settled, scored results.
+  pending: PendingSummary;
   pickHistory: PickTableRow[];
   // G3's calibration check (ROADMAP.md): "of the fights called 70%, did
   // roughly 70% happen?" -- one set of bands per line, "me" and "intern"

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { selectAllPages } from "@/lib/supabase/selectAllPages";
+import { summarizePendingPicks } from "@/lib/scoring/summarizePendingPicks";
 import { determineFavorite } from "@/lib/scoring/determineFavorite";
 import { scorePickCorrect } from "@/lib/scoring/scorePickCorrect";
 import { scoreBetPnl } from "@/lib/scoring/scoreBetPnl";
@@ -59,6 +60,19 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
   );
   const settledPicks = allPicks.filter((p) => p.settled_at !== null);
 
+  // Everything the intern (and the owner) has riding on fights that
+  // haven't settled yet -- so the page says something real before the
+  // first card of a window scores, rather than sitting on an empty
+  // state while the intern already has dozens of open picks.
+  const pending = summarizePendingPicks(
+    allPicks.map((p) => ({
+      author: p.author,
+      settledAt: p.settled_at,
+      betFighterId: p.bet_fighter_id,
+      stakeUnits: p.stake_units,
+    })),
+  );
+
   // odds_snapshots is one immutable row per ever-priced fight (~15 today,
   // a few hundred a year) -- read whole and matched in JS, no `.in()`.
   const allOdds = await selectAllPages<OddsSnapshotRow>(
@@ -94,9 +108,14 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
   const mePicks = settledPicks.filter((p) => p.author === "USER");
   const internPicks = settledPicks.filter((p) => p.author === "INTERN");
 
+  // Number(): stake_units and pnl_units are numeric columns, which
+  // PostgREST serialises as STRINGS to preserve precision. Cast `as
+  // number` alone was a latent bug -- `netUnits += "1.56"` concatenates
+  // -- dormant only because nothing has settled yet. The pick-scoring
+  // path already coerces (toCalibrationEntry's Number()); this matches it.
   const toBetResult = (p: SettledPickRow): BetResult => ({
-    stakeUnits: p.stake_units as number,
-    pnlUnits: p.pnl_units as number,
+    stakeUnits: Number(p.stake_units),
+    pnlUnits: Number(p.pnl_units),
   });
   const meUnitsBets = mePicks.filter((p) => p.pnl_units !== null).map(toBetResult);
   const internUnitsBets = internPicks.filter((p) => p.pnl_units !== null).map(toBetResult);
@@ -141,6 +160,7 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
     },
     settledCardCount,
     unpricedSettledPickCount,
+    pending,
     pickHistory,
     // Each line's own full settled population -- not the head-to-head
     // restriction accuracy uses, since calibration is asking "did this

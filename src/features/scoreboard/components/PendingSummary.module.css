@@ -1,0 +1,36 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  margin-bottom: 16px;
+}
+
+.heading {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.detail {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}

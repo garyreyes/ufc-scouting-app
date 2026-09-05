@@ -86,8 +86,33 @@
   color: var(--muted);
 }
 
+/* The intern staked real (simulated) units on this fight. A left accent
+   in the one accent colour the app uses, so a card scans for "where's
+   the money" without reading a word -- pick-only rows stay flat. */
+.internPickBet {
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+}
+
 .internPickLine {
   margin: 0;
+}
+
+.betLine {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--foreground);
+}
+
+.betBadge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
 /* The reasoning is a full sentence or four, so it needs real line-height

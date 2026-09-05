@@ -2712,3 +2712,47 @@ is the likely cause — more rows to disambiguate against drags every
 candidate score down. Not corrupting anything, but the matcher's
 confidence threshold or candidate selection wants re-tuning against the
 bigger roster. Left as a flagged follow-up, not fixed here.
+
+## Phase 61 — the intern's bets are now visible (2026-09-05)
+
+Two gaps the user hit while looking at the card and the scoreboard.
+
+**The card view showed the intern's pick but never whether it bet.** A
+pick ("who wins", free) and a bet (edge-gated, real units, declined on
+most picks — UC-2) are two different calls, and the row only surfaced
+the first. `InternPickSummary` and `getInternPicksForFights` now carry
+`betFighterId`/`stakeUnits`; `BoutRow` renders a red `BET 1.6u` badge on
+the backed fighter and an accent border on the intern block, so a card
+scans for "where did the intern put money" without reading every
+reasoning line. All 7 of the intern's current bets are on tonight's
+Hooker vs. Parnasse card.
+
+**The scoreboard was hidden entirely.** `app/scoreboard/page.tsx` gated
+the whole page on `data.accuracy.me.total === 0` — so with zero settled
+*owner* picks, the intern's computed units and accuracy lines never
+rendered. The gate is now "neither side has a settled pick"; the intern
+picks far more fights than the owner will and settles first, so its
+line should show the moment it has one.
+
+**Added a "riding on upcoming fights" summary above the boards.** Before
+the first card of a window settles there is nothing on the boards, but
+the intern already has a full slate committed — `summarizePendingPicks`
+(pure, test-first, 6 cases) counts open picks/bets/units-at-risk per
+side, and `PendingSummary` shows it. Right now: intern 91 picks / 7 bets
+/ 6.7u at risk, owner 10 picks / 0 bets.
+
+**Flipped the intern's accuracy headline** from head-to-head (fights the
+owner also picked) to full-card. With ~10 owner picks the head-to-head
+number stays too thin to headline for months; it moves to the secondary
+line as context. The PRD still calls head-to-head the like-for-like
+comparison — it is, it's just not the number worth showing biggest this
+early. User-confirmed.
+
+**Fixed a latent units bug found on the way.** `toBetResult` cast
+`stake_units`/`pnl_units` `as number`, but they are `numeric` columns
+and PostgREST serialises those as strings — `netUnits += "1.56"`
+concatenates. Dormant only because nothing has settled; now coerced with
+`Number()`, matching what the calibration path already did.
+
+**Status:** `npm run lint` / `npm run test` (399, +6) / `npm run build`
+all green. Scoreboard data verified against production.

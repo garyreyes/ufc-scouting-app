@@ -6,12 +6,7 @@ function formatPct(pct: number | null): string {
 }
 
 function LineRow({ label, line, secondary }: { label: string; line: AccuracyLine; secondary?: string }) {
-  // A true "nothing at all" state -- no headline number AND no secondary
-  // context worth showing (e.g. the intern has zero picks of any kind
-  // yet, before Phase G ships). Distinct from "zero head-to-head overlap
-  // but real full-card data exists", which must still surface that data
-  // rather than silently dropping it.
-  if (line.total === 0 && !secondary) {
+  if (line.total === 0) {
     return (
       <div className={styles.row}>
         <span className={styles.label}>{label}</span>
@@ -23,20 +18,22 @@ function LineRow({ label, line, secondary }: { label: string; line: AccuracyLine
   return (
     <div className={styles.row}>
       <span className={styles.label}>{label}</span>
-      <span className={styles.headline}>{line.total === 0 ? "No shared picks yet" : formatPct(line.accuracyPct)}</span>
+      <span className={styles.headline}>{formatPct(line.accuracyPct)}</span>
       <span className={styles.detail}>
-        {line.total > 0 ? `${line.correct}/${line.total} correct` : "—"}
+        {line.correct}/{line.total} correct
         {secondary ? ` · ${secondary}` : ""}
       </span>
     </div>
   );
 }
 
-// Always renders all three lines (docs/user-flows.md), even before Phase
-// G ships real intern picks. The intern's own line shows head-to-head
-// (fights the owner also picked -- the PRD's headline comparison) as the
-// primary number, with full-card accuracy folded in as secondary context
-// once there's enough data on both to be worth showing.
+// Always renders all three lines (docs/user-flows.md). The intern's
+// headline number is its winrate across ALL its picks -- with only a
+// handful of the owner's own picks to compare against, the head-to-head
+// number (fights both picked) stays too thin to headline for a long
+// while, so it moves to the secondary line as context. The PRD calls
+// head-to-head the like-for-like comparison and it still is -- it's just
+// not the number worth showing biggest this early.
 export function AccuracyBoard({
   me,
   intern,
@@ -47,14 +44,16 @@ export function AccuracyBoard({
   chalk: AccuracyLine;
 }) {
   const internSecondary =
-    intern.total > 0 ? `${formatPct(intern.accuracyPct)} full-card (${intern.correct}/${intern.total})` : undefined;
+    intern.headToHead.total > 0
+      ? `${formatPct(intern.headToHead.accuracyPct)} on fights you also picked (${intern.headToHead.correct}/${intern.headToHead.total})`
+      : "no shared picks with you yet";
 
   return (
     <section className={styles.board}>
       <h2 className={styles.title}>Accuracy</h2>
       <p className={styles.subtitle}>Did I read the fights right?</p>
       <LineRow label="Me" line={me} />
-      <LineRow label="Intern" line={intern.headToHead} secondary={internSecondary} />
+      <LineRow label="Intern" line={intern} secondary={intern.total > 0 ? internSecondary : undefined} />
       <LineRow label="Chalk" line={chalk} />
     </section>
   );
