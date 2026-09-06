@@ -197,6 +197,45 @@ Decided 2026-08-29, user-originated.
   row, found in I4b. Not yet root-caused in `fetchFighter.ts` /
   `fetchFightHistory.ts` — if accented API-Sports names recur garbled,
   that decode is where to look.
+- **Sherdog is being added as a third source (Phase J), on evidence.**
+  Verification spike run live 2026-09-07 (locally — **Sherdog needs no
+  API key**, and that is one of the findings: it spends zero of the
+  shared 100/day API-Sports budget, same as the Wikipedia path). What
+  the spike established, on real fighter pages (Makhachev, Oliveira):
+  - **Method and round parse at 100%** (30/30, 49/49) — the exact fields
+    API-Sports and Wikipedia leave thin.
+  - **Every fight-history row carries the opponent's own stable numeric
+    Sherdog id**, and (for all but old regional shows) the event's id
+    too. This is the identity spine: a key that is an integer, not a
+    name string.
+  - **Career history reaches a fighter's debut** — Makhachev to 2010,
+    Oliveira to 2008. This is the pre-2022 / regional history the
+    API-Sports free tier refuses outright (Fork 11).
+  - **The headline W-L-D reproduces exactly when the history rows are
+    counted** (Makhachev 29-1, Oliveira 37-11 plus 1 NC). `NC` arrives
+    as its own result value — `isNoContestOrAmbiguous.ts` already
+    handles it.
+  - **DANGER, and the reason a guard is mandatory: a wrong `sherdog_id`
+    does NOT 404 — it returns HTTP 200 for a *different real fighter*,**
+    fully populated. `/fighter/anything-99999` → "Larry Bo Johnson";
+    `/fighter/Made-Up-76836` → Islam Makhachev. Sherdog routes on the
+    trailing integer alone and ignores the slug. Every fetch-then-write
+    path gates on `identityGuard.ts` (the page name must plausibly be
+    the fighter asked for) or the write is abandoned.
+  - **Sherdog stores its own name conventions** — search "Aori Qileng"
+    returns "Qileng Aori"; "Andre Lima" returns 13 candidates topped by
+    "Alexandre Lima". Identity resolution routes through the existing
+    `low_confidence_fighter_match` conflict queue, never an auto-merge
+    on name.
+  - **Sherdog has height, weight, DOB, nationality, weight class — but
+    NOT reach and NOT stance.** API-Sports stays the only source for
+    those two, so its enrichment job is narrowed in J6, not removed.
+  - Survived 6 rapid unspaced requests, all 200 (Wikipedia 429s at ~6).
+    `robots.txt` is `Allow: /` for every agent. ToS not reviewed in the
+    spike — the human signed off on storage-and-reuse separately.
+  - **Not yet verified:** event-page (card / matchups) parsing — the
+    spike's selector returned only 2 names. J2 must prove it on real
+    pages before J3/J4 rely on it.
 
 ## Odds
 

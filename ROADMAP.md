@@ -1744,6 +1744,66 @@ real participant still accepted.
 
 ---
 
+## Phase J — Sherdog as the identity spine
+
+Added 2026-09-07, after a user question about paying for a Tapology feed
+turned into a source comparison. Confirmed with the user before any code.
+
+**Why Sherdog, and why not the paid option.** The paid "Tapology API" is
+an unofficial third-party scrape reseller — it breaks the hard $0
+constraint (`docs/PRD.md` §6) and buys nothing Sherdog gives free.
+API-Sports Pro ($19/mo) lifts the 100/day squeeze but is still name-keyed
+and still serves no record field, so the central accuracy problem
+survives the payment. UFCStats.com re-checked live 2026-09-07: still the
+2,998-byte JS proof-of-work wall (`PROJECT_FACTS.md` "Data sources").
+
+**The root cause this phase addresses.** Every duplicate-fighter conflict
+(the 10 clusters in I2c, the André/Andre split in I2b) exists because
+identity is currently a *name string*. Records are worse than
+occasionally-wrong — they are structurally understated: API-Sports free
+refuses seasons before 2022, the Wikipedia backfill is gap-only, so a
+veteran's pre-2022 and regional fights simply are not in the table and
+the derived W-L-D silently undercounts.
+
+**Verification spike run first** (2026-09-07, local, no API key — itself
+a finding). Results recorded in `PROJECT_FACTS.md` "Data sources". Load-
+bearing findings: method + round + opponent-id parse at 100% on real
+pages; career depth reaches a fighter's debut (Makhachev → 2010,
+Oliveira → 2008); the headline W-L-D reproduces exactly when counting
+history rows; **a wrong sherdog_id returns HTTP 200 for a *different real
+fighter*** — no 404 — so every fetch-then-write path must gate on a
+name-assertion guard. Sherdog stores its own name conventions
+("Aori Qileng" is filed "Qileng Aori"), confirming identity must route
+through the existing `low_confidence_fighter_match` queue, never
+auto-merge on name.
+
+**Decided with the user.** `fighters.sherdog_id integer unique` + a
+`sherdog_checked_at` queue marker (one column, not a `fighter_source_ids`
+table — rejected for this phase: forces rewriting `upsertFighter` and
+adds a join to every fighter read, for no gain at three sources). First
+import scoped to **fighters on upcoming cards only** (~146), dry-run
+mandatory. Records for Sherdog-linked fighters come from **Sherdog's
+headline number**, not the imported fight graph — importing a fighter's
+30 bouts creates ~30 opponent rows, and graph-derived records would give
+each of them a fake `1-0`. API-Sports is **narrowed, not killed**: it
+stays the only source of reach and stance (Sherdog has neither), which
+`describeStanceMatchup.ts` needs.
+
+**Sort:** correctness-critical (ID resolution, data-merging, counting) —
+failing tests written before implementation, exact-value assertions,
+every branch asserted reachable.
+
+| # | Sub-phase | Status |
+|---|---|---|
+| J1 | Migration `0036_sherdog_identity.sql` + `lib/sherdog/client.ts` (the one wrapper: integer-id validation, 1.5s throttle, injectable fetch) + `identityGuard.ts` (the name-assertion guard) + failing tests | **code done, migration not yet applied** (2026-09-07) |
+| J2 | Parsers + saved-HTML fixtures + failing tests: bio, headline record, fight history, name search | pending |
+| J3 | `resolveSherdogIdentity` (search → auto-match \| `low_confidence_fighter_match` conflict \| no-candidates) + identity job over the upcoming-card queue. Dry-run first | pending |
+| J4 | `importFighterHistory` + history backfill job. Dry-run prints: fighters in scope, fights to insert, NEW events to create, name-mismatch count | pending |
+| J5 | Record source switch — Sherdog headline wins for linked fighters; `recomputeFighterRecords` skips them; opponent-stub headline fetch | pending |
+| J6 | API-Sports enrichment narrowed to reach/stance only + schedule wiring + `PROJECT_FACTS.md`/`CHANGES.md` close-out | pending |
+
+---
+
 ## Design cadence
 
 The visual world was decided in v1 and is already shipped (CSS Modules, custom
