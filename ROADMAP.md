@@ -1796,7 +1796,7 @@ every branch asserted reachable.
 | # | Sub-phase | Status |
 |---|---|---|
 | J1 | Migration `0036_sherdog_identity.sql` + `lib/sherdog/client.ts` (the one wrapper: integer-id validation, 1.5s throttle, injectable fetch) + `identityGuard.ts` (the name-assertion guard) + failing tests | **code done, migration not yet applied** (2026-09-07) |
-| J2 | Parsers + saved-HTML fixtures + failing tests: bio, headline record, fight history, name search | pending |
+| J2 | Parsers + saved-HTML fixtures + failing tests: bio, headline record, fight history, name search | **done** (2026-09-07) — 6 trimmed real fixtures, 56 tests. The headline-record-equals-counted-rows cross-check passes on all 4 fighter fixtures (the invariant J4/J5 lean on). Every history row on every fixture carries method + round + opponent id + date |
 | J3 | `resolveSherdogIdentity` (search → auto-match \| `low_confidence_fighter_match` conflict \| no-candidates) + identity job over the upcoming-card queue. Dry-run first | pending |
 | J4 | `importFighterHistory` + history backfill job. Dry-run prints: fighters in scope, fights to insert, NEW events to create, name-mismatch count | pending |
 | J5 | Record source switch — Sherdog headline wins for linked fighters; `recomputeFighterRecords` skips them; opponent-stub headline fetch | pending |
