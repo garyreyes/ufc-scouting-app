@@ -206,8 +206,20 @@ export interface LowConfidenceFighterMatchDisplay {
   candidates: FighterMatchCandidate[];
 }
 
+// J3b: like LowConfidenceFighterMatchDisplay, a plain reshape of details
+// -- the Sherdog identity job (lib/sherdog/buildSherdogIdentityWrites.ts)
+// snapshots the full ranked candidate list at detection.
+export interface LowConfidenceSherdogMatchDisplay {
+  id: string;
+  kind: "low_confidence_sherdog_match";
+  detectedAt: string;
+  storedName: string;
+  candidates: SherdogMatchCandidate[];
+}
+
 export type ConflictDisplay =
   | DisputedOpponentDisplay
   | LowConfidenceDisplay
   | DisputedResultDisplay
-  | LowConfidenceFighterMatchDisplay;
+  | LowConfidenceFighterMatchDisplay
+  | LowConfidenceSherdogMatchDisplay;
