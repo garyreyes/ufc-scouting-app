@@ -98,11 +98,44 @@ export interface LowConfidenceFighterMatchConflict {
   details: LowConfidenceFighterMatchDetails;
 }
 
+// J3's fifth kind (0037): a fighter's best Sherdog search candidate did
+// not clear SHERDOG_AUTO_MATCH_THRESHOLD. Separate from
+// low_confidence_fighter_match because a Sherdog match resolves by
+// writing an integer fighters.sherdog_id, and its candidates carry no
+// reach/stance -- see lib/sherdog/resolveSherdogIdentity.ts. Candidates
+// are the full ranked list, snapshotted at detection (a Sherdog re-fetch
+// later could differ), same "don't re-derive live" reasoning every other
+// kind here documents.
+export interface SherdogMatchCandidate {
+  sherdogId: number;
+  name: string;
+  confidence: number;
+  nickname: string | null;
+  heightImperial: string | null;
+  weightImperial: string | null;
+  association: string | null;
+}
+
+export interface LowConfidenceSherdogMatchDetails {
+  fighterId: string;
+  storedName: string;
+  candidates: SherdogMatchCandidate[];
+}
+
+export interface LowConfidenceSherdogMatchConflict {
+  id: string;
+  kind: "low_confidence_sherdog_match";
+  fightId: null;
+  detectedAt: string;
+  details: LowConfidenceSherdogMatchDetails;
+}
+
 export type Conflict =
   | DisputedOpponentConflict
   | LowConfidenceConflict
   | DisputedResultConflict
-  | LowConfidenceFighterMatchConflict;
+  | LowConfidenceFighterMatchConflict
+  | LowConfidenceSherdogMatchConflict;
 
 // A fight in the same date window as a low-confidence conflict's odds
 // event -- the candidate pool the owner picks from, ranked by the

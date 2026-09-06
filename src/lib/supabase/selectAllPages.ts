@@ -8,6 +8,23 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const PAGE_SIZE = 1000;
 
 /**
+ * The subset of PostgREST's filter builder `selectAllPages`'s `filter`
+ * hook is allowed to touch -- row narrowing only. Declared structurally
+ * rather than importing PostgrestFilterBuilder, whose generics are deep
+ * enough to trip "Type instantiation is excessively deep" here.
+ */
+export interface PageQueryNarrowing {
+  eq(column: string, value: unknown): PageQueryNarrowing;
+  gt(column: string, value: unknown): PageQueryNarrowing;
+  gte(column: string, value: unknown): PageQueryNarrowing;
+  lt(column: string, value: unknown): PageQueryNarrowing;
+  lte(column: string, value: unknown): PageQueryNarrowing;
+  in(column: string, values: readonly unknown[]): PageQueryNarrowing;
+  is(column: string, value: unknown): PageQueryNarrowing;
+  not(column: string, operator: string, value: unknown): PageQueryNarrowing;
+}
+
+/**
  * Reads an entire table, one page at a time.
  *
  * **Use this instead of a bare `.select()` for any query meant to return
@@ -40,17 +57,28 @@ const PAGE_SIZE = 1000;
  * Callers pass whatever client they already hold: this only reads, so it
  * works through the public client for anon-readable tables and the admin
  * client for everything else.
+ *
+ * `filter` is an optional narrowing hook -- `(q) => q.gte("event_date",
+ * today)` or `.in("event_id", ids)`. It runs before the keyset order and
+ * limit, so it must only add row filters (`.eq` / `.gte` / `.lt` /
+ * `.in` / `.is` / `.not`); adding an `.order()` or `.limit()` of its own
+ * would fight the pagination. `columns` must still include `id`, filtered
+ * or not, since the cursor is `id`.
  */
 export async function selectAllPages<T extends { id: string }>(
   supabase: SupabaseClient,
   table: string,
   columns: string,
+  filter?: (query: PageQueryNarrowing) => PageQueryNarrowing,
 ): Promise<T[]> {
   const rows: T[] = [];
   let cursor: string | null = null;
 
   for (;;) {
     let query = supabase.from(table).select(columns).order("id", { ascending: true }).limit(PAGE_SIZE);
+    if (filter) {
+      query = filter(query as unknown as PageQueryNarrowing) as unknown as typeof query;
+    }
     if (cursor !== null) query = query.gt("id", cursor);
 
     const { data, error } = await query;
