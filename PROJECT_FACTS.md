@@ -236,6 +236,22 @@ Decided 2026-08-29, user-originated.
   - **Not yet verified:** event-page (card / matchups) parsing — the
     spike's selector returned only 2 names. J2 must prove it on real
     pages before J3/J4 rely on it.
+- **J3 ran live 2026-09-07 across the whole upcoming-card roster (146
+  fighters).** Result: **128 got a verified `sherdog_id`** (auto-match
+  or fight-count tie-break, each confirmed by the page-name guard), **13
+  opened a `low_confidence_sherdog_match` conflict**, **5 are genuinely
+  not on Sherdog** (JJ Aldrich, Benardo Sopaj, Abusupiyan Magomedov,
+  Ramazan Temirov, Mehemmedeli Osmanli — they keep their API-Sports
+  data). Zero duplicate `sherdog_id`, zero failures. The 13 conflicts
+  are: 9 where the stored name and Sherdog's differ enough that no
+  candidate cleared 0.85 (e.g. "Renato Moicano" is "Renato Carneiro" on
+  Sherdog, "Khaos Williams" is "Kalinn Williams", Korean/Chinese names
+  romanized family-name-first), and 4 genuine multi-namesake ties ("Jean
+  Silva" has 17 Sherdog entries). All resolvable on `/conflicts`.
+- **Re-running the identity job is free and safe** — its queue is
+  `sherdog_id is null AND sherdog_checked_at is null`, so a fighter is
+  only ever searched once, and a new upcoming card's fighters are picked
+  up on the next run. Not yet on a schedule (J6).
 
 ## Odds
 

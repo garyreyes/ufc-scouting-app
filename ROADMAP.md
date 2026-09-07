@@ -1801,6 +1801,7 @@ every branch asserted reachable.
 | J3b | `/conflicts` card + resolver + api.ts branch + action to resolve a `low_confidence_sherdog_match` → write `sherdog_id` | **done** (2026-09-07) — `resolveSherdogMatch.ts` (pure), `LowConfidenceSherdogMatchCard` (shows why it was queued), `resolveSherdogMatchAction` (owner-gated, `sherdog_id` unique constraint is the race net). Migration 0037 applied |
 | J3-review | `reviewer` pass on J1–J3b, then fixes | **done** (2026-09-07) — see below |
 | J3-tiebreak | fight-count tie-break for `ambiguous` matches | **done** (2026-09-07) — dry-run over 100: **86 auto-match, 9 queue, 5 not-found, 0 failed** (was 75/20/5/3 before the review fixes). Tie-break recovered 11 champions/contenders with regional namesakes (Pantoja, Moreno, Volkov's opponent pool etc.); the 9 left are 5 genuine romanization mismatches + 4 real multi-namesake ties |
+| J3-live | run the identity job live across the roster | **done** (2026-09-07) — 2 runs, 146 fighters: **128 got `sherdog_id`**, 13 conflicts open on `/conflicts`, 5 not on Sherdog. 0 dupes, 0 failures |
 | J4 | `importFighterHistory` + history backfill job. Dry-run prints: fighters in scope, fights to insert, NEW events to create, name-mismatch count | pending |
 | J5 | Record source switch — Sherdog headline wins for linked fighters; `recomputeFighterRecords` skips them; opponent-stub headline fetch | pending |
 | J6 | API-Sports enrichment narrowed to reach/stance only + schedule wiring + `PROJECT_FACTS.md`/`CHANGES.md` close-out | pending |
