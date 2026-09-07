@@ -89,3 +89,44 @@ export function decideSherdogIdentity(
 
   return { kind: "matched", sherdogId: best.sherdogId, confidence: best.confidence };
 }
+
+// The tie-break the job applies to an `ambiguous` decision before falling
+// back to the review queue: fetch the pages of the candidates that tied
+// on name and see how many are a plausible fighter. A real UFC-card
+// fighter has a long pro record; a regional namesake with two bouts does
+// not, and is not who this app is looking at. Capped -- 17 "Jean Silva"
+// candidates are not worth 17 fetches, just queue that.
+export const AMBIGUOUS_TIEBREAK_MIN_FIGHTS = 10;
+export const AMBIGUOUS_TIEBREAK_MAX_CANDIDATES = 4;
+
+/** The candidates that tied at/above the auto-match threshold, best-first. */
+export function tiedTopCandidates(
+  storedName: string,
+  candidates: SherdogSearchCandidate[],
+): RankedSherdogCandidate[] {
+  return rankSherdogCandidates(storedName, candidates).filter(
+    (c) => c.confidence >= SHERDOG_AUTO_MATCH_THRESHOLD,
+  );
+}
+
+export interface TiebreakCandidate {
+  sherdogId: number;
+  guardPassed: boolean;
+  proFightCount: number;
+}
+
+/**
+ * Given each tied candidate's fetched page facts, returns the one
+ * sherdog_id to auto-match, or null to send the whole thing to review.
+ *
+ * Auto-match ONLY when exactly one tied candidate both passes the
+ * page-name guard and has a real pro record (>= AMBIGUOUS_TIEBREAK_MIN_
+ * FIGHTS). Zero qualifying -> nothing safe to pick. Two or more -> two
+ * namesakes with real careers, a human has to choose.
+ */
+export function pickTiebreakWinner(candidates: TiebreakCandidate[]): number | null {
+  const qualifying = candidates.filter(
+    (c) => c.guardPassed && c.proFightCount >= AMBIGUOUS_TIEBREAK_MIN_FIGHTS,
+  );
+  return qualifying.length === 1 ? qualifying[0].sherdogId : null;
+}

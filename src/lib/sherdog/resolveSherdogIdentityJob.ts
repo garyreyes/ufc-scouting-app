@@ -3,7 +3,14 @@ import { selectAllPages } from "../supabase/selectAllPages";
 import { fetchFighterHtmlById, type FetchOptions } from "./client";
 import { parseFighterName } from "./parseFighterPage";
 import { searchSherdogFighters } from "./searchFighters";
-import { decideSherdogIdentity, rankSherdogCandidates } from "./resolveSherdogIdentity";
+import {
+  AMBIGUOUS_TIEBREAK_MAX_CANDIDATES,
+  decideSherdogIdentity,
+  pickTiebreakWinner,
+  rankSherdogCandidates,
+  tiedTopCandidates,
+} from "./resolveSherdogIdentity";
+import { parseFightHistory } from "./parseFightHistory";
 import { sherdogNameMatchesExpected } from "./identityGuard";
 import { buildSherdogConflictInsert, buildSherdogIdentityUpdate } from "./buildSherdogIdentityWrites";
 
@@ -126,37 +133,62 @@ export async function resolveUpcomingCardSherdogIds(
         continue;
       }
 
-      if (decision.kind === "low_confidence") {
+      if (decision.kind === "low_confidence" && decision.reason === "below_threshold") {
         summary.queued++;
-        if (dryRun) {
-          const ranked = rankSherdogCandidates(fighter.name, candidates);
-          console.log(
-            `  review queue (${decision.reason})  ${fighter.name} -> best "${ranked[0]?.name}" ` +
-              `#${ranked[0]?.sherdogId} @ ${ranked[0]?.confidence.toFixed(2)} (${candidates.length} candidates)`,
-          );
-        }
+        if (dryRun) logQueued(fighter.name, "below_threshold", candidates);
         if (!dryRun) {
-          await openConflict(supabase, fighter, candidates, decision.reason);
+          await openConflict(supabase, fighter, candidates, "below_threshold");
           await markChecked(supabase, fighter.id, checkedAt);
         }
+        continue;
+      }
+
+      // decision.kind === "ambiguous": two+ candidates tied on name. Try
+      // the fight-count tie-break before falling back to the review queue
+      // -- a regional namesake with two bouts is not on a UFC card.
+      if (decision.kind === "low_confidence") {
+        const tied = tiedTopCandidates(fighter.name, candidates);
+        let winner: number | null = null;
+        if (tied.length <= AMBIGUOUS_TIEBREAK_MAX_CANDIDATES) {
+          const facts = await Promise.all(
+            tied.map(async (c) => {
+              const f = await pageFacts(c.sherdogId, fighter.name, fetchOpts);
+              return { sherdogId: c.sherdogId, guardPassed: f.guardPassed, proFightCount: f.proFightCount };
+            }),
+          );
+          winner = pickTiebreakWinner(facts);
+        }
+
+        if (winner === null) {
+          summary.queued++;
+          if (dryRun) logQueued(fighter.name, "ambiguous (tie-break inconclusive)", candidates);
+          if (!dryRun) {
+            await openConflict(supabase, fighter, candidates, "ambiguous");
+            await markChecked(supabase, fighter.id, checkedAt);
+          }
+          continue;
+        }
+
+        summary.matched++;
+        if (dryRun) console.log(`  auto-match (tie-break)  ${fighter.name} -> #${winner}`);
+        if (!dryRun) await writeMatch(supabase, fighter.id, winner, checkedAt);
         continue;
       }
 
       // decision.kind === "matched" -- second gate: the fetched page's
       // own name must still plausibly be this fighter (a wrong id returns
       // HTTP 200 for a different person).
-      const pageHtml = await fetchFighterHtmlById(decision.sherdogId, fetchOpts);
-      const pageName = parseFighterName(pageHtml) ?? "";
-      if (!sherdogNameMatchesExpected(fighter.name, pageName)) {
+      const facts = await pageFacts(decision.sherdogId, fighter.name, fetchOpts);
+      if (!facts.guardPassed) {
         summary.guardRejected++;
         summary.queued++;
         if (dryRun) {
           console.log(
-            `  guard rejected      ${fighter.name} -> page #${decision.sherdogId} is "${pageName}"`,
+            `  guard rejected      ${fighter.name} -> page #${decision.sherdogId} is "${facts.pageName}"`,
           );
         }
         if (!dryRun) {
-          await openConflict(supabase, fighter, candidates, "guard_mismatch", pageName);
+          await openConflict(supabase, fighter, candidates, "guard_mismatch", facts.pageName);
           await markChecked(supabase, fighter.id, checkedAt);
         }
         continue;
@@ -165,16 +197,10 @@ export async function resolveUpcomingCardSherdogIds(
       summary.matched++;
       if (dryRun) {
         console.log(
-          `  auto-match          ${fighter.name} -> #${decision.sherdogId} "${pageName}" @ ${decision.confidence.toFixed(2)}`,
+          `  auto-match          ${fighter.name} -> #${decision.sherdogId} "${facts.pageName}" @ ${decision.confidence.toFixed(2)}`,
         );
       }
-      if (!dryRun) {
-        const { error } = await supabase
-          .from("fighters")
-          .update(buildSherdogIdentityUpdate(decision.sherdogId, checkedAt))
-          .eq("id", fighter.id);
-        if (error) throw error;
-      }
+      if (!dryRun) await writeMatch(supabase, fighter.id, decision.sherdogId, checkedAt);
     } catch (err) {
       summary.failed++;
       console.error(`Sherdog identity failed for fighter ${fighter.id} (${fighter.name}):`, err);
@@ -200,6 +226,51 @@ export async function resolveUpcomingCardSherdogIds(
   }
 
   return summary;
+}
+
+interface PageFacts {
+  pageName: string;
+  guardPassed: boolean;
+  proFightCount: number;
+}
+
+async function pageFacts(
+  sherdogId: number,
+  storedName: string,
+  fetchOpts: FetchOptions,
+): Promise<PageFacts> {
+  const html = await fetchFighterHtmlById(sherdogId, fetchOpts);
+  const pageName = parseFighterName(html) ?? "";
+  return {
+    pageName,
+    guardPassed: sherdogNameMatchesExpected(storedName, pageName),
+    proFightCount: parseFightHistory(html).length,
+  };
+}
+
+async function writeMatch(
+  supabase: SupabaseClient,
+  fighterId: string,
+  sherdogId: number,
+  checkedAt: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("fighters")
+    .update(buildSherdogIdentityUpdate(sherdogId, checkedAt))
+    .eq("id", fighterId);
+  if (error) throw error;
+}
+
+function logQueued(
+  name: string,
+  label: string,
+  candidates: Awaited<ReturnType<typeof searchSherdogFighters>>,
+): void {
+  const ranked = rankSherdogCandidates(name, candidates);
+  console.log(
+    `  review queue (${label})  ${name} -> best "${ranked[0]?.name}" ` +
+      `#${ranked[0]?.sherdogId} @ ${ranked[0]?.confidence.toFixed(2)} (${candidates.length} candidates)`,
+  );
 }
 
 async function markChecked(supabase: SupabaseClient, fighterId: string, checkedAt: string): Promise<void> {

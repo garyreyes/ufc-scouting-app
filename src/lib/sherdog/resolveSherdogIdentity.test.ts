@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { SherdogSearchCandidate } from "./parseSearch";
 import {
+  AMBIGUOUS_TIEBREAK_MIN_FIGHTS,
   decideSherdogIdentity,
+  pickTiebreakWinner,
   rankSherdogCandidates,
   SHERDOG_AUTO_MATCH_THRESHOLD,
+  tiedTopCandidates,
 } from "./resolveSherdogIdentity";
 
 const cand = (over: Partial<SherdogSearchCandidate> & { sherdogId: number; name: string }): SherdogSearchCandidate => ({
@@ -105,5 +108,66 @@ describe("decideSherdogIdentity — every branch reachable", () => {
       cand({ sherdogId: 30300, name: "Charles Oliveira" }),
     ]);
     expect(d).toMatchObject({ kind: "matched", sherdogId: 30300 });
+  });
+});
+
+describe("tiedTopCandidates", () => {
+  it("returns only the candidates at/above the threshold, best-first", () => {
+    const tied = tiedTopCandidates("Bruno Silva", [
+      cand({ sherdogId: 1, name: "Bruno Silva" }),
+      cand({ sherdogId: 2, name: "Bruno Silva" }),
+      cand({ sherdogId: 3, name: "Bruno Silveira" }),
+    ]);
+    expect(tied.map((c) => c.sherdogId)).toEqual([1, 2]);
+  });
+});
+
+describe("pickTiebreakWinner", () => {
+  const F = AMBIGUOUS_TIEBREAK_MIN_FIGHTS;
+
+  it("auto-matches when exactly one tied candidate has a real record and passes the guard", () => {
+    expect(
+      pickTiebreakWinner([
+        { sherdogId: 10, guardPassed: true, proFightCount: 30 },
+        { sherdogId: 11, guardPassed: true, proFightCount: 2 },
+        { sherdogId: 12, guardPassed: true, proFightCount: 4 },
+      ]),
+    ).toBe(10);
+  });
+
+  it("sends it to review when two tied candidates BOTH have real records", () => {
+    expect(
+      pickTiebreakWinner([
+        { sherdogId: 10, guardPassed: true, proFightCount: 25 },
+        { sherdogId: 11, guardPassed: true, proFightCount: 14 },
+      ]),
+    ).toBeNull();
+  });
+
+  it("sends it to review when no tied candidate has a real record", () => {
+    expect(
+      pickTiebreakWinner([
+        { sherdogId: 10, guardPassed: true, proFightCount: 3 },
+        { sherdogId: 11, guardPassed: true, proFightCount: 1 },
+      ]),
+    ).toBeNull();
+  });
+
+  it("ignores a long-record candidate whose page failed the name guard", () => {
+    expect(
+      pickTiebreakWinner([
+        { sherdogId: 10, guardPassed: false, proFightCount: 40 },
+        { sherdogId: 11, guardPassed: true, proFightCount: 20 },
+      ]),
+    ).toBe(11);
+  });
+
+  it("treats exactly the threshold as a real record (inclusive)", () => {
+    expect(
+      pickTiebreakWinner([
+        { sherdogId: 10, guardPassed: true, proFightCount: F },
+        { sherdogId: 11, guardPassed: true, proFightCount: F - 1 },
+      ]),
+    ).toBe(10);
   });
 });
