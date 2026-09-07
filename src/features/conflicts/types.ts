@@ -116,9 +116,15 @@ export interface SherdogMatchCandidate {
   association: string | null;
 }
 
+export type SherdogMatchQueueReason = "below_threshold" | "ambiguous" | "guard_mismatch";
+
 export interface LowConfidenceSherdogMatchDetails {
   fighterId: string;
   storedName: string;
+  reason: SherdogMatchQueueReason;
+  // Only when reason is 'guard_mismatch': the name on the page the
+  // auto-match would have written.
+  guardMismatchPageName?: string;
   candidates: SherdogMatchCandidate[];
 }
 
@@ -214,6 +220,8 @@ export interface LowConfidenceSherdogMatchDisplay {
   kind: "low_confidence_sherdog_match";
   detectedAt: string;
   storedName: string;
+  reason: SherdogMatchQueueReason;
+  guardMismatchPageName?: string;
   candidates: SherdogMatchCandidate[];
 }
 

@@ -32,16 +32,33 @@ describe("buildSherdogConflictInsert", () => {
   ];
 
   it("is a low_confidence_sherdog_match row with fight_id null", () => {
-    const row = buildSherdogConflictInsert("fighter-uuid", "Andre Lima", rankSherdogCandidates("Andre Lima", candidates), candidates);
+    const row = buildSherdogConflictInsert(
+      "fighter-uuid",
+      "Andre Lima",
+      rankSherdogCandidates("Andre Lima", candidates),
+      candidates,
+      "below_threshold",
+    );
     expect(row.kind).toBe("low_confidence_sherdog_match");
     expect(row.fight_id).toBeNull();
     expect(row.details.fighterId).toBe("fighter-uuid");
     expect(row.details.storedName).toBe("Andre Lima");
+    expect(row.details.reason).toBe("below_threshold");
+  });
+
+  it("carries the guard-mismatch page name only when that is the reason", () => {
+    const ranked = rankSherdogCandidates("Andre Lima", candidates);
+    const withName = buildSherdogConflictInsert("f", "Andre Lima", ranked, candidates, "guard_mismatch", "Someone Else");
+    expect(withName.details.reason).toBe("guard_mismatch");
+    expect(withName.details.guardMismatchPageName).toBe("Someone Else");
+
+    const without = buildSherdogConflictInsert("f", "Andre Lima", ranked, candidates, "ambiguous");
+    expect(without.details).not.toHaveProperty("guardMismatchPageName");
   });
 
   it("snapshots every candidate, best-first, with score + distinguishing details merged in", () => {
     const ranked = rankSherdogCandidates("Andre Lima", candidates);
-    const row = buildSherdogConflictInsert("f", "Andre Lima", ranked, candidates);
+    const row = buildSherdogConflictInsert("f", "Andre Lima", ranked, candidates, "below_threshold");
 
     // "Andre Lima" is a closer match to "Andre Lima" than "Alexandre Lima".
     expect(row.details.candidates[0].sherdogId).toBe(201199);
@@ -62,6 +79,7 @@ describe("buildSherdogConflictInsert", () => {
       "X",
       [{ sherdogId: 55555, name: "Ghost", confidence: 0.2 }],
       [],
+      "below_threshold",
     );
     expect(row.details.candidates[0]).toEqual({
       sherdogId: 55555,

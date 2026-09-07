@@ -1,6 +1,6 @@
 import { runWithTracking } from "../jobs/runWithTracking";
 import { getSupabaseAdmin } from "../supabase/admin";
-import { resolveSherdogIdentity } from "./resolveSherdogIdentityJob";
+import { resolveUpcomingCardSherdogIds } from "./resolveSherdogIdentityJob";
 
 // J3's entry point. Pass --dry-run to read + fetch everything and write
 // nothing -- the intended FIRST run against production, so the summary
@@ -21,9 +21,9 @@ async function main() {
   const supabase = getSupabaseAdmin();
 
   const summary = dryRun
-    ? await resolveSherdogIdentity(supabase, { dryRun: true, batchSize })
+    ? await resolveUpcomingCardSherdogIds(supabase, { dryRun: true, batchSize })
     : await runWithTracking(supabase, "sherdog_identity", () =>
-        resolveSherdogIdentity(supabase, { batchSize }),
+        resolveUpcomingCardSherdogIds(supabase, { batchSize }),
       );
 
   console.log(

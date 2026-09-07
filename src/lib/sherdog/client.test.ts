@@ -70,15 +70,47 @@ describe("fetchSherdogHtml", () => {
   it("one failing call does not poison the throttle chain for the next", async () => {
     const fetchImpl = makeFetchMock();
     fetchImpl
-      .mockResolvedValueOnce(new Response("x", { status: 500, statusText: "err" }))
+      .mockResolvedValueOnce(new Response("gone", { status: 404, statusText: "Not Found" }))
       .mockResolvedValueOnce(new Response("<html>second</html>", { status: 200 }));
 
     await expect(
       fetchSherdogHtml("/fighter/1", { spacingMs: 0, fetchImpl: asFetch(fetchImpl) }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/404/);
     await expect(
       fetchSherdogHtml("/fighter/2", { spacingMs: 0, fetchImpl: asFetch(fetchImpl) }),
     ).resolves.toBe("<html>second</html>");
+  });
+
+  it("retries ONCE on a 5xx, then succeeds", async () => {
+    const fetchImpl = makeFetchMock();
+    fetchImpl
+      .mockResolvedValueOnce(new Response("boom", { status: 500, statusText: "Internal Server Error" }))
+      .mockResolvedValueOnce(new Response("<html>ok</html>", { status: 200 }));
+
+    await expect(
+      fetchSherdogHtml("/fighter/1", { spacingMs: 0, fetchImpl: asFetch(fetchImpl) }),
+    ).resolves.toBe("<html>ok</html>");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after one retry if the 5xx persists", async () => {
+    const fetchImpl = makeFetchMock();
+    fetchImpl.mockResolvedValue(new Response("boom", { status: 503, statusText: "Service Unavailable" }));
+
+    await expect(
+      fetchSherdogHtml("/fighter/1", { spacingMs: 0, fetchImpl: asFetch(fetchImpl) }),
+    ).rejects.toThrow(/503/);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT retry a 4xx", async () => {
+    const fetchImpl = makeFetchMock();
+    fetchImpl.mockResolvedValue(new Response("nope", { status: 404, statusText: "Not Found" }));
+
+    await expect(
+      fetchSherdogHtml("/fighter/1", { spacingMs: 0, fetchImpl: asFetch(fetchImpl) }),
+    ).rejects.toThrow(/404/);
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });
 

@@ -55,21 +55,31 @@ export interface FetchOptions {
  * Throttled GET of a sherdog.com path, returning the raw HTML. Throws on
  * any non-2xx. `path` must be a site-absolute path ("/fighter/76836");
  * callers never pass a full URL, so this file owns the host.
+ *
+ * Retries ONCE on a 5xx (Sherdog's search endpoint returned sporadic
+ * 500s during the J3 dry run -- "Ricky Simón", "Rafa García" and others,
+ * all fine on a later run). A 4xx is not retried: it will not fix
+ * itself.
  */
 export async function fetchSherdogHtml(path: string, opts: FetchOptions = {}): Promise<string> {
   if (!path.startsWith("/")) {
     throw new Error(`fetchSherdogHtml expects a site-absolute path, got: ${path}`);
   }
   const doFetch = opts.fetchImpl ?? fetch;
-  await throttle(opts.spacingMs ?? DEFAULT_SPACING_MS);
 
-  const res = await doFetch(`${SHERDOG_BASE_URL}${path}`, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
-  });
-  if (!res.ok) {
-    throw new Error(`Sherdog request failed: ${res.status} ${res.statusText} for ${path}`);
+  let lastStatus = 0;
+  let lastStatusText = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await throttle(opts.spacingMs ?? DEFAULT_SPACING_MS);
+    const res = await doFetch(`${SHERDOG_BASE_URL}${path}`, {
+      headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
+    });
+    if (res.ok) return res.text();
+    lastStatus = res.status;
+    lastStatusText = res.statusText;
+    if (res.status < 500) break; // 4xx won't fix itself
   }
-  return res.text();
+  throw new Error(`Sherdog request failed: ${lastStatus} ${lastStatusText} for ${path}`);
 }
 
 /**

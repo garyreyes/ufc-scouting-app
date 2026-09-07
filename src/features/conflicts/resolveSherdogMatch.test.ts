@@ -11,6 +11,7 @@ function conflict(): LowConfidenceSherdogMatchConflict {
     details: {
       fighterId: "fighter-1",
       storedName: "Aori Qileng",
+      reason: "below_threshold",
       candidates: [
         {
           sherdogId: 222519,

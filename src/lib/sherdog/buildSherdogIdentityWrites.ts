@@ -1,5 +1,5 @@
 import type { SherdogSearchCandidate } from "./parseSearch";
-import type { RankedSherdogCandidate } from "./resolveSherdogIdentity";
+import type { LowConfidenceReason, RankedSherdogCandidate } from "./resolveSherdogIdentity";
 
 // The two write payloads the identity job produces, pulled out pure so
 // their shape is tested rather than buried in the Supabase orchestration
@@ -21,6 +21,15 @@ export interface SherdogConflictInsert {
   details: {
     fighterId: string;
     storedName: string;
+    // Why this landed in the queue -- 'below_threshold', 'ambiguous'
+    // (two+ candidates share the name), or 'guard_mismatch' (auto-match
+    // fired but the fetched page was a different person). Drives the
+    // card's explanation so the owner knows what they're disambiguating.
+    reason: LowConfidenceReason | "guard_mismatch";
+    // Only set when reason is 'guard_mismatch': the name on the page the
+    // auto-match would have written, so the owner sees exactly what was
+    // caught rather than re-confirming it.
+    guardMismatchPageName?: string;
     candidates: Array<{
       sherdogId: number;
       name: string;
@@ -45,6 +54,8 @@ export function buildSherdogConflictInsert(
   storedName: string,
   ranked: RankedSherdogCandidate[],
   candidates: SherdogSearchCandidate[],
+  reason: LowConfidenceReason | "guard_mismatch",
+  guardMismatchPageName?: string,
 ): SherdogConflictInsert {
   const bySherdogId = new Map(candidates.map((c) => [c.sherdogId, c]));
   return {
@@ -53,6 +64,8 @@ export function buildSherdogConflictInsert(
     details: {
       fighterId,
       storedName,
+      reason,
+      ...(guardMismatchPageName ? { guardMismatchPageName } : {}),
       candidates: ranked.map((r) => {
         const c = bySherdogId.get(r.sherdogId);
         return {

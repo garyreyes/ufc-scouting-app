@@ -35,9 +35,11 @@ export function rankSherdogCandidates(
     .sort((a, b) => b.confidence - a.confidence);
 }
 
+export type LowConfidenceReason = "below_threshold" | "ambiguous";
+
 export type SherdogIdentityDecision =
   | { kind: "matched"; sherdogId: number; confidence: number }
-  | { kind: "low_confidence"; sherdogId: number; confidence: number }
+  | { kind: "low_confidence"; sherdogId: number; confidence: number; reason: LowConfidenceReason }
   | { kind: "no_candidates" };
 
 /**
@@ -47,7 +49,13 @@ export type SherdogIdentityDecision =
  *  - `no_candidates` is NOT a conflict -- a genuine debutant or a fighter
  *    Sherdog simply hasn't added yet. The job records the attempt and
  *    moves on.
- *  - `low_confidence` opens a conflict with the whole ranked list.
+ *  - `low_confidence` opens a conflict with the whole ranked list. Its
+ *    `reason` is `below_threshold` (best guess just isn't good enough) or
+ *    `ambiguous` (two or more candidates BOTH clear the threshold --
+ *    the exact-homonym case: MMA has multiple "Bruno Silva", "Dong Hyun
+ *    Kim" etc., and Sherdog returns them all. Auto-matching here would
+ *    key one real fighter's entire career onto a namesake, so a human
+ *    picks using the nickname / weight / gym on the review card).
  *  - `matched` is still gated a second time by the page-name guard
  *    (identityGuard.ts) once the fighter page is actually fetched --
  *    this decision is necessary, not sufficient, for a write.
@@ -59,8 +67,25 @@ export function decideSherdogIdentity(
   const ranked = rankSherdogCandidates(storedName, candidates);
   const best = ranked[0];
   if (!best) return { kind: "no_candidates" };
-  if (best.confidence >= SHERDOG_AUTO_MATCH_THRESHOLD) {
-    return { kind: "matched", sherdogId: best.sherdogId, confidence: best.confidence };
+
+  if (best.confidence < SHERDOG_AUTO_MATCH_THRESHOLD) {
+    return {
+      kind: "low_confidence",
+      sherdogId: best.sherdogId,
+      confidence: best.confidence,
+      reason: "below_threshold",
+    };
   }
-  return { kind: "low_confidence", sherdogId: best.sherdogId, confidence: best.confidence };
+
+  const runnerUp = ranked[1];
+  if (runnerUp && runnerUp.confidence >= SHERDOG_AUTO_MATCH_THRESHOLD) {
+    return {
+      kind: "low_confidence",
+      sherdogId: best.sherdogId,
+      confidence: best.confidence,
+      reason: "ambiguous",
+    };
+  }
+
+  return { kind: "matched", sherdogId: best.sherdogId, confidence: best.confidence };
 }

@@ -55,14 +55,38 @@ describe("decideSherdogIdentity — every branch reachable", () => {
     expect(d).toEqual({ kind: "matched", sherdogId: 76836, confidence: 1 });
   });
 
-  it("'low_confidence' when the best candidate is a common-surname near-miss", () => {
+  it("'low_confidence' / 'below_threshold' when the best candidate is a common-surname near-miss", () => {
     // "Andre Lima" vs a list topped by "Alexandre Lima" -- the real spike case.
     const d = decideSherdogIdentity("Andre Lima", [
       cand({ sherdogId: 2456, name: "Alexandre Lima" }),
       cand({ sherdogId: 201199, name: "Andre Luiz Lima" }),
     ]);
     expect(d.kind).toBe("low_confidence");
-    if (d.kind === "low_confidence") expect(d.confidence).toBeLessThan(SHERDOG_AUTO_MATCH_THRESHOLD);
+    if (d.kind === "low_confidence") {
+      expect(d.confidence).toBeLessThan(SHERDOG_AUTO_MATCH_THRESHOLD);
+      expect(d.reason).toBe("below_threshold");
+    }
+  });
+
+  it("'low_confidence' / 'ambiguous' when TWO candidates both clear the threshold (exact homonyms)", () => {
+    // The HIGH finding from the J3 review: MMA has multiple "Bruno Silva".
+    // Sherdog search returns them all, both score 1.0, and auto-matching
+    // would key one fighter's whole career onto the wrong namesake.
+    const d = decideSherdogIdentity("Bruno Silva", [
+      cand({ sherdogId: 111, name: "Bruno Silva" }),
+      cand({ sherdogId: 222, name: "Bruno Silva" }),
+      cand({ sherdogId: 333, name: "Bruno Silveira" }),
+    ]);
+    expect(d).toMatchObject({ kind: "low_confidence", reason: "ambiguous" });
+  });
+
+  it("still auto-matches when only ONE candidate clears the threshold, even with weak others present", () => {
+    const d = decideSherdogIdentity("Islam Makhachev", [
+      cand({ sherdogId: 76836, name: "Islam Makhachev" }),
+      cand({ sherdogId: 224121, name: "Ali Makhachev" }),
+      cand({ sherdogId: 375266, name: "Magomed Makhachev" }),
+    ]);
+    expect(d.kind).toBe("matched");
   });
 
   it("the threshold is inclusive: a candidate scoring exactly the threshold is 'matched'", () => {

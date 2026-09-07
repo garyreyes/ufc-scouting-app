@@ -1798,19 +1798,54 @@ every branch asserted reachable.
 | J1 | Migration `0036_sherdog_identity.sql` + `lib/sherdog/client.ts` (the one wrapper: integer-id validation, 1.5s throttle, injectable fetch) + `identityGuard.ts` (the name-assertion guard) + failing tests | **code done, migration not yet applied** (2026-09-07) |
 | J2 | Parsers + saved-HTML fixtures + failing tests: bio, headline record, fight history, name search | **done** (2026-09-07) — 6 trimmed real fixtures, 56 tests. The headline-record-equals-counted-rows cross-check passes on all 4 fighter fixtures (the invariant J4/J5 lean on). Every history row on every fixture carries method + round + opponent id + date |
 | J3 | `resolveSherdogIdentity` (search → auto-match \| conflict \| no-candidates) + identity job over the upcoming-card queue. Dry-run first | **code done, migration 0037 not yet applied; live dry-run of first 20 looked right (15 auto-match, 2 queue, 3 not-in-Sherdog)** (2026-09-07) |
-| J3b | `/conflicts` card + resolver + api.ts branch + action to resolve a `low_confidence_sherdog_match` → write `sherdog_id` | **code done** (2026-09-07) — `resolveSherdogMatch.ts` (pure, 6 tests), `LowConfidenceSherdogMatchCard`, `resolveSherdogMatchAction` (owner-gated, re-fetches the row, relies on the `sherdog_id` unique constraint as the race safety net), `ConflictCard` exhaustiveness extended. Migration 0037 still needs applying before a live J3 run |
+| J3b | `/conflicts` card + resolver + api.ts branch + action to resolve a `low_confidence_sherdog_match` → write `sherdog_id` | **done** (2026-09-07) — `resolveSherdogMatch.ts` (pure), `LowConfidenceSherdogMatchCard` (shows why it was queued), `resolveSherdogMatchAction` (owner-gated, `sherdog_id` unique constraint is the race net). Migration 0037 applied |
+| J3-review | `reviewer` pass on J1–J3b, then fixes | **done** (2026-09-07) — see below |
 | J4 | `importFighterHistory` + history backfill job. Dry-run prints: fighters in scope, fights to insert, NEW events to create, name-mismatch count | pending |
 | J5 | Record source switch — Sherdog headline wins for linked fighters; `recomputeFighterRecords` skips them; opponent-stub headline fetch | pending |
 | J6 | API-Sports enrichment narrowed to reach/stance only + schedule wiring + `PROJECT_FACTS.md`/`CHANGES.md` close-out | pending |
 
-**J3 live findings (dry-run, first 20 upcoming-card fighters).** ~75%
-auto-match at confidence 1.00, each confirmed by the page-name guard.
-The review-queue cases are real: Korean names romanized family-name-first
-on Sherdog ("Choi Doo-ho" vs "Doo Ho Choi", 0.60). The "not in Sherdog"
-cases were mostly a search-normalisation gap, now fixed in
-`sherdogSearchQueries.ts` — Sherdog's fightfinder silently drops a
-diacritic ("Édgar Cháirez" → 0, "Edgar Chairez" → 1) or a "Jr." suffix,
-so the search now retries folded + suffix-stripped before giving up.
+**J3 live findings (dry-run, first 100 upcoming-card fighters).** 87
+auto-match at confidence 1.00, each confirmed by the page-name guard;
+5 review-queue (Korean/Chinese names romanized family-name-first on
+Sherdog — "Choi Doo-ho" vs "Doo Ho Choi"; "Patrício Pitbull" vs
+"Patricio Lima"); 5 not-in-Sherdog; 3 transient Sherdog 500s. Fixes
+that came out of it: `sherdogSearchQueries.ts` retries folded +
+suffix-stripped (Sherdog's fightfinder silently drops a diacritic or a
+"Jr."); `client.ts` retries once on a 5xx.
+
+**J3-review findings and resolution (2026-09-07).**
+
+- **HIGH — exact homonyms would auto-match to whichever Sherdog listed
+  first.** MMA has multiple "Bruno Silva" / "Dong Hyun Kim";
+  `decideSherdogIdentity` only checked `ranked[0] >= threshold`, and the
+  page-name guard short-circuits on an exact string match, so a namesake's
+  entire career could be keyed onto the wrong fighter. **Fixed:** a
+  `low_confidence` decision now carries a `reason`, and two or more
+  candidates both clearing the threshold → `reason: "ambiguous"` → review
+  queue, never an auto-write. The card explains "More than one Sherdog
+  fighter shares this name."
+- **MEDIUM — pro/amateur history split hung on a single `</section>`.**
+  Both tables carry `class="module fight_history"`. **Fixed:** slice to
+  the first `</table>` instead (same cut today, survives a wrapper change).
+- **LOW/MEDIUM — a `parseSearchResults` regression was indistinguishable
+  from "not in Sherdog" and permanent** (fighter stamped
+  `sherdog_checked_at`, never retried). **Fixed:** no-result fighters are
+  held and only marked checked at the end, and a >50% miss rate over a
+  batch of ≥10 throws instead.
+- **LOW — non-atomic conflict-insert + mark-checked could stack duplicate
+  conflict rows.** **Fixed:** `openConflict` skips if an unresolved one
+  already exists for that fighter.
+- **LOW — guard-rejected conflicts showed the just-rejected wrong person
+  as the top "100% match" with no explanation.** **Fixed:** the
+  mismatching page name is snapshotted into `details` and shown.
+- **LOW — `trailingId` regex missed single-digit Sherdog ids** (pre-2010
+  fighters, relevant to J4). **Fixed:** anchor to the last `-digits`.
+- NITs (doc comment on `selectAllPages` ordering; job function renamed
+  `resolveUpcomingCardSherdogIds`) also fixed.
+- Reviewer confirmed sound: `buildSherdogMatchResolution` /
+  `resolveSherdogMatchAction`, the `dryRun` write-gating, the job's
+  db-read-safety, `sherdog_checked_at` resumability, parser-vs-fixture
+  exactness, `validateSherdogId`, both migrations.
 
 ---
 

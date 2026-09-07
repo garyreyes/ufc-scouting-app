@@ -248,6 +248,10 @@ function resolveSherdogMatchDisplays(rows: ConflictRow[]): import("./types").Low
       kind: "low_confidence_sherdog_match" as const,
       detectedAt: r.detected_at,
       storedName: details.storedName,
+      // Older rows (written before J3's review pass) have no `reason`;
+      // default to the least-alarming explanation.
+      reason: details.reason ?? "below_threshold",
+      ...(details.guardMismatchPageName ? { guardMismatchPageName: details.guardMismatchPageName } : {}),
       candidates: details.candidates,
     };
   });

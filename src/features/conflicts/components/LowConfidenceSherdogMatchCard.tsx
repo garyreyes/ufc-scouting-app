@@ -18,6 +18,20 @@ function describe(c: LowConfidenceSherdogMatchDisplay["candidates"][number]): st
   return bits.length > 0 ? ` — ${bits.join(", ")}` : "";
 }
 
+function whyQueued(conflict: LowConfidenceSherdogMatchDisplay): string {
+  switch (conflict.reason) {
+    case "ambiguous":
+      return "More than one Sherdog fighter shares this name — pick the right one.";
+    case "guard_mismatch":
+      return conflict.guardMismatchPageName
+        ? `Auto-match pointed at a page named "${conflict.guardMismatchPageName}" — likely the wrong person.`
+        : "The auto-matched page looked like a different person.";
+    case "below_threshold":
+    default:
+      return "No candidate was a confident enough name match to link automatically.";
+  }
+}
+
 /**
  * J3b: a fighter's best Sherdog search candidate didn't clear the
  * auto-match threshold -- a name-order swap ("Aori Qileng" vs Sherdog's
@@ -54,6 +68,7 @@ export function LowConfidenceSherdogMatchCard({
     <div className={styles.card}>
       <div className={styles.kindLabel}>Sherdog match needs review</div>
       <div className={styles.eventMeta}>{conflict.storedName}</div>
+      <p className={styles.optionHint}>{whyQueued(conflict)}</p>
       {conflict.candidates.length === 0 ? (
         <p className={styles.noCandidates}>No Sherdog candidates — nothing to match yet.</p>
       ) : (

@@ -28,7 +28,11 @@ function clean(s: string): string {
 }
 
 function trailingId(href: string): number | null {
-  const m = href.match(/-(\d{2,9})\b/);
+  // Anchor to the LAST -digits: a slug can contain numbers, and
+  // single-digit ids exist for old fighters. See the same helper in
+  // parseFightHistory.ts.
+  const path = href.split(/[?#]/)[0];
+  const m = path.match(/-(\d{1,9})$/);
   return m ? Number(m[1]) : null;
 }
 

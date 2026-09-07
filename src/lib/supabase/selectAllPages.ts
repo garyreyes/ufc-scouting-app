@@ -59,10 +59,12 @@ export interface PageQueryNarrowing {
  * client for everything else.
  *
  * `filter` is an optional narrowing hook -- `(q) => q.gte("event_date",
- * today)` or `.in("event_id", ids)`. It runs before the keyset order and
- * limit, so it must only add row filters (`.eq` / `.gte` / `.lt` /
- * `.in` / `.is` / `.not`); adding an `.order()` or `.limit()` of its own
- * would fight the pagination. `columns` must still include `id`, filtered
+ * today)` or `.in("event_id", ids)`. It must ONLY add row filters (`.eq`
+ * / `.gte` / `.lt` / `.in` / `.is` / `.not`) -- an `.order()` or
+ * `.limit()` of its own would fight the keyset pagination this helper
+ * applies (order by `id`, limit 1000, cursor `id > last`). Row filters
+ * compose order-independently with that, so it is applied right after
+ * the base query is built. `columns` must still include `id`, filtered
  * or not, since the cursor is `id`.
  */
 export async function selectAllPages<T extends { id: string }>(

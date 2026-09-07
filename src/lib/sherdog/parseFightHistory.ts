@@ -39,7 +39,12 @@ function stripTags(s: string): string {
 }
 
 function trailingId(href: string): number | null {
-  const m = href.match(/-(\d{2,9})(?:$|["/?#])/);
+  // Sherdog hrefs end "...-<id>". A slug can itself contain numbers
+  // ("...-2-<id>" for a rematch page), so anchor to the LAST -digits at
+  // the end of the path, after stripping any query/hash. Single-digit
+  // ids exist for pre-2010 fighters (matters for J4's history import).
+  const path = href.split(/[?#]/)[0];
+  const m = path.match(/-(\d{1,9})$/);
   return m ? Number(m[1]) : null;
 }
 
@@ -50,10 +55,16 @@ function trailingId(href: string): number | null {
  * page parsed at all elsewhere (bio/name present).
  */
 export function parseFightHistory(html: string): SherdogHistoryFight[] {
+  // The PRO and AMATEUR history tables carry the IDENTICAL
+  // class="module fight_history"; only document order separates them
+  // (pro first). Slice to the first </table> after the pro block's start
+  // -- there is nothing but whitespace between </table> and the next
+  // </section>, so this is the same cut today but survives Sherdog
+  // changing the section wrapper, which </section> would not.
   const start = html.indexOf('class="module fight_history"');
   if (start === -1) return [];
-  const sectionEnd = html.indexOf("</section>", start);
-  const table = html.slice(start, sectionEnd === -1 ? undefined : sectionEnd);
+  const tableEnd = html.indexOf("</table>", start);
+  const table = html.slice(start, tableEnd === -1 ? undefined : tableEnd);
 
   const out: SherdogHistoryFight[] = [];
   for (const rowMatch of table.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {

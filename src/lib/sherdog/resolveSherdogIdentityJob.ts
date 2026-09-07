@@ -53,7 +53,7 @@ function chunk<T>(items: T[], size: number): T[][] {
  * you how many auto-match, how many land in the review queue, and how
  * many Sherdog doesn't have, before a single row changes.
  */
-export async function resolveSherdogIdentity(
+export async function resolveUpcomingCardSherdogIds(
   supabase: SupabaseClient,
   opts: Options = {},
 ): Promise<SherdogIdentitySummary> {
@@ -104,6 +104,14 @@ export async function resolveSherdogIdentity(
     if (queue.length >= batchSize) break;
   }
 
+  // no_candidates fighters are held here, not marked checked inline: a
+  // Sherdog results-table markup change makes EVERY search look empty,
+  // and marking a whole batch "checked, not in Sherdog" would bury those
+  // fighters permanently with no error. They're only committed at the
+  // end, and only if the miss rate looks like real absences rather than
+  // a parser regression.
+  const notFound: string[] = [];
+
   for (const fighter of queue.slice(0, batchSize)) {
     summary.attempted++;
     const checkedAt = now().toISOString();
@@ -114,7 +122,7 @@ export async function resolveSherdogIdentity(
       if (decision.kind === "no_candidates") {
         summary.noCandidates++;
         if (dryRun) console.log(`  no Sherdog result   ${fighter.name}`);
-        if (!dryRun) await markChecked(supabase, fighter.id, checkedAt);
+        notFound.push(fighter.id);
         continue;
       }
 
@@ -123,12 +131,12 @@ export async function resolveSherdogIdentity(
         if (dryRun) {
           const ranked = rankSherdogCandidates(fighter.name, candidates);
           console.log(
-            `  review queue        ${fighter.name} -> best "${ranked[0]?.name}" ` +
+            `  review queue (${decision.reason})  ${fighter.name} -> best "${ranked[0]?.name}" ` +
               `#${ranked[0]?.sherdogId} @ ${ranked[0]?.confidence.toFixed(2)} (${candidates.length} candidates)`,
           );
         }
         if (!dryRun) {
-          await openConflict(supabase, fighter, candidates);
+          await openConflict(supabase, fighter, candidates, decision.reason);
           await markChecked(supabase, fighter.id, checkedAt);
         }
         continue;
@@ -148,7 +156,7 @@ export async function resolveSherdogIdentity(
           );
         }
         if (!dryRun) {
-          await openConflict(supabase, fighter, candidates);
+          await openConflict(supabase, fighter, candidates, "guard_mismatch", pageName);
           await markChecked(supabase, fighter.id, checkedAt);
         }
         continue;
@@ -173,6 +181,24 @@ export async function resolveSherdogIdentity(
     }
   }
 
+  // A high miss rate over a non-trivial batch is the signature of a
+  // broken parseSearchResults, not of that many fighters genuinely
+  // missing from Sherdog. Fail loudly and leave them unmarked so they
+  // retry once the parser is fixed.
+  const decided = summary.attempted - summary.failed;
+  if (decided >= 10 && notFound.length / decided > 0.5) {
+    throw new Error(
+      `Sherdog search returned nothing for ${notFound.length}/${decided} fighters -- ` +
+        `refusing to mark them checked, this looks like a parseSearchResults regression.`,
+    );
+  }
+
+  if (!dryRun) {
+    for (const fighterId of notFound) {
+      await markChecked(supabase, fighterId, now().toISOString());
+    }
+  }
+
   return summary;
 }
 
@@ -188,10 +214,25 @@ async function openConflict(
   supabase: SupabaseClient,
   fighter: { id: string; name: string },
   candidates: Awaited<ReturnType<typeof searchSherdogFighters>>,
+  reason: "below_threshold" | "ambiguous" | "guard_mismatch",
+  guardMismatchPageName?: string,
 ): Promise<void> {
+  // Don't stack a second row for a fighter that already has an open one
+  // (a prior run that inserted the conflict but then failed before
+  // marking the fighter checked). `fighterId` lives in the JSON details.
+  const { data: existing, error: existingError } = await supabase
+    .from("data_conflicts")
+    .select("id")
+    .eq("kind", "low_confidence_sherdog_match")
+    .is("resolved_at", null)
+    .eq("details->>fighterId", fighter.id)
+    .limit(1);
+  if (existingError) throw existingError;
+  if (existing && existing.length > 0) return;
+
   const ranked = rankSherdogCandidates(fighter.name, candidates);
   const { error } = await supabase
     .from("data_conflicts")
-    .insert(buildSherdogConflictInsert(fighter.id, fighter.name, ranked, candidates));
+    .insert(buildSherdogConflictInsert(fighter.id, fighter.name, ranked, candidates, reason, guardMismatchPageName));
   if (error) throw error;
 }
