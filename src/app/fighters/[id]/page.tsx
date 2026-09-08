@@ -54,8 +54,9 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
         <Stat label="Record" value={formatRecord(fighter)} />
       </dl>
       <p className={styles.recordNote}>
-        Record counts only fights this app tracks (2022 onward, thinner before 2025) — not a full
-        career total.
+        {fighter.sherdog_history_imported_at
+          ? "Full career record, from Sherdog — the bout-by-bout list is under Full Career below."
+          : "Record counts only fights this app tracks (2022 onward, thinner before 2025) — not a full career total."}
       </p>
 
       <h2>Fight History</h2>

@@ -20,7 +20,8 @@ async function main() {
     // different populations -- this one is every row in the table before
     // any resolution filter is applied, not just the decisive ones -- so
     // this is worded to not look like a mismatched pair of the same number.
-    `Record recompute: ${records.fightsCounted} fights read, ${records.fightersUpdated} fighter records changed.`,
+    `Record recompute: ${records.fightsCounted} fights read, ${records.fightersUpdated} fighter records changed, ` +
+      `${records.sherdogSourced} sourced from Sherdog.`,
   );
 }
 

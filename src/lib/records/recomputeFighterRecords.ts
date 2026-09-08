@@ -1,10 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { selectAllPages } from "../supabase/selectAllPages";
 import { deriveFighterRecords, type FighterRecord } from "./deriveFighterRecords";
+import { deriveSherdogRecords, type SherdogBoutForRecord } from "./deriveSherdogRecords";
+import { applySherdogRecordOverride } from "./applySherdogRecordOverride";
 
 export interface RecomputeRecordsSummary {
   fightsCounted: number;
   fightersUpdated: number;
+  // How many fighters' records came from Sherdog instead of the graph (J5).
+  sherdogSourced: number;
 }
 
 // One .in() filter goes into the query STRING, so a few hundred uuids at
@@ -56,9 +60,10 @@ export async function recomputeFighterRecords(
     wins: number;
     losses: number;
     draws: number;
-  }>(supabase, "fighters", "id, wins, losses, draws");
+    sherdog_history_imported_at: string | null;
+  }>(supabase, "fighters", "id, wins, losses, draws, sherdog_history_imported_at");
 
-  const derived = deriveFighterRecords(
+  const graphDerived = deriveFighterRecords(
     fightRows.map((f) => ({
       fighter1Id: f.fighter1_id,
       fighter2Id: f.fighter2_id,
@@ -66,6 +71,24 @@ export async function recomputeFighterRecords(
       method: f.method,
     })),
   );
+
+  // J5: a Sherdog-linked fighter's record comes from their full imported
+  // career (fighter_sherdog_bouts), not this app's partial fight graph.
+  // Elo is untouched -- it ran before this step, on the graph, and the
+  // J4 decision keeps Sherdog bouts out of Elo entirely.
+  const boutRows = await selectAllPages<{ id: string; fighter_id: string; result: string }>(
+    supabase,
+    "fighter_sherdog_bouts",
+    "id, fighter_id, result",
+  );
+  const sherdogRecords = deriveSherdogRecords(
+    boutRows.map((r) => ({ fighterId: r.fighter_id, result: r.result as SherdogBoutForRecord["result"] })),
+  );
+  const sherdogLinkedIds = fighterRows
+    .filter((r) => r.sherdog_history_imported_at !== null)
+    .map((r) => r.id);
+
+  const derived = applySherdogRecordOverride(graphDerived, sherdogRecords, sherdogLinkedIds);
 
   // Grouped by the record itself, so the whole roster is written in a
   // handful of requests rather than one per fighter -- there are only
@@ -101,5 +124,5 @@ export async function recomputeFighterRecords(
     }
   }
 
-  return { fightsCounted: fightRows.length, fightersUpdated };
+  return { fightsCounted: fightRows.length, fightersUpdated, sherdogSourced: sherdogLinkedIds.length };
 }
