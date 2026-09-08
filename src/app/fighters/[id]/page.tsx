@@ -27,6 +27,11 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
 
   const { fighter, fights, sherdogBouts } = result;
 
+  // The record is Sherdog-sourced (J5) only when the import ran AND there
+  // are actual bouts -- a linked fighter whose Sherdog page is still an
+  // empty stub keeps the app-graph count.
+  const recordFromSherdog = Boolean(fighter.sherdog_history_imported_at) && sherdogBouts.length > 0;
+
   // Placeholder fighters synced from Wikipedia (upcoming fights only, no
   // API-Sports profile yet) have no weight_class of their own -- fall back
   // to their most recent fight's weight class rather than showing
@@ -54,7 +59,7 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
         <Stat label="Record" value={formatRecord(fighter)} />
       </dl>
       <p className={styles.recordNote}>
-        {fighter.sherdog_history_imported_at
+        {recordFromSherdog
           ? "Full career record, from Sherdog — the bout-by-bout list is under Full Career below."
           : "Record counts only fights this app tracks (2022 onward, thinner before 2025) — not a full career total."}
       </p>

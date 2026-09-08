@@ -2941,3 +2941,58 @@ the full findings list.
 headline W-L-D becomes the record for a linked fighter, replacing the
 graph-derived count), J6 (narrow API-Sports enrichment to reach/stance,
 put the identity job on a schedule).
+
+## Phase 66 (J4–J5) — Sherdog fight history + full-career records (2026-09-09)
+
+Follows Phase 65. J4 imports a Sherdog-linked fighter's full career into
+a read-only sidecar; J5 makes that career the fighter's record.
+
+**J4 — the sidecar (PR #57).**
+
+- `0038`: `fighter_sherdog_bouts` (opponent + event by Sherdog id + name
+  text, no foreign keys; public-read like the rest of the catalog) + 6
+  `sherdog_*_by_*` finish-breakdown columns + `sherdog_history_imported_at`
+  on `fighters`. **Deliberately not merged into `fights`/`events`/Elo**
+  (fork decided with the user) — a fighter's ~30-55 bouts against regional
+  opponents don't belong in the app's own graph, and the record comes from
+  Sherdog's headline anyway.
+- `lib/sherdog/`: `parseSherdogDate` (real leap-year check),
+  `buildSherdogBoutRows` (refuses a page that doesn't reconcile against
+  its own headline record), `importSherdogHistoryJob` (upsert +
+  delete-stale-tail, `--dry-run` / `--refresh` / `--sherdog-id`).
+- `parseFighterPage` fix: the headline record class suffix is `draws`
+  (later `draws?` for both) not `draw` — the dry-run caught this, 20
+  fighters with a real draw were being skipped.
+- `/fighters/[id]`: a "Full Career (Sherdog)" section with the finish
+  split.
+- Ran live: **2,545 bouts across 128 fighters**, 0 skipped, 0 failed.
+
+**J5 — the record switch (this PR).**
+
+- For a Sherdog-linked fighter with imported bouts, `fighters.wins/
+  losses/draws` now come from counting `fighter_sherdog_bouts`, not the
+  app's 2022-onward fight graph. `deriveSherdogRecords` +
+  `applySherdogRecordOverride`, pure and test-first. A linked fighter
+  whose Sherdog page is still an empty stub keeps the graph count.
+- **Elo is untouched** — it runs earlier in the settlement chain, on the
+  graph; Sherdog bouts never feed it.
+- `recomputeFighterRecords` reads the bouts + the linked flag and applies
+  the override before its existing column-scoped, change-only write.
+  `npm run records:recompute` added as a standalone runner.
+- Ran live: 128 fighters switched to full-career records — Alexandre
+  Pantoja 1-1 → 30-6, Deiveson Figueiredo 1-3 → 25-7-1, Marlon Vera
+  0-2 → 23-12-1.
+
+**Known interim state:** until J6 puts `sherdog:import-history` on a
+schedule, a linked fighter's record does not move when they fight again
+until someone runs `sherdog:import-history --refresh` + `records:recompute`.
+
+**Status:** `npm run lint` / `npm run test` (559) / `npm run build` all
+green. `reviewer` pass on each — J4: one MEDIUM (`--refresh` write path
+could zero a fighter's bouts on a mid-write failure, fixed with upsert +
+marker-clear); J5: no HIGH/MEDIUM, one LOW fixed (stub-page fighter
+keeps the graph count). Full findings in `ROADMAP.md` Phase J.
+
+**Not in this PR:** J6 (narrow API-Sports enrichment to reach/stance,
+schedule the jobs), J7 (Sherdog as a third settlement source — the phase
+that would speed up settlement / the scoreboard / `disputed_result`).

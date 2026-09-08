@@ -23,9 +23,9 @@ describe("applySherdogRecordOverride", () => {
     expect(out.get(B)).toEqual(rec(5, 2));
   });
 
-  it("a linked fighter with no Sherdog bouts becomes 0-0-0 (Sherdog says fightless)", () => {
+  it("a linked fighter with no countable Sherdog bouts keeps the graph count (Sherdog page is a stub)", () => {
     const out = applySherdogRecordOverride(new Map([[A, rec(2, 0)]]), new Map(), [A]);
-    expect(out.get(A)).toEqual(rec(0, 0, 0));
+    expect(out.get(A)).toEqual(rec(2, 0));
   });
 
   it("a linked fighter absent from the graph still gets their Sherdog record", () => {
@@ -39,7 +39,7 @@ describe("applySherdogRecordOverride", () => {
     expect(graph.get(A)).toEqual(rec(3, 1));
   });
 
-  it("handles a mix: one linked, one not, one linked-and-fightless", () => {
+  it("handles a mix: one linked-with-bouts, one unlinked, one linked-but-stub", () => {
     const out = applySherdogRecordOverride(
       new Map([
         [A, rec(3, 1)],
@@ -49,8 +49,8 @@ describe("applySherdogRecordOverride", () => {
       new Map([[A, rec(25, 3)]]),
       [A, C],
     );
-    expect(out.get(A)).toEqual(rec(25, 3)); // linked -> sherdog
+    expect(out.get(A)).toEqual(rec(25, 3)); // linked + sherdog bouts -> sherdog
     expect(out.get(B)).toEqual(rec(7, 7)); // unlinked -> graph
-    expect(out.get(C)).toEqual(rec(0, 0, 0)); // linked, no sherdog bouts -> zero
+    expect(out.get(C)).toEqual(rec(1, 0)); // linked but no sherdog bouts -> graph
   });
 });
