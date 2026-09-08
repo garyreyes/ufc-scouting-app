@@ -20,7 +20,8 @@
     "fighters:enrich": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runFighterEnrichmentJob.ts",
     "fights:sweep-disputed-opponents": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runSweepLatentDisputedOpponents.ts",
     "fights:backfill-history": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runFightHistoryBackfillJob.ts",
-    "fights:backfill-wikipedia": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runWikipediaHistoryBackfillJob.ts"
+    "fights:backfill-wikipedia": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runWikipediaHistoryBackfillJob.ts",
+    "sherdog:resolve-identity": "dotenv -e .env.local -- tsx src/lib/sherdog/runResolveSherdogIdentityJob.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

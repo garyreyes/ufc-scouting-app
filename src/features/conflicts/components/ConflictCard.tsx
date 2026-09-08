@@ -3,14 +3,15 @@ import { DisputedOpponentCard } from "./DisputedOpponentCard";
 import { LowConfidenceCard } from "./LowConfidenceCard";
 import { DisputedResultCard } from "./DisputedResultCard";
 import { LowConfidenceFighterMatchCard } from "./LowConfidenceFighterMatchCard";
+import { LowConfidenceSherdogMatchCard } from "./LowConfidenceSherdogMatchCard";
 
-// One queue, four kinds (ARCHITECTURE.md Fork 5, plus disputed_result
-// from D1 and low_confidence_fighter_match from I2) -- this is the single
-// dispatch point, so the page itself doesn't need to know the shapes
-// apart. Switched, not if/else-fallthrough: an unhandled kind is a
-// compile error here rather than silently rendering the wrong card's
-// shape (the exact risk a new kind landing without a matching UI branch
-// would otherwise create).
+// One queue, five kinds (ARCHITECTURE.md Fork 5, plus disputed_result
+// from D1, low_confidence_fighter_match from I2, low_confidence_sherdog_
+// match from J3) -- this is the single dispatch point, so the page
+// itself doesn't need to know the shapes apart. Switched, not
+// if/else-fallthrough: an unhandled kind is a compile error here rather
+// than silently rendering the wrong card's shape (the exact risk a new
+// kind landing without a matching UI branch would otherwise create).
 export function ConflictCard({ conflict }: { conflict: ConflictDisplay }) {
   switch (conflict.kind) {
     case "disputed_opponent":
@@ -21,6 +22,8 @@ export function ConflictCard({ conflict }: { conflict: ConflictDisplay }) {
       return <DisputedResultCard conflict={conflict} />;
     case "low_confidence_fighter_match":
       return <LowConfidenceFighterMatchCard conflict={conflict} />;
+    case "low_confidence_sherdog_match":
+      return <LowConfidenceSherdogMatchCard conflict={conflict} />;
     default: {
       // Compile-time exhaustiveness check, not just convention: adding a
       // new kind without a matching case above breaks this build, since

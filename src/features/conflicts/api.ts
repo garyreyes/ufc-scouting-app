@@ -7,6 +7,7 @@ import type {
   DisputedResultDetails,
   LowConfidenceDetails,
   LowConfidenceFighterMatchDetails,
+  LowConfidenceSherdogMatchDetails,
   ConflictDisplay,
 } from "./types";
 
@@ -58,9 +59,19 @@ export async function getOpenDisputedFightIds(fightIds: string[]): Promise<Set<s
 
 interface ConflictRow {
   id: string;
-  kind: "disputed_opponent" | "low_confidence_odds_match" | "disputed_result" | "low_confidence_fighter_match";
+  kind:
+    | "disputed_opponent"
+    | "low_confidence_odds_match"
+    | "disputed_result"
+    | "low_confidence_fighter_match"
+    | "low_confidence_sherdog_match";
   fight_id: string | null;
-  details: DisputedOpponentDetails | LowConfidenceDetails | DisputedResultDetails | LowConfidenceFighterMatchDetails;
+  details:
+    | DisputedOpponentDetails
+    | LowConfidenceDetails
+    | DisputedResultDetails
+    | LowConfidenceFighterMatchDetails
+    | LowConfidenceSherdogMatchDetails;
   detected_at: string;
 }
 
@@ -81,22 +92,30 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
   const lowConfidence = conflicts.filter((c) => c.kind === "low_confidence_odds_match");
   const disputedResult = conflicts.filter((c) => c.kind === "disputed_result");
   const lowConfidenceFighter = conflicts.filter((c) => c.kind === "low_confidence_fighter_match");
+  const lowConfidenceSherdog = conflicts.filter((c) => c.kind === "low_confidence_sherdog_match");
 
-  const [disputedOpponentDisplays, lowConfidenceDisplays, disputedResultDisplays, lowConfidenceFighterDisplays] =
-    await Promise.all([
-      resolveDisputedDisplays(admin, disputedOpponent),
-      resolveLowConfidenceDisplays(admin, lowConfidence),
-      resolveDisputedResultDisplays(admin, disputedResult),
-      resolveFighterMatchDisplays(lowConfidenceFighter),
-    ]);
+  const [
+    disputedOpponentDisplays,
+    lowConfidenceDisplays,
+    disputedResultDisplays,
+    lowConfidenceFighterDisplays,
+    lowConfidenceSherdogDisplays,
+  ] = await Promise.all([
+    resolveDisputedDisplays(admin, disputedOpponent),
+    resolveLowConfidenceDisplays(admin, lowConfidence),
+    resolveDisputedResultDisplays(admin, disputedResult),
+    resolveFighterMatchDisplays(lowConfidenceFighter),
+    resolveSherdogMatchDisplays(lowConfidenceSherdog),
+  ]);
 
-  // Restore detected_at order rather than the four-group split above.
+  // Restore detected_at order rather than the five-group split above.
   const byId = new Map(
     [
       ...disputedOpponentDisplays,
       ...lowConfidenceDisplays,
       ...disputedResultDisplays,
       ...lowConfidenceFighterDisplays,
+      ...lowConfidenceSherdogDisplays,
     ].map((d) => [d.id, d]),
   );
   return conflicts.map((c) => byId.get(c.id)).filter((d): d is ConflictDisplay => d !== undefined);
@@ -214,6 +233,25 @@ function resolveFighterMatchDisplays(rows: ConflictRow[]): import("./types").Low
       kind: "low_confidence_fighter_match" as const,
       detectedAt: r.detected_at,
       storedName: details.storedName,
+      candidates: details.candidates,
+    };
+  });
+}
+
+// Same plain reshape -- lib/sherdog snapshots storedName + the full
+// ranked candidate list into details at detection.
+function resolveSherdogMatchDisplays(rows: ConflictRow[]): import("./types").LowConfidenceSherdogMatchDisplay[] {
+  return rows.map((r) => {
+    const details = r.details as LowConfidenceSherdogMatchDetails;
+    return {
+      id: r.id,
+      kind: "low_confidence_sherdog_match" as const,
+      detectedAt: r.detected_at,
+      storedName: details.storedName,
+      // Older rows (written before J3's review pass) have no `reason`;
+      // default to the least-alarming explanation.
+      reason: details.reason ?? "below_threshold",
+      ...(details.guardMismatchPageName ? { guardMismatchPageName: details.guardMismatchPageName } : {}),
       candidates: details.candidates,
     };
   });

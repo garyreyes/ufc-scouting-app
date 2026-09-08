@@ -2893,3 +2893,51 @@ tonight, so this went in first.
 **Status:** `npm run lint` / `npm run test` (423, +3) / `npm run build`
 all green. With Phase 63 (the `features/picks/` read sites) this closes
 every known `numeric`-as-string read of `picks` in the app.
+
+## Phase 65 (J1–J3b) — Sherdog as the fighter identity spine (2026-09-07)
+
+A user question about paying for a Tapology feed turned into a data-source
+comparison (`ROADMAP.md` Phase J, `PROJECT_FACTS.md` "Data sources"). The
+paid option breaks the hard $0 constraint and is an unofficial scrape
+reseller anyway; API-Sports Pro still serves no record field and is still
+name-keyed. Sherdog — no API key, `robots.txt` `Allow: /`, full career
+history back to a fighter's debut — was verified with a live spike and
+chosen as a third source.
+
+**Why it matters.** Every duplicate-fighter conflict this app has hit
+(the 10 clusters in I2c, the André/Andre split) exists because identity
+was a *name string*. Sherdog gives every fighter a stable integer id.
+
+Shipped in this PR (J1–J3b of Phase J; J4–J6 to follow):
+
+- **`0036`**: `fighters.sherdog_id integer unique` + `sherdog_checked_at`
+  queue marker. **`0037`**: 5th `data_conflicts` kind
+  `low_confidence_sherdog_match`. Both applied to `vrwlfcywyfzfczajpdoh`.
+- **`lib/sherdog/`**: the one fetch wrapper (integer-id validation, 1.5s
+  throttle, retry-once on 5xx), the page-name guard (a wrong id returns
+  HTTP 200 for a *different* real fighter — verified), pure parsers for
+  the fighter page / fight history / search results pinned against 6
+  saved real fixtures, and the identity job.
+- **Identity job** (`npm run sherdog:resolve-identity`, `--dry-run`):
+  resolves `sherdog_id` for fighters on upcoming cards. Auto-matches only
+  when one candidate clears 0.85 name similarity AND the fetched page's
+  name passes the guard; two+ name-tied candidates run a fight-count
+  tie-break (a 2-bout regional namesake is not on a UFC card) before
+  falling back to the review queue.
+- **`/conflicts`**: a card + owner-gated action to resolve a
+  `low_confidence_sherdog_match` by picking the right Sherdog fighter,
+  writing the integer id. `sherdog_id` unique constraint is the race net.
+- Ran live across the 146-fighter upcoming-card roster: **128 got a
+  verified `sherdog_id`**, 13 opened conflicts, 5 aren't on Sherdog.
+  0 duplicates, 0 failures.
+
+**Status:** `npm run lint` / `npm run test` (521) / `npm run build` all
+green. `reviewer` pass on J1–J3b: one HIGH (exact homonyms would
+auto-match to whichever Sherdog listed first) plus 6 lower — all fixed
+(the homonym fix is the tie-break above). See `ROADMAP.md` Phase J for
+the full findings list.
+
+**Not in this PR:** J4 (import the fight history / events), J5 (Sherdog's
+headline W-L-D becomes the record for a linked fighter, replacing the
+graph-derived count), J6 (narrow API-Sports enrichment to reach/stance,
+put the identity job on a schedule).

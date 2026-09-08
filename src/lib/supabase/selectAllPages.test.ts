@@ -119,6 +119,50 @@ describe("selectAllPages", () => {
     expect(result.map((r) => r.id)).toEqual(expectedIds);
   });
 
+  it("applies an optional filter callback before paginating, and still cursors by id", async () => {
+    interface DatedRow extends Row {
+      event_date: string;
+    }
+    const rows: DatedRow[] = [
+      { id: padId(1), event_date: "2020-01-01" },
+      { id: padId(2), event_date: "2030-06-01" },
+      { id: padId(3), event_date: "2030-07-01" },
+    ];
+    const fake = {
+      from() {
+        return {
+          select() {
+            let gtValue: string | null = null;
+            let predicate: (r: DatedRow) => boolean = () => true;
+            const builder = {
+              order: () => builder,
+              gte(column: string, value: string) {
+                predicate = (r) => String((r as unknown as Record<string, unknown>)[column]) >= value;
+                return builder;
+              },
+              gt(_c: string, v: string) {
+                gtValue = v;
+                return builder;
+              },
+              limit: () => builder,
+              then(resolve: (result: { data: DatedRow[]; error: null }) => void) {
+                let out = [...rows].sort((a, b) => (a.id < b.id ? -1 : 1)).filter(predicate);
+                if (gtValue !== null) out = out.filter((r) => r.id > (gtValue as string));
+                resolve({ data: out, error: null });
+              },
+            };
+            return builder;
+          },
+        };
+      },
+    } as unknown as SupabaseClient;
+
+    const result = await selectAllPages<DatedRow>(fake, "events", "id, event_date", (q) =>
+      q.gte("event_date", "2025-01-01"),
+    );
+    expect(result.map((r) => r.id)).toEqual([padId(2), padId(3)]);
+  });
+
   it("does not duplicate a row when a new row is inserted ahead of the cursor between page fetches", async () => {
     // The mirror case: an insert landing AFTER the already-read cursor
     // (a fresh uuid sorts unpredictably, so this is the common case, not

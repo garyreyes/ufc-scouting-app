@@ -98,11 +98,50 @@ export interface LowConfidenceFighterMatchConflict {
   details: LowConfidenceFighterMatchDetails;
 }
 
+// J3's fifth kind (0037): a fighter's best Sherdog search candidate did
+// not clear SHERDOG_AUTO_MATCH_THRESHOLD. Separate from
+// low_confidence_fighter_match because a Sherdog match resolves by
+// writing an integer fighters.sherdog_id, and its candidates carry no
+// reach/stance -- see lib/sherdog/resolveSherdogIdentity.ts. Candidates
+// are the full ranked list, snapshotted at detection (a Sherdog re-fetch
+// later could differ), same "don't re-derive live" reasoning every other
+// kind here documents.
+export interface SherdogMatchCandidate {
+  sherdogId: number;
+  name: string;
+  confidence: number;
+  nickname: string | null;
+  heightImperial: string | null;
+  weightImperial: string | null;
+  association: string | null;
+}
+
+export type SherdogMatchQueueReason = "below_threshold" | "ambiguous" | "guard_mismatch";
+
+export interface LowConfidenceSherdogMatchDetails {
+  fighterId: string;
+  storedName: string;
+  reason: SherdogMatchQueueReason;
+  // Only when reason is 'guard_mismatch': the name on the page the
+  // auto-match would have written.
+  guardMismatchPageName?: string;
+  candidates: SherdogMatchCandidate[];
+}
+
+export interface LowConfidenceSherdogMatchConflict {
+  id: string;
+  kind: "low_confidence_sherdog_match";
+  fightId: null;
+  detectedAt: string;
+  details: LowConfidenceSherdogMatchDetails;
+}
+
 export type Conflict =
   | DisputedOpponentConflict
   | LowConfidenceConflict
   | DisputedResultConflict
-  | LowConfidenceFighterMatchConflict;
+  | LowConfidenceFighterMatchConflict
+  | LowConfidenceSherdogMatchConflict;
 
 // A fight in the same date window as a low-confidence conflict's odds
 // event -- the candidate pool the owner picks from, ranked by the
@@ -173,8 +212,22 @@ export interface LowConfidenceFighterMatchDisplay {
   candidates: FighterMatchCandidate[];
 }
 
+// J3b: like LowConfidenceFighterMatchDisplay, a plain reshape of details
+// -- the Sherdog identity job (lib/sherdog/buildSherdogIdentityWrites.ts)
+// snapshots the full ranked candidate list at detection.
+export interface LowConfidenceSherdogMatchDisplay {
+  id: string;
+  kind: "low_confidence_sherdog_match";
+  detectedAt: string;
+  storedName: string;
+  reason: SherdogMatchQueueReason;
+  guardMismatchPageName?: string;
+  candidates: SherdogMatchCandidate[];
+}
+
 export type ConflictDisplay =
   | DisputedOpponentDisplay
   | LowConfidenceDisplay
   | DisputedResultDisplay
-  | LowConfidenceFighterMatchDisplay;
+  | LowConfidenceFighterMatchDisplay
+  | LowConfidenceSherdogMatchDisplay;

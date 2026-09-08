@@ -8,8 +8,14 @@ import { buildDisputedOpponentResolution } from "./resolveDisputedOpponent";
 import type { DisputedOpponentChoice } from "./resolveDisputedOpponent";
 import { buildLowConfidenceResolution } from "./resolveLowConfidence";
 import { buildFighterMatchResolution } from "./resolveFighterMatch";
+import { buildSherdogMatchResolution } from "./resolveSherdogMatch";
 import { getOpenConflictCount } from "./api";
-import type { DisputedOpponentConflict, LowConfidenceConflict, LowConfidenceFighterMatchConflict } from "./types";
+import type {
+  DisputedOpponentConflict,
+  LowConfidenceConflict,
+  LowConfidenceFighterMatchConflict,
+  LowConfidenceSherdogMatchConflict,
+} from "./types";
 
 /**
  * Same pattern as job-health/actions.ts: data_conflicts, fights, and
@@ -194,6 +200,61 @@ export async function resolveFighterMatchAction(
     // between detection and now, the fighters.external_id unique
     // constraint rejects the write rather than silently creating two
     // rows pointing at the same real person.
+    const { error: fightersError } = await admin
+      .from("fighters")
+      .update(resolution.fightersUpdate)
+      .eq("id", conflict.details.fighterId);
+    if (fightersError) throw fightersError;
+  }
+
+  const { error: conflictError } = await admin
+    .from("data_conflicts")
+    .update(resolution.conflictUpdate)
+    .eq("id", conflictId);
+  if (conflictError) throw conflictError;
+
+  revalidatePath("/conflicts");
+}
+
+/**
+ * J3b: the owner picks the right Sherdog fighter for a
+ * low_confidence_sherdog_match, or rejects every candidate (null). The
+ * fighter's sherdog_checked_at is already set (the identity job set it
+ * when it opened the conflict), so a rejected match simply stays
+ * sherdog_id null and is never auto-searched again.
+ */
+export async function resolveSherdogMatchAction(
+  conflictId: string,
+  chosenSherdogId: number | null,
+): Promise<void> {
+  await requireOwner();
+  const admin = getSupabaseAdmin();
+
+  const { data: row, error } = await admin
+    .from("data_conflicts")
+    .select("id, details")
+    .eq("id", conflictId)
+    .eq("kind", "low_confidence_sherdog_match")
+    .is("resolved_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) throw new Error("Conflict not found or already resolved");
+
+  const conflict: LowConfidenceSherdogMatchConflict = {
+    id: row.id,
+    kind: "low_confidence_sherdog_match",
+    fightId: null,
+    detectedAt: "", // unused by buildSherdogMatchResolution
+    details: row.details as LowConfidenceSherdogMatchConflict["details"],
+  };
+
+  const resolution = buildSherdogMatchResolution(conflict, chosenSherdogId);
+
+  if (resolution.fightersUpdate) {
+    // fighters.sherdog_id is unique -- if the identity job or another
+    // manual resolution claimed this id for a different fighter between
+    // detection and now, this write is rejected rather than pointing two
+    // rows at one Sherdog person.
     const { error: fightersError } = await admin
       .from("fighters")
       .update(resolution.fightersUpdate)

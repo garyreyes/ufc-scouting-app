@@ -1,0 +1,309 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { selectAllPages } from "../supabase/selectAllPages";
+import { fetchFighterHtmlById, type FetchOptions } from "./client";
+import { parseFighterName } from "./parseFighterPage";
+import { searchSherdogFighters } from "./searchFighters";
+import {
+  AMBIGUOUS_TIEBREAK_MAX_CANDIDATES,
+  decideSherdogIdentity,
+  pickTiebreakWinner,
+  rankSherdogCandidates,
+  tiedTopCandidates,
+} from "./resolveSherdogIdentity";
+import { parseFightHistory } from "./parseFightHistory";
+import { sherdogNameMatchesExpected } from "./identityGuard";
+import { buildSherdogConflictInsert, buildSherdogIdentityUpdate } from "./buildSherdogIdentityWrites";
+
+export interface SherdogIdentitySummary {
+  attempted: number;
+  matched: number;
+  queued: number; // low_confidence_sherdog_match conflicts opened
+  guardRejected: number; // search matched but the fetched page's name did not -- also queued
+  noCandidates: number;
+  failed: number;
+  dryRun: boolean;
+}
+
+// The upcoming-card population is ~150 fighters (ROADMAP Phase I). At ~2
+// Sherdog requests per matched fighter and client.ts's 1.5s spacing,
+// 100 is ~5 min -- inside the 15-min job timeout, and two runs clear the
+// backlog. Sherdog costs no metered budget, so this is purely a
+// timeout-safety cap, not a quota one.
+export const DEFAULT_BATCH_SIZE = 100;
+
+const ID_CHUNK = 100; // keep any .in() list well under the URL-length wall
+
+interface Options extends FetchOptions {
+  batchSize?: number;
+  dryRun?: boolean;
+  now?: () => Date;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * J3: resolve fighters.sherdog_id for fighters on upcoming cards.
+ *
+ * Queue = a fighter on an event dated today or later, with sherdog_id
+ * null and sherdog_checked_at null -- "not resolved, not yet attempted"
+ * IS the queue, the same resumable-by-construction shape enrichFighters.ts
+ * uses. sherdog_checked_at is stamped on every terminal outcome (matched,
+ * queued for review, absent from Sherdog) so a fighter is searched once.
+ *
+ * `dryRun: true` performs every read and every Sherdog fetch but writes
+ * NOTHING -- no fighters update, no data_conflicts insert, no
+ * sherdog_checked_at. Run it against production first; the summary tells
+ * you how many auto-match, how many land in the review queue, and how
+ * many Sherdog doesn't have, before a single row changes.
+ */
+export async function resolveUpcomingCardSherdogIds(
+  supabase: SupabaseClient,
+  opts: Options = {},
+): Promise<SherdogIdentitySummary> {
+  const { batchSize = DEFAULT_BATCH_SIZE, dryRun = false, now = () => new Date() } = opts;
+  const fetchOpts: FetchOptions = { spacingMs: opts.spacingMs, fetchImpl: opts.fetchImpl };
+
+  const summary: SherdogIdentitySummary = {
+    attempted: 0,
+    matched: 0,
+    queued: 0,
+    guardRejected: 0,
+    noCandidates: 0,
+    failed: 0,
+    dryRun,
+  };
+
+  const today = now().toISOString().slice(0, 10);
+
+  const events = await selectAllPages<{ id: string }>(supabase, "events", "id", (q) =>
+    q.gte("event_date", today),
+  );
+  if (events.length === 0) return summary;
+
+  const fights: Array<{ fighter1_id: string; fighter2_id: string }> = [];
+  for (const eventChunk of chunk(events.map((e) => e.id), ID_CHUNK)) {
+    const rows = await selectAllPages<{ id: string; fighter1_id: string; fighter2_id: string }>(
+      supabase,
+      "fights",
+      "id, fighter1_id, fighter2_id",
+      (q) => q.in("event_id", eventChunk),
+    );
+    fights.push(...rows);
+  }
+
+  const cardFighterIds = [...new Set(fights.flatMap((f) => [f.fighter1_id, f.fighter2_id]))];
+  if (cardFighterIds.length === 0) return summary;
+
+  const queue: Array<{ id: string; name: string }> = [];
+  for (const idChunk of chunk(cardFighterIds, ID_CHUNK)) {
+    const { data, error } = await supabase
+      .from("fighters")
+      .select("id, name")
+      .in("id", idChunk)
+      .is("sherdog_id", null)
+      .is("sherdog_checked_at", null);
+    if (error) throw error;
+    queue.push(...((data as Array<{ id: string; name: string }>) ?? []));
+    if (queue.length >= batchSize) break;
+  }
+
+  // no_candidates fighters are held here, not marked checked inline: a
+  // Sherdog results-table markup change makes EVERY search look empty,
+  // and marking a whole batch "checked, not in Sherdog" would bury those
+  // fighters permanently with no error. They're only committed at the
+  // end, and only if the miss rate looks like real absences rather than
+  // a parser regression.
+  const notFound: string[] = [];
+
+  for (const fighter of queue.slice(0, batchSize)) {
+    summary.attempted++;
+    const checkedAt = now().toISOString();
+    try {
+      const candidates = await searchSherdogFighters(fighter.name, fetchOpts);
+      const decision = decideSherdogIdentity(fighter.name, candidates);
+
+      if (decision.kind === "no_candidates") {
+        summary.noCandidates++;
+        if (dryRun) console.log(`  no Sherdog result   ${fighter.name}`);
+        notFound.push(fighter.id);
+        continue;
+      }
+
+      if (decision.kind === "low_confidence" && decision.reason === "below_threshold") {
+        summary.queued++;
+        if (dryRun) logQueued(fighter.name, "below_threshold", candidates);
+        if (!dryRun) {
+          await openConflict(supabase, fighter, candidates, "below_threshold");
+          await markChecked(supabase, fighter.id, checkedAt);
+        }
+        continue;
+      }
+
+      // decision.kind === "ambiguous": two+ candidates tied on name. Try
+      // the fight-count tie-break before falling back to the review queue
+      // -- a regional namesake with two bouts is not on a UFC card.
+      if (decision.kind === "low_confidence") {
+        const tied = tiedTopCandidates(fighter.name, candidates);
+        let winner: number | null = null;
+        if (tied.length <= AMBIGUOUS_TIEBREAK_MAX_CANDIDATES) {
+          const facts = await Promise.all(
+            tied.map(async (c) => {
+              const f = await pageFacts(c.sherdogId, fighter.name, fetchOpts);
+              return { sherdogId: c.sherdogId, guardPassed: f.guardPassed, proFightCount: f.proFightCount };
+            }),
+          );
+          winner = pickTiebreakWinner(facts);
+        }
+
+        if (winner === null) {
+          summary.queued++;
+          if (dryRun) logQueued(fighter.name, "ambiguous (tie-break inconclusive)", candidates);
+          if (!dryRun) {
+            await openConflict(supabase, fighter, candidates, "ambiguous");
+            await markChecked(supabase, fighter.id, checkedAt);
+          }
+          continue;
+        }
+
+        summary.matched++;
+        if (dryRun) console.log(`  auto-match (tie-break)  ${fighter.name} -> #${winner}`);
+        if (!dryRun) await writeMatch(supabase, fighter.id, winner, checkedAt);
+        continue;
+      }
+
+      // decision.kind === "matched" -- second gate: the fetched page's
+      // own name must still plausibly be this fighter (a wrong id returns
+      // HTTP 200 for a different person).
+      const facts = await pageFacts(decision.sherdogId, fighter.name, fetchOpts);
+      if (!facts.guardPassed) {
+        summary.guardRejected++;
+        summary.queued++;
+        if (dryRun) {
+          console.log(
+            `  guard rejected      ${fighter.name} -> page #${decision.sherdogId} is "${facts.pageName}"`,
+          );
+        }
+        if (!dryRun) {
+          await openConflict(supabase, fighter, candidates, "guard_mismatch", facts.pageName);
+          await markChecked(supabase, fighter.id, checkedAt);
+        }
+        continue;
+      }
+
+      summary.matched++;
+      if (dryRun) {
+        console.log(
+          `  auto-match          ${fighter.name} -> #${decision.sherdogId} "${facts.pageName}" @ ${decision.confidence.toFixed(2)}`,
+        );
+      }
+      if (!dryRun) await writeMatch(supabase, fighter.id, decision.sherdogId, checkedAt);
+    } catch (err) {
+      summary.failed++;
+      console.error(`Sherdog identity failed for fighter ${fighter.id} (${fighter.name}):`, err);
+    }
+  }
+
+  // A high miss rate over a non-trivial batch is the signature of a
+  // broken parseSearchResults, not of that many fighters genuinely
+  // missing from Sherdog. Fail loudly and leave them unmarked so they
+  // retry once the parser is fixed.
+  const decided = summary.attempted - summary.failed;
+  if (decided >= 10 && notFound.length / decided > 0.5) {
+    throw new Error(
+      `Sherdog search returned nothing for ${notFound.length}/${decided} fighters -- ` +
+        `refusing to mark them checked, this looks like a parseSearchResults regression.`,
+    );
+  }
+
+  if (!dryRun) {
+    for (const fighterId of notFound) {
+      await markChecked(supabase, fighterId, now().toISOString());
+    }
+  }
+
+  return summary;
+}
+
+interface PageFacts {
+  pageName: string;
+  guardPassed: boolean;
+  proFightCount: number;
+}
+
+async function pageFacts(
+  sherdogId: number,
+  storedName: string,
+  fetchOpts: FetchOptions,
+): Promise<PageFacts> {
+  const html = await fetchFighterHtmlById(sherdogId, fetchOpts);
+  const pageName = parseFighterName(html) ?? "";
+  return {
+    pageName,
+    guardPassed: sherdogNameMatchesExpected(storedName, pageName),
+    proFightCount: parseFightHistory(html).length,
+  };
+}
+
+async function writeMatch(
+  supabase: SupabaseClient,
+  fighterId: string,
+  sherdogId: number,
+  checkedAt: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("fighters")
+    .update(buildSherdogIdentityUpdate(sherdogId, checkedAt))
+    .eq("id", fighterId);
+  if (error) throw error;
+}
+
+function logQueued(
+  name: string,
+  label: string,
+  candidates: Awaited<ReturnType<typeof searchSherdogFighters>>,
+): void {
+  const ranked = rankSherdogCandidates(name, candidates);
+  console.log(
+    `  review queue (${label})  ${name} -> best "${ranked[0]?.name}" ` +
+      `#${ranked[0]?.sherdogId} @ ${ranked[0]?.confidence.toFixed(2)} (${candidates.length} candidates)`,
+  );
+}
+
+async function markChecked(supabase: SupabaseClient, fighterId: string, checkedAt: string): Promise<void> {
+  const { error } = await supabase
+    .from("fighters")
+    .update({ sherdog_checked_at: checkedAt })
+    .eq("id", fighterId);
+  if (error) throw error;
+}
+
+async function openConflict(
+  supabase: SupabaseClient,
+  fighter: { id: string; name: string },
+  candidates: Awaited<ReturnType<typeof searchSherdogFighters>>,
+  reason: "below_threshold" | "ambiguous" | "guard_mismatch",
+  guardMismatchPageName?: string,
+): Promise<void> {
+  // Don't stack a second row for a fighter that already has an open one
+  // (a prior run that inserted the conflict but then failed before
+  // marking the fighter checked). `fighterId` lives in the JSON details.
+  const { data: existing, error: existingError } = await supabase
+    .from("data_conflicts")
+    .select("id")
+    .eq("kind", "low_confidence_sherdog_match")
+    .is("resolved_at", null)
+    .eq("details->>fighterId", fighter.id)
+    .limit(1);
+  if (existingError) throw existingError;
+  if (existing && existing.length > 0) return;
+
+  const ranked = rankSherdogCandidates(fighter.name, candidates);
+  const { error } = await supabase
+    .from("data_conflicts")
+    .insert(buildSherdogConflictInsert(fighter.id, fighter.name, ranked, candidates, reason, guardMismatchPageName));
+  if (error) throw error;
+}
