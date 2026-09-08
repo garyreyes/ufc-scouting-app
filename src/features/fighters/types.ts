@@ -16,6 +16,10 @@ export interface Fighter {
   sherdog_losses_by_ko: number | null;
   sherdog_losses_by_sub: number | null;
   sherdog_losses_by_dec: number | null;
+  // Set once the Sherdog history import (J4) ran for this fighter. When
+  // set, wins/losses/draws above are the FULL career record (J5), not
+  // the app's partial fight-graph count.
+  sherdog_history_imported_at: string | null;
 }
 
 // One row from fighter_sherdog_bouts (J4) -- a fighter's full career as

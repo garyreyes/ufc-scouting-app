@@ -8,7 +8,7 @@ export async function getFighters(
 ): Promise<Fighter[]> {
   let request = supabase
     .from("fighters")
-    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec")
+    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec, sherdog_history_imported_at")
     .order("name", { ascending: true });
 
   if (query.trim()) {
@@ -75,7 +75,7 @@ export async function getFighterById(id: string): Promise<{
 } | null> {
   const { data: fighter, error: fighterError } = await supabase
     .from("fighters")
-    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec")
+    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec, sherdog_history_imported_at")
     .eq("id", id)
     .maybeSingle();
   if (fighterError) {

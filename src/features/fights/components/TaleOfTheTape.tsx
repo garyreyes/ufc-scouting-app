@@ -134,9 +134,9 @@ export function TaleOfTheTape({
       })}
 
       <p className={styles.footnote}>
-        Records and Elo count only fights this app tracks (2022 onward, thinner before 2025) — not
-        full career totals. Elo is each fighter&apos;s rating as of today, not their rating on the
-        date of this fight.
+        Elo counts only fights this app tracks (2022 onward, thinner before 2025) and is each
+        fighter&apos;s rating as of today, not their rating on the date of this fight. Records are
+        full career for fighters synced from Sherdog, otherwise app-tracked only.
       </p>
     </section>
   );
