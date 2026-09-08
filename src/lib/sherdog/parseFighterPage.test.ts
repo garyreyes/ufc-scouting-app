@@ -9,6 +9,7 @@ const OLIVEIRA = fx("fighter-oliveira-30300.html");
 const MAKHACHEV = fx("fighter-makhachev-76836.html");
 const QILENG = fx("fighter-qileng-aori-222519.html");
 const LETOI = fx("fighter-letoi-345261.html");
+const FIGUEIREDO = fx("fighter-figueiredo-110485.html");
 
 describe("parseBio", () => {
   it("reads every field from a complete page (Oliveira)", () => {
@@ -52,6 +53,13 @@ describe("parseHeadlineRecord", () => {
     expect(parseHeadlineRecord(LETOI)).toEqual({ wins: 0, losses: 1, draws: 0, noContests: 0 });
   });
 
+  it("Figueiredo: 25-7 with a real DRAW — the class suffix is 'draws', not 'draw'", () => {
+    // Sherdog pluralises the headline class inconsistently (win / lose /
+    // draws / nc). Before this was pinned, every fighter with a real
+    // draw failed J4's headline-vs-counted cross-check.
+    expect(parseHeadlineRecord(FIGUEIREDO)).toEqual({ wins: 25, losses: 7, draws: 1, noContests: 0 });
+  });
+
   // The load-bearing cross-check: J5 stores this headline number for a
   // Sherdog-linked fighter INSTEAD of counting the imported graph. If the
   // two disagree, J4 opens a conflict rather than writing. These fixtures
@@ -61,6 +69,7 @@ describe("parseHeadlineRecord", () => {
     ["Makhachev", MAKHACHEV],
     ["Qileng Aori", QILENG],
     ["Letoi", LETOI],
+    ["Figueiredo", FIGUEIREDO],
   ])("%s: headline W-L equals counting the history rows", (_name, html) => {
     const rec = parseHeadlineRecord(html);
     const hist = parseFightHistory(html);

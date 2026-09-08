@@ -91,6 +91,10 @@ export function parseBio(html: string): SherdogBio {
 
 function countCell(html: string, cls: string): number {
   // <div class="winloses win"> <span>Wins</span> <span>37</span> </div>
+  // The class SUFFIX is inconsistently pluralised in Sherdog's markup --
+  // `win`, `lose`, `draws`, `nc` (confirmed live 2026-09-07 against
+  // Deiveson Figueiredo, who has a real majority draw). Anchored with a
+  // trailing `"` so `draw` can't loosely match `draws` or vice versa.
   const re = new RegExp(
     `winloses ${cls}"[^>]*>\\s*<span>[^<]*<\\/span>\\s*<span>\\s*(\\d+)\\s*<\\/span>`,
   );
@@ -102,7 +106,7 @@ export function parseHeadlineRecord(html: string): SherdogHeadlineRecord {
   return {
     wins: countCell(html, "win"),
     losses: countCell(html, "lose"),
-    draws: countCell(html, "draw"),
+    draws: countCell(html, "draws"),
     noContests: countCell(html, "nc"),
   };
 }
