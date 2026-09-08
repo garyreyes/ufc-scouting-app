@@ -2996,3 +2996,40 @@ keeps the graph count). Full findings in `ROADMAP.md` Phase J.
 **Not in this PR:** J6 (narrow API-Sports enrichment to reach/stance,
 schedule the jobs), J7 (Sherdog as a third settlement source — the phase
 that would speed up settlement / the scoreboard / `disputed_result`).
+
+## Phase 67 (J6) — Sherdog height/weight + the daily schedule (2026-09-09)
+
+Closes out Phase J's automation.
+
+- **`importSherdogHistoryJob` also fills `fighters.height_cm` /
+  `weight_kg`** from Sherdog's bio, where they're null — `bioFillPayload`
+  (pure, tested) never overwrites a value API-Sports already set.
+  Sherdog has no reach and no stance, so API-Sports enrichment is
+  unchanged.
+- **`enrichFighters.ts` was NOT narrowed** — a Sherdog-linked fighter
+  still needs an API-Sports `external_id` for the results sync to match
+  their fights, and that same lookup returns reach + stance, so there
+  was nothing to remove.
+- **`.github/workflows/sherdog.yml`, daily at 03:00 UTC** — between
+  `sync.yml`'s 00:00 run and `fighter-enrichment.yml`'s 06:00. Four
+  sequential steps: resolve-identity → import-history (new) →
+  import-history `--refresh --batch=30` (cycles the ~128-fighter linked
+  roster every ~4-5 days so a fighter who just fought gets fresh bouts)
+  → records:recompute. Sherdog is unmetered, so no quota scheduling
+  around it.
+- `PROJECT_FACTS.md` gains a "Sherdog integration — where it stands"
+  section (sidecar not merged into the graph; record source rules; field
+  ownership; the ~4-5 day record lag; J7 is the settlement piece).
+
+**Interim note carried from Phase 66 is now bounded:** a linked
+fighter's record lags a fresh fight by at most the `--refresh` cycle
+(~4-5 days), not "until someone runs it manually."
+
+**Status:** `npm run lint` / `npm run test` (563) / `npm run build` all
+green. `bioFillPayload` test-first (4 cases).
+
+**Phase J is J1–J6 complete.** J7 (Sherdog as a third source in
+`settleFights` / `evaluateFightSettlement`, so `disputed_result`
+resolves on a 2-of-3 majority and a fight settles when Sherdog has the
+result and Wikipedia/API-Sports lag) is scoped in `ROADMAP.md` and not
+built.

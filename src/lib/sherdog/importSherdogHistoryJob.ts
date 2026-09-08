@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchFighterHtmlById, type FetchOptions } from "./client";
-import { parseFighterName, parseFinishBreakdown, parseHeadlineRecord } from "./parseFighterPage";
+import { parseBio, parseFighterName, parseFinishBreakdown, parseHeadlineRecord } from "./parseFighterPage";
 import { parseFightHistory } from "./parseFightHistory";
 import { sherdogNameMatchesExpected } from "./identityGuard";
 import { buildSherdogBoutRows } from "./buildSherdogBoutRows";
+import { bioFillPayload } from "./bioFillPayload";
 
 export interface SherdogImportSummary {
   attempted: number;
@@ -12,6 +13,7 @@ export interface SherdogImportSummary {
   guardRejected: number; // page name no longer matches (surprising -- J3 verified these)
   boutsWritten: number;
   finishNulled: number; // imported, but the finish breakdown didn't reconcile
+  bioFilled: number; // had a null height_cm / weight_kg that Sherdog filled (J6)
   failed: number;
   dryRun: boolean;
 }
@@ -70,11 +72,15 @@ export async function importSherdogHistory(
     guardRejected: 0,
     boutsWritten: 0,
     finishNulled: 0,
+    bioFilled: 0,
     failed: 0,
     dryRun,
   };
 
-  let query = supabase.from("fighters").select("id, name, sherdog_id").not("sherdog_id", "is", null);
+  let query = supabase
+    .from("fighters")
+    .select("id, name, sherdog_id, height_cm, weight_kg")
+    .not("sherdog_id", "is", null);
 
   if (sherdogId !== undefined) {
     query = query.eq("sherdog_id", sherdogId);
@@ -92,7 +98,14 @@ export async function importSherdogHistory(
 
   const { data, error } = await query;
   if (error) throw error;
-  const queue = (data as Array<{ id: string; name: string; sherdog_id: number }>) ?? [];
+  const queue =
+    (data as Array<{
+      id: string;
+      name: string;
+      sherdog_id: number;
+      height_cm: number | null;
+      weight_kg: number | null;
+    }>) ?? [];
 
   for (const fighter of queue) {
     summary.attempted++;
@@ -118,17 +131,25 @@ export async function importSherdogHistory(
         continue;
       }
 
+      // J6: fill height_cm / weight_kg from Sherdog's bio where they're
+      // still null. Never overwrites -- Sherdog has no reach/stance, so
+      // API-Sports enrichment still runs for those.
+      const bioFill = bioFillPayload(fighter, parseBio(html));
+
       if (built.finish === null) summary.finishNulled++;
+      if (Object.keys(bioFill).length > 0) summary.bioFilled++;
       summary.boutsWritten += built.bouts.length;
 
       if (dryRun) {
         const f = built.finish;
+        const bio = Object.keys(bioFill).length > 0 ? ` | +${Object.keys(bioFill).join("/")}` : "";
         console.log(
           `  ${fighter.name} -> ${built.bouts.length} bouts` +
             (f
               ? ` | W ${f.sherdog_wins_by_ko}KO/${f.sherdog_wins_by_sub}S/${f.sherdog_wins_by_dec}D` +
                 ` L ${f.sherdog_losses_by_ko}KO/${f.sherdog_losses_by_sub}S/${f.sherdog_losses_by_dec}D`
-              : " | finish breakdown did not reconcile -> null"),
+              : " | finish breakdown did not reconcile -> null") +
+            bio,
         );
         continue;
       }
@@ -158,7 +179,7 @@ export async function importSherdogHistory(
 
         const { error: updError } = await supabase
           .from("fighters")
-          .update({ ...(built.finish ?? NULL_FINISH), sherdog_history_imported_at: importedAt })
+          .update({ ...(built.finish ?? NULL_FINISH), ...bioFill, sherdog_history_imported_at: importedAt })
           .eq("id", fighter.id);
         if (updError) throw updError;
       } catch (writeErr) {

@@ -1,0 +1,63 @@
+name: Sherdog identity + history
+
+on:
+  schedule:
+    # 03:00 UTC -- after sync.yml's 00:00 run (which creates the
+    # upcoming-card fighter rows this job links) and before
+    # fighter-enrichment.yml's 06:00 run (so a fighter gets a sherdog_id,
+    # and its Sherdog height/weight, before API-Sports enrichment decides
+    # what to fetch). Sherdog is unmetered, so unlike the API-Sports jobs
+    # there is no quota to schedule around.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sherdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 1. Link fighters on newly-announced cards to their Sherdog id.
+      #    Auto-matches a confident name hit (guard-verified), runs the
+      #    fight-count tie-break on exact-name ties, opens a
+      #    low_confidence_sherdog_match conflict otherwise. job_runs:
+      #    "sherdog_identity".
+      - name: Resolve Sherdog identities
+        run: npx tsx src/lib/sherdog/runResolveSherdogIdentityJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 2. Import the full career for any fighter just linked (and not
+      #    yet imported). job_runs: "sherdog_history_import".
+      - name: Import Sherdog history (new)
+        run: npx tsx src/lib/sherdog/runImportSherdogHistoryJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 3. Re-import ~30 already-linked fighters per run, oldest-first, so
+      #    a fighter who just fought has fresh bouts (and a fresh record,
+      #    step 4) within ~4-5 days without a manual refresh.
+      - name: Refresh Sherdog history (cycle the roster)
+        run: npx tsx src/lib/sherdog/runImportSherdogHistoryJob.ts --refresh --batch=30
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 4. Recount fighter records so any refresh above lands on
+      #    fighters.wins/losses/draws. Idempotent; also runs twice daily
+      #    inside sync.yml's settlement chain. job_runs: "recompute_records".
+      - name: Recompute fighter records
+        run: npx tsx src/lib/records/runRecomputeRecordsJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

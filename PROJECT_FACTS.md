@@ -251,7 +251,36 @@ Decided 2026-08-29, user-originated.
 - **Re-running the identity job is free and safe** — its queue is
   `sherdog_id is null AND sherdog_checked_at is null`, so a fighter is
   only ever searched once, and a new upcoming card's fighters are picked
-  up on the next run. Not yet on a schedule (J6).
+  up on the next run.
+
+### Sherdog integration — where it stands after Phase J (2026-09-09)
+
+- **Sherdog is a read-only sidecar, deliberately NOT merged into
+  `fights` / `events` / Elo / settlement.** A fighter's ~30-55 bouts
+  against regional opponents don't belong in the app's own graph.
+  `fighter_sherdog_bouts` (0038) stores the career; opponent and event
+  are Sherdog id + name text, never foreign keys. Reconsidering this
+  means reopening the J4 fork, which was decided with the user against.
+- **Record source:** for a Sherdog-linked fighter *with imported bouts*,
+  `fighters.wins/losses/draws` is counted from `fighter_sherdog_bouts`
+  (J5, `applySherdogRecordOverride`). Unlinked fighters, and linked
+  fighters whose Sherdog page is still an empty stub, keep the fight-
+  graph count. **Elo is always the fight graph** — Sherdog bouts never
+  feed it.
+- **Field ownership for a linked fighter:** Sherdog owns height, weight,
+  record, and the finish breakdown; **API-Sports still owns reach and
+  stance** (Sherdog has neither) and the `external_id` the results sync
+  matches on. `enrichFighters.ts` is unchanged — it still runs for every
+  name-only fighter.
+- **`sherdog.yml` runs daily at 03:00 UTC** (J6): resolve-identity →
+  import-history (new) → import-history `--refresh --batch=30` (cycles
+  the linked roster ~every 4-5 days for post-fight freshness) →
+  records:recompute. Sherdog is unmetered, so no quota scheduling.
+- **A linked fighter's record still lags a fight by up to ~4-5 days** —
+  the `--refresh` cycle time. The scoreboard and pick settlement are
+  unaffected (they read the fight graph, settled by Wikipedia +
+  API-Sports twice daily). Closing that lag, and using Sherdog to break
+  `disputed_result` conflicts, is **J7** (not built).
 
 ## Odds
 
