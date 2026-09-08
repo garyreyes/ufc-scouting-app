@@ -16,5 +16,6 @@ User-Agent at ≥1.5s spacing if you need to refresh them.
 | `fighter-makhachev-76836.html` | Islam Makhachev | clean 29-1, no NC block on the page |
 | `fighter-qileng-aori-222519.html` | Qileng Aori | Sherdog's own name order differs from ours ("Aori Qileng"); transliterated |
 | `fighter-letoi-345261.html` | Liam Letoi | single-bout career; Sherdog has no height/DOB — the missing-field path |
+| `fighter-figueiredo-110485.html` | Deiveson Figueiredo | a real majority DRAW (vs Moreno, UFC 256) — pins the headline class suffix `draws` (not `draw`), caught by J4's dry-run |
 | `search-makhachev.html` | `SearchTxt=Makhachev` | 4 candidates, `0'0"`/`0 lbs` placeholder rows |
 | `search-andre-lima.html` | `SearchTxt=Andre Lima` | 13 candidates, none an obvious top match — why identity goes through the review queue |

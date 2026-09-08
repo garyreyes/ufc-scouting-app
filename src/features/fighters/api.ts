@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/db";
 import { isInvalidIdError } from "@/lib/isInvalidIdError";
-import type { Fighter, FighterFightHistoryEntry } from "./types";
+import type { Fighter, FighterFightHistoryEntry, SherdogBout } from "./types";
 
 export async function getFighters(
   query: string,
@@ -8,7 +8,7 @@ export async function getFighters(
 ): Promise<Fighter[]> {
   let request = supabase
     .from("fighters")
-    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws")
+    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec")
     .order("name", { ascending: true });
 
   if (query.trim()) {
@@ -71,10 +71,11 @@ async function fillMissingWeightClasses(fighters: Fighter[]): Promise<Fighter[]>
 export async function getFighterById(id: string): Promise<{
   fighter: Fighter;
   fights: FighterFightHistoryEntry[];
+  sherdogBouts: SherdogBout[];
 } | null> {
   const { data: fighter, error: fighterError } = await supabase
     .from("fighters")
-    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws")
+    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec")
     .eq("id", id)
     .maybeSingle();
   if (fighterError) {
@@ -91,5 +92,21 @@ export async function getFighterById(id: string): Promise<{
     .or(`fighter1_id.eq.${id},fighter2_id.eq.${id}`);
   if (fightsError) throw fightsError;
 
-  return { fighter, fights: fights as unknown as FighterFightHistoryEntry[] };
+  // The Sherdog sidecar (J4): a fighter's full career, separate from the
+  // app's own fight graph above. Capped-return safe -- a career is at
+  // most ~70 bouts, far under PostgREST's row cap.
+  const { data: sherdogBouts, error: boutsError } = await supabase
+    .from("fighter_sherdog_bouts")
+    .select(
+      "bout_order, result, opponent_name, opponent_sherdog_id, event_name, event_date, method, round, bout_time",
+    )
+    .eq("fighter_id", id)
+    .order("bout_order", { ascending: true });
+  if (boutsError) throw boutsError;
+
+  return {
+    fighter,
+    fights: fights as unknown as FighterFightHistoryEntry[],
+    sherdogBouts: (sherdogBouts ?? []) as SherdogBout[],
+  };
 }

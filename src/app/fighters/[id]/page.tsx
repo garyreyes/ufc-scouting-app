@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getFighterById } from "@/features/fighters/api";
 import { FightHistoryRow } from "@/features/fighters/components/FightHistoryRow";
+import { SherdogCareer } from "@/features/fighters/components/SherdogCareer";
 import { getReportsForFighter } from "@/features/scouting-reports/api";
 import { getMyClans } from "@/features/clans/api";
 import { createClient } from "@/lib/supabase/server";
@@ -24,7 +25,7 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
     ? await Promise.all([getReportsForFighter(id), getMyClans()])
     : [[], []];
 
-  const { fighter, fights } = result;
+  const { fighter, fights, sherdogBouts } = result;
 
   // Placeholder fighters synced from Wikipedia (upcoming fights only, no
   // API-Sports profile yet) have no weight_class of their own -- fall back
@@ -67,6 +68,8 @@ export default async function FighterProfilePage({ params }: PageProps<"/fighter
           ))}
         </div>
       )}
+
+      <SherdogCareer fighter={fighter} bouts={sherdogBouts} />
 
       <h2 className={styles.reportsHeading}>Scouting Notes</h2>
       {user ? (
