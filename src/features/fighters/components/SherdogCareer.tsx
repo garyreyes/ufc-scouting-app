@@ -19,6 +19,13 @@ function formatYear(date: string | null): string {
   return date ? date.slice(0, 4) : "";
 }
 
+function formatMethod(b: SherdogBout): string {
+  if (!b.method) return "";
+  const round = b.round ? ` · R${b.round}` : "";
+  const time = b.bout_time ? ` ${b.bout_time}` : "";
+  return `${b.method}${round}${time}`;
+}
+
 function finishLine(fighter: Fighter): string | null {
   const w = [fighter.sherdog_wins_by_ko, fighter.sherdog_wins_by_sub, fighter.sherdog_wins_by_dec];
   const l = [fighter.sherdog_losses_by_ko, fighter.sherdog_losses_by_sub, fighter.sherdog_losses_by_dec];
@@ -53,16 +60,12 @@ export function SherdogCareer({ fighter, bouts }: { fighter: Fighter; bouts: She
           <div key={b.bout_order} className={styles.row}>
             <span className={`${styles.result} ${resultClass(b.result)}`}>{RESULT_LABEL[b.result]}</span>
             <div className={styles.details}>
-              <span className={styles.opponent}>vs {b.opponent_name}</span>
+              <span className={styles.opponent}>vs {b.opponent_name || "Unknown opponent"}</span>
               <span className={styles.event}>
                 {[b.event_name, formatYear(b.event_date)].filter(Boolean).join(" · ")}
               </span>
             </div>
-            <span className={styles.method}>
-              {b.method}
-              {b.round ? ` · R${b.round}` : ""}
-              {b.bout_time ? ` ${b.bout_time}` : ""}
-            </span>
+            <span className={styles.method}>{formatMethod(b)}</span>
           </div>
         ))}
       </div>

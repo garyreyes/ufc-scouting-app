@@ -24,7 +24,13 @@ export const DEFAULT_BATCH_SIZE = 60;
 interface Options extends FetchOptions {
   batchSize?: number;
   dryRun?: boolean;
-  refresh?: boolean; // re-import fighters already done (page changed)
+  // Re-import fighters already done (a Sherdog page changed). Ordered
+  // oldest-imported-first so repeated --refresh runs progress through the
+  // whole roster instead of re-reading the same arbitrary page.
+  refresh?: boolean;
+  // Re-import exactly one fighter by their Sherdog id -- the targeted
+  // form of --refresh.
+  sherdogId?: number;
   now?: () => Date;
 }
 
@@ -54,7 +60,7 @@ export async function importSherdogHistory(
   supabase: SupabaseClient,
   opts: Options = {},
 ): Promise<SherdogImportSummary> {
-  const { batchSize = DEFAULT_BATCH_SIZE, dryRun = false, refresh = false, now = () => new Date() } = opts;
+  const { batchSize = DEFAULT_BATCH_SIZE, dryRun = false, refresh = false, sherdogId, now = () => new Date() } = opts;
   const fetchOpts: FetchOptions = { spacingMs: opts.spacingMs, fetchImpl: opts.fetchImpl };
 
   const summary: SherdogImportSummary = {
@@ -68,12 +74,21 @@ export async function importSherdogHistory(
     dryRun,
   };
 
-  let query = supabase
-    .from("fighters")
-    .select("id, name, sherdog_id")
-    .not("sherdog_id", "is", null)
-    .limit(batchSize);
-  if (!refresh) query = query.is("sherdog_history_imported_at", null);
+  let query = supabase.from("fighters").select("id, name, sherdog_id").not("sherdog_id", "is", null);
+
+  if (sherdogId !== undefined) {
+    query = query.eq("sherdog_id", sherdogId);
+  } else if (refresh) {
+    // Oldest import first (never-imported ahead of that), so repeated
+    // --refresh runs actually walk the whole roster rather than
+    // re-reading whatever PostgREST returns first.
+    query = query.order("sherdog_history_imported_at", { ascending: true, nullsFirst: true }).limit(batchSize);
+  } else {
+    // The self-healing queue: an imported fighter drops out of this
+    // filter, so progress is guaranteed regardless of order (same shape
+    // as enrichFighters.ts / the J3 identity job).
+    query = query.is("sherdog_history_imported_at", null).order("id").limit(batchSize);
+  }
 
   const { data, error } = await query;
   if (error) throw error;
@@ -120,27 +135,43 @@ export async function importSherdogHistory(
 
       const importedAt = now().toISOString();
 
-      const { error: delError } = await supabase
-        .from("fighter_sherdog_bouts")
-        .delete()
-        .eq("fighter_id", fighter.id);
-      if (delError) throw delError;
+      try {
+        // Upsert on (fighter_id, bout_order) then delete the stale tail,
+        // rather than delete-all-then-insert: there is never a window
+        // where the fighter has zero bout rows, and a mid-write failure
+        // leaves the previous career mostly intact instead of blank.
+        if (built.bouts.length > 0) {
+          const { error: upErr } = await supabase
+            .from("fighter_sherdog_bouts")
+            .upsert(
+              built.bouts.map((b) => ({ ...b, fighter_id: fighter.id, imported_at: importedAt })),
+              { onConflict: "fighter_id,bout_order" },
+            );
+          if (upErr) throw upErr;
+        }
+        const { error: tailErr } = await supabase
+          .from("fighter_sherdog_bouts")
+          .delete()
+          .eq("fighter_id", fighter.id)
+          .gte("bout_order", built.bouts.length);
+        if (tailErr) throw tailErr;
 
-      if (built.bouts.length > 0) {
-        const { error: insError } = await supabase.from("fighter_sherdog_bouts").insert(
-          built.bouts.map((b) => ({ ...b, fighter_id: fighter.id, imported_at: importedAt })),
-        );
-        if (insError) throw insError;
+        const { error: updError } = await supabase
+          .from("fighters")
+          .update({ ...(built.finish ?? NULL_FINISH), sherdog_history_imported_at: importedAt })
+          .eq("id", fighter.id);
+        if (updError) throw updError;
+      } catch (writeErr) {
+        // A write failed partway. Clear the marker so a NORMAL run
+        // re-queues this fighter -- otherwise a --refresh failure would
+        // strand them (the default queue filters on the marker being
+        // null).
+        await supabase
+          .from("fighters")
+          .update({ sherdog_history_imported_at: null })
+          .eq("id", fighter.id);
+        throw writeErr;
       }
-
-      const { error: updError } = await supabase
-        .from("fighters")
-        .update({
-          ...(built.finish ?? NULL_FINISH),
-          sherdog_history_imported_at: importedAt,
-        })
-        .eq("id", fighter.id);
-      if (updError) throw updError;
 
       summary.imported++;
     } catch (err) {

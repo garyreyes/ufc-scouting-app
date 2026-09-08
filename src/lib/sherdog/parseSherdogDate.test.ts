@@ -38,4 +38,15 @@ describe("parseSherdogDate", () => {
   it("rejects an impossible day", () => {
     expect(parseSherdogDate("Feb / 40 / 2020")).toBeNull();
   });
+
+  it("accepts Feb 29 in a leap year, rejects it otherwise (not a hard insert failure)", () => {
+    expect(parseSherdogDate("Feb / 29 / 2020")).toBe("2020-02-29"); // leap
+    expect(parseSherdogDate("Feb / 29 / 2019")).toBeNull(); // not leap
+    expect(parseSherdogDate("Feb / 29 / 2100")).toBeNull(); // century, not leap
+    expect(parseSherdogDate("Feb / 29 / 2000")).toBe("2000-02-29"); // 400
+  });
+
+  it("rejects Feb 30 always", () => {
+    expect(parseSherdogDate("Feb / 30 / 2020")).toBeNull();
+  });
 });

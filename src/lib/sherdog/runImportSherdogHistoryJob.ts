@@ -2,17 +2,26 @@ import { runWithTracking } from "../jobs/runWithTracking";
 import { getSupabaseAdmin } from "../supabase/admin";
 import { importSherdogHistory } from "./importSherdogHistoryJob";
 
-// J4's entry point. --dry-run fetches + parses everything and writes
-// nothing (the intended first run). --refresh re-imports fighters whose
-// history is already stored, for when a Sherdog page has changed.
+// J4's entry point.
+//   --dry-run          fetch + parse everything, write nothing (first run)
+//   --refresh          re-import already-stored fighters, oldest first
+//   --sherdog-id=<n>   re-import exactly one fighter
+//   --batch=<n>        cap the batch (default 60)
+function numericArg(prefix: string): number | undefined {
+  const arg = process.argv.find((a) => a.startsWith(prefix));
+  if (!arg) return undefined;
+  const n = Number(arg.slice(prefix.length));
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
   const refresh = process.argv.includes("--refresh");
-  const batchArg = process.argv.find((a) => a.startsWith("--batch="));
-  const batchSize = batchArg ? Number(batchArg.slice("--batch=".length)) : undefined;
+  const batchSize = numericArg("--batch=");
+  const sherdogId = numericArg("--sherdog-id=");
 
   const supabase = getSupabaseAdmin();
-  const opts = { dryRun, refresh, batchSize };
+  const opts = { dryRun, refresh, batchSize, sherdogId };
 
   const summary = dryRun
     ? await importSherdogHistory(supabase, opts)

@@ -106,7 +106,10 @@ export function parseHeadlineRecord(html: string): SherdogHeadlineRecord {
   return {
     wins: countCell(html, "win"),
     losses: countCell(html, "lose"),
-    draws: countCell(html, "draws"),
+    // `draws?` -- Sherdog's markup is inconsistently pluralised and the
+    // current roster uses `draws`, but accepting both means a page that
+    // switches to `draw` doesn't silently skip a real-draw fighter.
+    draws: countCell(html, "draws?"),
     noContests: countCell(html, "nc"),
   };
 }

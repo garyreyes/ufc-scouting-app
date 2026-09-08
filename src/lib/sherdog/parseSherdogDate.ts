@@ -21,7 +21,7 @@ const MONTHS: Record<string, string> = {
 
 const DAYS_IN_MONTH: Record<string, number> = {
   "01": 31,
-  "02": 29, // allow Feb 29; a wrong-year leap check isn't worth it here
+  "02": 28,
   "03": 31,
   "04": 30,
   "05": 31,
@@ -34,6 +34,10 @@ const DAYS_IN_MONTH: Record<string, number> = {
   "12": 31,
 };
 
+function isLeapYear(y: number): boolean {
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+}
+
 export function parseSherdogDate(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const m = raw.trim().match(/^([A-Za-z]{3})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/);
@@ -42,9 +46,16 @@ export function parseSherdogDate(raw: string | null | undefined): string | null 
   const month = MONTHS[m[1].toLowerCase()];
   if (!month) return null;
 
+  const year = Number(m[3]);
   const day = m[2].padStart(2, "0");
   const dayNum = Number(day);
-  if (dayNum < 1 || dayNum > DAYS_IN_MONTH[month]) return null;
+
+  // A real leap check, not "Feb 29 is always fine" -- an invalid date
+  // isn't a slightly-wrong value, it's a hard Postgres `date` insert
+  // failure that would wedge the whole fighter's import on every run.
+  let maxDay = DAYS_IN_MONTH[month];
+  if (month === "02" && isLeapYear(year)) maxDay = 29;
+  if (dayNum < 1 || dayNum > maxDay) return null;
 
   return `${m[3]}-${month}-${day}`;
 }
