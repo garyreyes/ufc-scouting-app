@@ -78,19 +78,26 @@ export async function backfillWikipediaHistory(
 
   const { data: eventRows, error } = await supabase
     .from("events")
-    .select("id, external_id, event_date, wikipedia_backfilled_at");
+    .select("id, external_id, event_date, wikipedia_backfilled_at, merged_into");
   if (error) throw error;
   const eventByExternalId = new Map((eventRows ?? []).map((e) => [e.external_id as string, e]));
 
   const alreadyBackfilled = new Set(
     (eventRows ?? []).filter((e) => e.wikipedia_backfilled_at !== null).map((e) => e.external_id as string),
   );
+  // A row folded by K1 (mergeDuplicateSameDateEvents.ts) is the OLD title
+  // of a card that now lives under its survivor. Never a gap -- treat its
+  // title as done so this job neither reprocesses it (conflict storm
+  // against the survivor's rows) nor recreates it as a fresh event.
+  const mergedAway = new Set(
+    (eventRows ?? []).filter((e) => e.merged_into !== null).map((e) => e.external_id as string),
+  );
   const knownUpcoming = new Set(
     (eventRows ?? []).filter((e) => (e.event_date as string) >= today).map((e) => e.external_id as string),
   );
 
   const pendingByTitle = uniqueTitles.filter(
-    (title) => !alreadyBackfilled.has(title) && !knownUpcoming.has(title),
+    (title) => !alreadyBackfilled.has(title) && !knownUpcoming.has(title) && !mergedAway.has(title),
   );
 
   // I4 is a GAP filler. An event that already carries fights was synced by

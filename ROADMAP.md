@@ -1749,6 +1749,14 @@ real participant still accepted.
 Added 2026-09-07, after a user question about paying for a Tapology feed
 turned into a source comparison. Confirmed with the user before any code.
 
+**Status: J1–J6 done and merged** (PRs #56, #57, #58; J6 on
+`feat/sherdog-schedule`). 128 upcoming-card fighters keyed to a stable
+Sherdog id, 2,545 bouts imported, full-career records live, the
+`sherdog.yml` daily job wired. **J7 (Sherdog as a third settlement
+source) is the remaining piece** — it's what would speed up settlement,
+the scoreboard, and `disputed_result` resolution, none of which J1–J6
+touch.
+
 **Why Sherdog, and why not the paid option.** The paid "Tapology API" is
 an unofficial third-party scrape reseller — it breaks the hard $0
 constraint (`docs/PRD.md` §6) and buys nothing Sherdog gives free.
@@ -1804,8 +1812,16 @@ every branch asserted reachable.
 | J3-live | run the identity job live across the roster | **done** (2026-09-07) — 2 runs, 146 fighters: **128 got `sherdog_id`**, 13 conflicts open on `/conflicts`, 5 not on Sherdog. 0 dupes, 0 failures |
 | J4 | Sherdog history import — **read-only sidecar** (`fighter_sherdog_bouts` + 6 finish columns on `fighters`), NOT merged into `fights`/`events`/Elo (fork decided with user 2026-09-08). `parseSherdogDate` + `buildSherdogBoutRows` test-first; the build step refuses a page that doesn't reconcile against its own headline. `/fighters/[id]` gets a "Full Career (Sherdog)" section | **done** (2026-09-09) — 0038 applied, ran live: **2,545 bouts across 128 fighters**, 0 skipped, 0 failed, 121 with finish stats. Dry-run caught the `draws` vs `draw` class bug (20 real-draw fighters). `reviewer` pass: no HIGH; fixes applied — upsert+delete-tail write (no zero-row window), real leap-year date check, `--refresh` ordering + `--sherdog-id` target, arg guards |
 | J5 | Record source switch — for a Sherdog-linked fighter, W-L-D comes from counting `fighter_sherdog_bouts`, not the app fight graph. Elo untouched (still graph-only). Fighter-page + tale-of-the-tape caveats updated. `deriveSherdogRecords` + `applySherdogRecordOverride` test-first | **done, ran live** (2026-09-09) — 128 fighters switched to full-career records (Pantoja 1-1 → 30-6, Figueiredo 1-3 → 25-7-1, Vera 0-2 → 23-12-1). `npm run records:recompute` standalone runner added |
-| J6 | API-Sports enrichment narrowed to reach/stance only + schedule wiring (`sherdog:resolve-identity`, `sherdog:import-history`, `records:recompute` on a cadence) + `PROJECT_FACTS.md`/`CHANGES.md` close-out | pending |
+| J6 | Sherdog takes over height/weight (bio fill on import, `bioFillPayload` never overwrites); **`sherdog.yml` daily** (resolve-identity → import-history → `--refresh --batch=30` → records:recompute); `PROJECT_FACTS.md` Sherdog section + close-out. API-Sports enrichment left as-is — a linked fighter still needs its `external_id` for the results sync, and that lookup returns reach+stance anyway, so there was nothing to narrow | **done** (2026-09-09) |
 | J7 | **Sherdog as a third settlement source** — wire `fighter_sherdog_bouts` into `settleFights`/`evaluateFightSettlement` so a `disputed_result` resolves on a 2-of-3 majority and a fight settles when Sherdog has the result and Wikipedia/API-Sports lag. Needs J6's scheduled refresh so post-fight data is fresh. Added 2026-09-09 after a user question about whether Sherdog speeds up settlement/scoreboard — J1–J5 deliberately do NOT touch settlement | pending |
+
+## Phase K — Live data-integrity fixes (post-Phase-J review)
+
+| Sub | What | Status |
+|---|---|---|
+| K1 | **Duplicate same-date events fix themselves.** `0039_event_merged_into.sql`; `planEventMerges.ts` (pure, test-first, 15 cases) decides keeper/losers/deletable-fights for same-date events sharing a fighter pair; `mergeDuplicateSameDateEvents.ts` applies it at the tail of every `syncSchedule` run (`selectAllPages` for every whole-table read; `merged_into` set before deletes); `upsertEvent` follows `merged_into`; every date-range events query filters `merged_into is null`. Conservative — skips + reports any cluster whose loser fights carry picks/odds/conflicts/rumours/results. | **done, live** (2026-09-10) — 0039 applied, `reviewer` pass fixes applied |
+| K1-fix | `supabase/data-fixes/2026-09-12_merge-rodriguez-silva-duplicate-event.sql` — the one K1 skipped (stale event's 9 fights had INTERN picks + rumour flags from before the `merged_into` filter existed) | **done** (2026-09-10) — user applied 0039 + ran the data-fix; keeper 14 fights, stale event folded; `events:merge-duplicates` re-run clean (129 events, 0 dupes) |
+| K1-followup | Surface a K1-*skipped* cluster (blocking refs on a stale event) via `job_runs` or the `/conflicts` queue — currently console-only. Low priority: the `merged_into` filters now stop the intern/rumour jobs from creating the refs that cause a skip | not started |
 
 **J3 live findings (dry-run, first 100 upcoming-card fighters).** 87
 auto-match at confidence 1.00, each confirmed by the page-name guard;

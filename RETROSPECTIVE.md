@@ -231,6 +231,74 @@ reads it whole. The "read these first, in this order" table in
 day one, and archive `CHANGES.md` per phase-range once it passes ~1,000
 lines.
 
+## 8. Map the constraint surface before a destructive edit — then dry-run it with `rollback`
+
+**The incident (2026-09-09).** Merging a duplicate `fights` row into its
+twin took **four attempts**, and the first three failed at COMMIT, one
+blocker at a time:
+
+1. `picks_check_constraints` (0027) refused to move a pick to a different
+   fight once the card had started;
+2. `odds_snapshots_no_update` / `_no_delete` (0013) — the table is
+   immutable by design;
+3. `fighter_elo_history` held a `RESTRICT` foreign key on the row being
+   deleted.
+
+Nothing was corrupted — every attempt rolled back cleanly, which is the
+system working. The waste was **method**: each fix was written in response
+to the error the previous fix revealed, so the same transaction was
+rewritten three times. The guards were doing exactly their job; what was
+missing was asking what *all* of them were before starting.
+
+**The rule.** Before any multi-statement destructive edit, two steps, in
+this order.
+
+**(a) Enumerate the constraint surface.** List every FK that references
+the target table, and every trigger on every table the transaction
+touches:
+
+```sql
+select tc.table_name, kcu.column_name, rc.delete_rule
+from information_schema.table_constraints tc
+join information_schema.key_column_usage kcu on kcu.constraint_name = tc.constraint_name
+join information_schema.referential_constraints rc on rc.constraint_name = tc.constraint_name
+join information_schema.constraint_column_usage ccu on ccu.constraint_name = tc.constraint_name
+where tc.constraint_type = 'FOREIGN KEY' and ccu.table_name = '<target>';
+
+select event_object_table, trigger_name, event_manipulation
+from information_schema.triggers where event_object_table in (...);
+```
+
+Then count actual rows in each referencing table for the specific ids.
+Six tables referenced `fights.id`; the row being deleted was held by
+three, and only two had been noticed.
+
+**(b) Run the whole transaction with `rollback;` in place of `commit;`.**
+Every statement executes against real data, every constraint and trigger
+fires, and nothing persists. End the block with a `select` of the
+intended end state and it becomes a proof:
+
+```text
+ALL STATEMENTS OK | events_left: 1 | picks_on_keeper: 2
+```
+
+Same idea as item 3 (mandatory dry-run for bulk jobs), but for
+hand-written SQL — and strictly better than a dry-run *mode*, because the
+database itself is what gets asked.
+
+**Corollary — guard triggers are not obstacles to route around.** All
+three blockers were deliberate protections (pick lock, price
+immutability, Elo integrity) doing exactly what they were built for.
+Disabling them for one audited transaction is legitimate; the tell that
+it is being done *safely* is that the full set was known in advance
+rather than discovered by hitting them.
+
+**Also record the fix.** One-off production repairs now live in
+`supabase/data-fixes/` — dated SQL with a header covering pre-state, why,
+the statements, and the post-check. Distinct from `migrations/` (schema)
+and `tests/` (RLS). Next project: create that folder on day one, alongside
+the `CHANGES.md` / `PROJECT_FACTS.md` scaffold.
+
 ---
 
 # Part 4 — recommendations for the skill set
@@ -274,6 +342,12 @@ rather than leaving them in the transcript.
 4. **Require the assertion to be specific.** A test asserting
    `.not.toBe(X)` on a three-valued output is not a test. Where output is
    an enum, assert the exact value and assert reachability of all values.
+5. **Add a destructive-edit protocol** (Part 3 item 8). Before hand-written
+   SQL that deletes or merges live rows: list every FK referencing the
+   target table and every trigger on every table touched, count the real
+   rows for those specific ids, then run the transaction with `rollback;`
+   ending in a `select` of the intended end state. Three failed COMMITs on
+   one merge, each revealing the next blocker, is what this prevents.
 
 ## D. New skill: `migration-runner`
 
@@ -287,6 +361,12 @@ project.
 
 ## E. `harness-setup` amendments
 
+0. **Scaffold `supabase/data-fixes/` (or the stack equivalent) on day
+   one**, with a README stating the convention: dated SQL wrapped in a
+   transaction, a header covering pre-state / why / statements /
+   post-check, and dry-run-with-`rollback` before committing. One-off
+   production repairs are inevitable; without a home they live only in
+   chat scrollback, which is where this project kept them until Phase 67.
 1. **Scaffold a `job_runs`-style table for any project with scheduled
    jobs.** One row per execution with status and a summary blob. This
    project's version is the only reason silent job failures are visible at
@@ -341,3 +421,9 @@ If only two things change next project: **encode the silent-failure
 checklist as an auto-triggering skill**, and **make the fresh-eyes review
 pass mandatory instead of optional**. Those two would have caught most of
 Part 2.
+
+**A late third, added Phase 67:** for destructive edits the failure mode
+is not silence but *thrash* — fixing each blocker as its error appears,
+rewriting the same transaction three times. The counter is mechanical:
+enumerate the constraint surface up front (FKs + triggers), then run the
+whole thing with `rollback;` before `commit;`. See Part 3 item 8.

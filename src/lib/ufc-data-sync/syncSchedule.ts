@@ -1,6 +1,7 @@
 import { listUpcomingUfcEventTitles, fetchEventSchedule } from "./fetchSchedule";
 import { getSupabaseAdmin } from "../supabase/admin";
 import { processScheduleEvent } from "./processScheduleEvent";
+import { mergeDuplicateSameDateEvents } from "./mergeDuplicateSameDateEvents";
 
 export async function runScheduleSync() {
   const supabase = getSupabaseAdmin();
@@ -22,6 +23,20 @@ export async function runScheduleSync() {
   }
 
   console.log(`Schedule sync (Wikipedia): ${eventCount} events, ${fightCount} fights.`);
+
+  // A source renaming a card (or the two sources naming it differently)
+  // leaves one real event as two rows that upsertEvent.ts can't fold --
+  // consolidate them now that every event this run has been written.
+  const merge = await mergeDuplicateSameDateEvents(supabase);
+  if (merge.duplicateClustersMerged > 0 || merge.skipped.length > 0) {
+    console.log(
+      `Duplicate-event merge: ${merge.duplicateClustersMerged} merged, ` +
+        `${merge.fightsDeleted} duplicate fights removed, ${merge.skipped.length} skipped (manual review).`,
+    );
+    for (const cluster of merge.skipped) {
+      console.log(`  Skipped ${cluster.event_date} [${cluster.eventIds.join(", ")}]: ${cluster.reason}`);
+    }
+  }
 }
 
 runScheduleSync().catch((err) => {

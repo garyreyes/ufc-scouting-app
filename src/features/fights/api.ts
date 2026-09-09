@@ -10,6 +10,7 @@ export async function getUpcomingEvents(): Promise<EventSummary[]> {
     .from("events")
     .select("id, name, event_date")
     .gte("event_date", today())
+    .is("merged_into", null)
     .order("event_date", { ascending: true });
   if (error) throw error;
   return data;
@@ -20,6 +21,7 @@ export async function getPastEvents(): Promise<EventSummary[]> {
     .from("events")
     .select("id, name, event_date")
     .lt("event_date", today())
+    .is("merged_into", null)
     .order("event_date", { ascending: false });
   if (error) throw error;
   return data;
@@ -44,14 +46,17 @@ export async function getCardView(
 ): Promise<CardView | null> {
   const { data: event, error: eventError } = await supabase
     .from("events")
-    .select("id, name, event_date, starts_at")
+    .select("id, name, event_date, starts_at, merged_into")
     .eq("id", eventId)
     .maybeSingle();
   if (eventError) {
     if (isInvalidIdError(eventError)) return null;
     throw eventError;
   }
-  if (!event) return null;
+  // A row K1 folded into another has no fights of its own and a stale
+  // name -- 404 it rather than render an empty card. Nothing links here;
+  // only a bookmarked pre-merge URL would hit this.
+  if (!event || event.merged_into) return null;
 
   let fightsQuery = supabase
     .from("fights")
