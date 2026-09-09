@@ -3033,3 +3033,76 @@ green. `bioFillPayload` test-first (4 cases).
 resolves on a 2-of-3 majority and a fight settles when Sherdog has the
 result and Wikipedia/API-Sports lag) is scoped in `ROADMAP.md` and not
 built.
+
+## Phase 68 (K1) — Duplicate same-date events consolidate themselves (2026-09-10)
+
+The root-cause fix for a bug found live three times: one real card ends
+up as two `events` rows because `upsertEvent.ts` only dedups on
+(`event_date`, punctuation-folded name). I4b was "UFC 330" vs "UFC 330:
+Makhachev vs. Machado Garry"; the 2026-09-09 data-fix was "UFC Fight
+Night: Paris" vs "... Hooker vs. Parnasse"; 2026-09-12 is Wikipedia
+**renaming** the article from "Rodríguez vs. Silva" to "Silva vs.
+Delgado" after the main event changed. Each was cleaned by hand and
+recurred on the next sync, because nothing recorded that the two rows
+are the same event.
+
+- **`0039_event_merged_into.sql`** — `events.merged_into uuid references
+  events(id) on delete set null`, plus a partial index on the common
+  "not merged" lookup.
+- **`planEventMerges.ts`** (pure, **test-first**, 15 cases) — given
+  same-date events + their fights, decides which rows are one card
+  (share ≥1 exact fighter pairing — the app tracks one UFC card per
+  day), which survives (most `bout_order`-set fights → most fights →
+  smallest id, the same "Wikipedia curation wins" call as I4b), and
+  which fights get removed. **Skips the whole cluster and reports it,
+  never guesses,** when a loser event has more fights than the keeper,
+  or any loser fight is settled or FK-referenced by a
+  pick/odds/conflict/rumour row.
+- **`mergeDuplicateSameDateEvents.ts`** — applies the plan (clear loser
+  fights + their `fighter_elo_history`, point `merged_into` at the
+  survivor, rebuild Elo once if a rated fight was removed). Runs at the
+  tail of every `syncSchedule.ts` run; also `npm run
+  events:merge-duplicates`. Idempotent.
+- **`upsertEvent.ts`** follows `merged_into` (a source still reporting
+  the old external_id resolves to the survivor) and skips merged rows
+  when name-matching candidates.
+- **`merged_into is null`** filter added to every date-range events
+  query: `getUpcomingEvents` / `getPastEvents`, the intern queue, the
+  rumour-scan target, odds start-time discovery, and the Wikipedia
+  history backfill's gap detection.
+
+**The 2026-09-12 duplicate did not auto-merge** — the stale event's 9
+fights had all accreted INTERN picks + rumour flags (the intern/rumour
+jobs had been running against it), so K1 correctly skipped it. Cleaned
+by `supabase/data-fixes/2026-09-12_merge-rodriguez-silva-duplicate-event.sql`;
+the new `merged_into` filters stop future duplicates from accreting
+those rows in the first place.
+
+**`reviewer` pass — fixes applied:**
+
+- **HIGH** — the orchestrator read `fights` and `events` with a bare
+  `.select()`. PostgREST truncates a large response silently; a
+  truncated `fights` read would drop ~half of every event's bouts
+  (random-UUID ids) and could delete the visible half of a loser event
+  while orphaning the rest. Now `selectAllPages` for both, and for the
+  four blocking-ref table reads (`odds_snapshots` especially — one
+  immutable row per fight per poll).
+- **MED** — no transaction wraps the per-plan writes. Reordered so
+  `merged_into` is set *first*: a failure in a later step now leaves the
+  loser hidden and out of the next run's clustering (worst case: a
+  hidden event with unreferenced orphan fights), not a visible empty
+  card or a re-merge loop.
+- **LOW** — `winner_id != null` added to the "already has a result"
+  skip guard; `getCardView` 404s a merged event instead of rendering an
+  empty card; a pair-order-independence test (the core cross-source
+  case) added.
+
+**Deliberately not done:** a fake-Supabase test for the I/O orchestrator
+(`sweepLatentDisputedOpponents.ts`, which also deletes fights, has none
+either — the decision logic is fully covered in `planEventMerges`, and
+the orchestrator was verified end-to-end against the live DB). Skipped
+clusters surface only in the sync log for now (`merged_into` filters
+make a skip rare) — a `job_runs`/conflict-queue signal is a K-follow-up.
+
+**Status:** `npm run lint` / `npm run test` (578, +15) / `npm run build`
+all green (`0039` applied to the live DB; the 2026-09-12 data-fix run).

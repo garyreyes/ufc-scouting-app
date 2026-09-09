@@ -1815,6 +1815,14 @@ every branch asserted reachable.
 | J6 | Sherdog takes over height/weight (bio fill on import, `bioFillPayload` never overwrites); **`sherdog.yml` daily** (resolve-identity → import-history → `--refresh --batch=30` → records:recompute); `PROJECT_FACTS.md` Sherdog section + close-out. API-Sports enrichment left as-is — a linked fighter still needs its `external_id` for the results sync, and that lookup returns reach+stance anyway, so there was nothing to narrow | **done** (2026-09-09) |
 | J7 | **Sherdog as a third settlement source** — wire `fighter_sherdog_bouts` into `settleFights`/`evaluateFightSettlement` so a `disputed_result` resolves on a 2-of-3 majority and a fight settles when Sherdog has the result and Wikipedia/API-Sports lag. Needs J6's scheduled refresh so post-fight data is fresh. Added 2026-09-09 after a user question about whether Sherdog speeds up settlement/scoreboard — J1–J5 deliberately do NOT touch settlement | pending |
 
+## Phase K — Live data-integrity fixes (post-Phase-J review)
+
+| Sub | What | Status |
+|---|---|---|
+| K1 | **Duplicate same-date events fix themselves.** `0039_event_merged_into.sql`; `planEventMerges.ts` (pure, test-first, 15 cases) decides keeper/losers/deletable-fights for same-date events sharing a fighter pair; `mergeDuplicateSameDateEvents.ts` applies it at the tail of every `syncSchedule` run (`selectAllPages` for every whole-table read; `merged_into` set before deletes); `upsertEvent` follows `merged_into`; every date-range events query filters `merged_into is null`. Conservative — skips + reports any cluster whose loser fights carry picks/odds/conflicts/rumours/results. | **done, live** (2026-09-10) — 0039 applied, `reviewer` pass fixes applied |
+| K1-fix | `supabase/data-fixes/2026-09-12_merge-rodriguez-silva-duplicate-event.sql` — the one K1 skipped (stale event's 9 fights had INTERN picks + rumour flags from before the `merged_into` filter existed) | **done** (2026-09-10) — user applied 0039 + ran the data-fix; keeper 14 fights, stale event folded; `events:merge-duplicates` re-run clean (129 events, 0 dupes) |
+| K1-followup | Surface a K1-*skipped* cluster (blocking refs on a stale event) via `job_runs` or the `/conflicts` queue — currently console-only. Low priority: the `merged_into` filters now stop the intern/rumour jobs from creating the refs that cause a skip | not started |
+
 **J3 live findings (dry-run, first 100 upcoming-card fighters).** 87
 auto-match at confidence 1.00, each confirmed by the page-name guard;
 5 review-queue (Korean/Chinese names romanized family-name-first on

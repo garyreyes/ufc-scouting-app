@@ -82,7 +82,8 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   const { data: events, error: eventsError } = await supabase
     .from("events")
     .select("id")
-    .gte("event_date", today);
+    .gte("event_date", today)
+    .is("merged_into", null);
   if (eventsError) throw eventsError;
   const eventIds = (events ?? []).map((e) => e.id as string);
   if (eventIds.length === 0) return summary;

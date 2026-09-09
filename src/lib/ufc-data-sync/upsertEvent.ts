@@ -17,18 +17,42 @@ function normalizeEventName(name: string): string {
     .trim();
 }
 
+// A row that mergeDuplicateSameDateEvents.ts (K1) folded into another
+// carries `merged_into`. A source still reporting the old external_id
+// must resolve to the survivor, not resurrect the duplicate -- follow the
+// pointer (one hop in practice; capped defensively against a cycle).
+async function resolveMergedInto(supabase: SupabaseClient, id: string): Promise<string> {
+  let current = id;
+  for (let hop = 0; hop < 5; hop++) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("merged_into")
+      .eq("id", current)
+      .maybeSingle();
+    if (error) throw error;
+    const next = data?.merged_into as string | null | undefined;
+    if (!next || next === current) return current;
+    current = next;
+  }
+  return current;
+}
+
 export async function upsertEvent(
   supabase: SupabaseClient,
   event: EventWrite,
 ): Promise<string> {
   const { data: byExternalId, error: findError } = await supabase
     .from("events")
-    .select("id")
+    .select("id, merged_into")
     .eq("external_id", event.external_id)
     .maybeSingle();
   if (findError) throw findError;
 
   if (byExternalId) {
+    if (byExternalId.merged_into) {
+      // Don't touch the folded row's name/date -- the survivor owns them.
+      return resolveMergedInto(supabase, byExternalId.merged_into as string);
+    }
     const { error } = await supabase
       .from("events")
       .update({ name: event.name, event_date: event.event_date })
@@ -41,7 +65,8 @@ export async function upsertEvent(
   const { data: candidates, error: candidatesError } = await supabase
     .from("events")
     .select("id, name, external_id")
-    .eq("event_date", event.event_date);
+    .eq("event_date", event.event_date)
+    .is("merged_into", null);
   if (candidatesError) throw candidatesError;
 
   const match = candidates?.find((c) => normalizeEventName(c.name) === normalizedTarget);

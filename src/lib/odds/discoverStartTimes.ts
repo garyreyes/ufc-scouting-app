@@ -65,7 +65,8 @@ export async function discoverStartTimes(
   const { data: events, error: eventsError } = await supabase
     .from("events")
     .select("id, event_date")
-    .gte("event_date", today);
+    .gte("event_date", today)
+    .is("merged_into", null);
   if (eventsError) throw eventsError;
   if (!events || events.length === 0) return summary;
 

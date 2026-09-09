@@ -33,6 +33,7 @@ async function fetchNearestUpcomingEventFights(
     .from("events")
     .select("id")
     .gte("event_date", today)
+    .is("merged_into", null)
     .order("event_date", { ascending: true })
     .limit(1);
   if (eventsError) throw eventsError;

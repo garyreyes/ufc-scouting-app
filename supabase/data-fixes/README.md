@@ -36,6 +36,13 @@ Six tables FK-reference `fights.id`: `picks`, `odds_snapshots`,
 `fighter_elo_history`, `rumour_flags`, `data_conflicts` (all RESTRICT /
 NO ACTION) and `scouting_reports` (CASCADE).
 
+**Duplicate same-date events are now handled in code** by
+`mergeDuplicateSameDateEvents.ts` (Phase 68 / K1), which runs on every
+schedule sync. A one-off file here is only needed when that job *skips* a
+cluster — it refuses to touch a loser event whose fights are referenced
+by a pick/odds/conflict/rumour row, and reports it instead.
+
 | File | What it fixed |
 |---|---|
 | `2026-09-09_merge-ufc-paris-duplicate-event.sql` | "UFC Fight Night: Paris" and "UFC Fight Night: Hooker vs. Parnasse" were two rows for one 2026-09-05 card; Michael Page vs Ruziboev existed twice (one settled, one not) |
+| `2026-09-12_merge-rodriguez-silva-duplicate-event.sql` | Wikipedia renamed the 2026-09-12 card ("Rodríguez vs. Silva" → "Silva vs. Delgado") after the main event changed; K1 skipped the merge because the stale event's 9 fights had accreted INTERN picks + rumour flags |

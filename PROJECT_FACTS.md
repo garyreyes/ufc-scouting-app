@@ -192,6 +192,21 @@ Decided 2026-08-29, user-originated.
   Garry") — the two sources disagreed on the card, Wikipedia's version
   was made authoritative, the API-Sports row deleted. See `CHANGES.md`
   Phase 58.
+- **Duplicate same-date events are a recurring class, now self-healing
+  (Phase 68 / K1).** Root cause: `upsertEvent.ts` dedups only on
+  (`event_date`, punctuation-folded name), so it misses a card the two
+  sources name differently *or* that one source renames mid-cycle.
+  Seen three times — UFC 330 (I4b), UFC Paris (2026-09-09 data-fix),
+  and 2026-09-12 (Wikipedia renamed "Rodríguez vs. Silva" →
+  "Silva vs. Delgado" after Yair Rodríguez withdrew). Each hand-merge
+  recurred on the next sync until now: `mergeDuplicateSameDateEvents.ts`
+  runs every schedule sync, `events.merged_into` (0039) records the
+  fold, `upsertEvent` follows the pointer. **The job stays conservative
+  — it skips (and logs) any duplicate whose stale fights carry
+  picks/odds/conflicts/rumour rows**, which is exactly what happened on
+  2026-09-12 (the intern + rumour jobs had run against the stale event
+  before K1's `merged_into` filter existed), so that one is a
+  `supabase/data-fixes/` file.
 - **API-Sports fighter names can arrive mojibake'd** (latin1 bytes read
   as UTF-8): "Kauê Fernandes" came through as "KauÃª Fernandes" on a real
   row, found in I4b. Not yet root-caused in `fetchFighter.ts` /
