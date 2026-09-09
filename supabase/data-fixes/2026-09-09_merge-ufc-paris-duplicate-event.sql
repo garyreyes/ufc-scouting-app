@@ -29,11 +29,12 @@
 --   b2072586-...  under "Paris"   external_id "2836"   SETTLED (Page won,
 --                                                      api_sports_only_24h)
 --                                 1 INTERN pick (settled correct),
---                                 1 odds_snapshot
+--                                 1 odds_snapshot (same market as below)
 --   bc2b1540-...  under "Hooker vs. Parnasse"  external_id "wiki:..."
 --                                 NOT settled, bout_order 2 (real card slot)
 --                                 1 INTERN pick (thin, unsettled),
---                                 1 USER pick (owner picked Ruziboev)
+--                                 1 USER pick (owner picked Ruziboev),
+--                                 1 odds_snapshot
 --
 -- FIX
 -- ---
@@ -85,11 +86,11 @@ set fight_id   = 'bc2b1540-8580-4ff5-bf13-ae2a75dbab22',
     updated_at = now()
 where id = 'eaf7cf8d-f9a3-4a7a-b381-ccdb378fc855';
 
--- move the odds snapshot (odds_snapshots is unique per fight_id;
--- the keeper row has none)
-update odds_snapshots
-set fight_id = 'bc2b1540-8580-4ff5-bf13-ae2a75dbab22'
-where fight_id = 'b2072586-f7c7-47da-ae50-2deaae4e5e64';
+-- both rows have a snapshot from the SAME market (odds_event_id
+-- 5aaad9d4..., betonlineag, Page ~1.55 fav in both). The keeper row's is
+-- earlier and already aligned to its fighter order, so drop the
+-- duplicate one on the row being deleted.
+delete from odds_snapshots where fight_id = 'b2072586-f7c7-47da-ae50-2deaae4e5e64';
 
 -- delete the duplicate fight (now unreferenced) and the empty event
 delete from fights where id = 'b2072586-f7c7-47da-ae50-2deaae4e5e64';
