@@ -39,9 +39,14 @@
 -- FIX
 -- ---
 -- Keep bc2b1540 (correct event, real card slot). Move the settled result,
--- the API-Sports report, the external_id, the richer intern pick and the
--- odds onto it; drop the thin duplicate intern pick; delete b2072586 and
--- the now-empty "Paris" event.
+-- the API-Sports report, the external_id and the richer intern pick onto
+-- it; drop the thin duplicate intern pick, the duplicate odds snapshot and
+-- the duplicate Elo snapshots; delete b2072586 and the empty "Paris" event.
+--
+-- SIX tables FK-reference fights.id. Row b2072586 was referenced by three
+-- of them and ALL THREE must be cleared before the fight delete (all
+-- RESTRICT): picks (1), odds_snapshots (1), fighter_elo_history (2).
+-- data_conflicts, rumour_flags and scouting_reports had none.
 --
 -- Two sets of guard triggers block parts of this and cannot tell a
 -- deliberate admin merge from a bad app write, so they are disabled for
@@ -50,9 +55,14 @@
 --   * picks_check_constraints (0027) -- refuses to move a pick to a
 --     different fight once the card has started;
 --   * odds_snapshots_no_update / _no_delete (0013) -- odds_snapshots is
---     immutable by design. The snapshot being moved is a real T-12h
---     price for this exact bout (Ruziboev vs Page), just filed under the
---     duplicate row, so moving it is correct.
+--     immutable by design, so the duplicate snapshot on the row being
+--     deleted cannot be removed without lifting it.
+--
+-- VERIFY BEFORE COMMITTING: run this file with the final `commit;` swapped
+-- for `rollback;`. Every statement executes against real data and nothing
+-- persists -- which is how the three separate blockers above (pick lock,
+-- odds immutability, Elo FK) were each found in one pass instead of one
+-- failed COMMIT at a time.
 --
 -- ROOT-CAUSE FOLLOW-UP: upsertFight.ts should treat the exact fighter pair
 -- appearing on another same-date event as a duplicate-event signal and
@@ -91,6 +101,12 @@ where id = 'eaf7cf8d-f9a3-4a7a-b381-ccdb378fc855';
 -- earlier and already aligned to its fighter order, so drop the
 -- duplicate one on the row being deleted.
 delete from odds_snapshots where fight_id = 'b2072586-f7c7-47da-ae50-2deaae4e5e64';
+
+-- fighter_elo_history also RESTRICTs the fight delete (2 snapshots written
+-- when the duplicate settled). Safe to drop: recomputeEloRatings.ts does a
+-- full delete-then-reinsert of the whole table on every run, so the next
+-- recompute_elo rebuilds these from the fight graph.
+delete from fighter_elo_history where fight_id = 'b2072586-f7c7-47da-ae50-2deaae4e5e64';
 
 -- delete the duplicate fight (now unreferenced) and the empty event
 delete from fights where id = 'b2072586-f7c7-47da-ae50-2deaae4e5e64';
