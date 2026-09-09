@@ -42,10 +42,16 @@
 -- odds onto it; drop the thin duplicate intern pick; delete b2072586 and
 -- the now-empty "Paris" event.
 --
--- The picks_check_constraints trigger (0027) blocks moving a pick to a
--- different fight once the card has started -- it can't tell a deliberate
--- admin merge from a late app write -- so it is disabled for this one
--- transaction and re-enabled at the end (atomic: a rollback re-enables it).
+-- Two sets of guard triggers block parts of this and cannot tell a
+-- deliberate admin merge from a bad app write, so they are disabled for
+-- this one transaction and re-enabled at the end (atomic -- a rollback
+-- re-enables them):
+--   * picks_check_constraints (0027) -- refuses to move a pick to a
+--     different fight once the card has started;
+--   * odds_snapshots_no_update / _no_delete (0013) -- odds_snapshots is
+--     immutable by design. The snapshot being moved is a real T-12h
+--     price for this exact bout (Ruziboev vs Page), just filed under the
+--     duplicate row, so moving it is correct.
 --
 -- ROOT-CAUSE FOLLOW-UP: upsertFight.ts should treat the exact fighter pair
 -- appearing on another same-date event as a duplicate-event signal and
@@ -67,6 +73,8 @@
 begin;
 
 alter table picks disable trigger picks_check_constraints;
+alter table odds_snapshots disable trigger odds_snapshots_no_update;
+alter table odds_snapshots disable trigger odds_snapshots_no_delete;
 
 -- drop the thin duplicate intern pick on the keeper row
 delete from picks where id = '5074e91d-da14-4996-b8ad-7de77643e894';
@@ -100,5 +108,7 @@ set winner_id              = '11fc5109-0d62-47e5-be6d-af42b7a87a5c',  -- Michael
 where id = 'bc2b1540-8580-4ff5-bf13-ae2a75dbab22';
 
 alter table picks enable trigger picks_check_constraints;
+alter table odds_snapshots enable trigger odds_snapshots_no_update;
+alter table odds_snapshots enable trigger odds_snapshots_no_delete;
 
 commit;
