@@ -1826,6 +1826,54 @@ every branch asserted reachable.
 | K2 | **Cross-date duplicate events.** `planEventMerges` clusters events within ±1 day (not just exact same date) — catches a card split across a timezone/broadcast date boundary ("Gamrot vs Salkilld" Aug 8/9). `mergeDuplicateSameDateEvents` restructured to a two-pass FK-ref check. +4 tests. Also: `2026-09-10_merge-benardo-sopaj-duplicate-fighter.sql` folded a stub duplicate fighter, resolving 1 of the 2 `disputed_opponent` conflicts | **done** (2026-09-10) |
 | K2-followup | Merge the Gamrot Aug 8/9 date-split card. | **done** (2026-09-10) — `2026-09-10_merge-gamrot-salkilld-date-split.sql`. User confirmed Sutherland fought José Montanha; Aug-8 Wikipedia row is keeper; 12 stale fights + 24 double-counted Elo rows removed; Elo recomputed. **`disputed_opponent` is now 0 open.** |
 
+---
+
+## Phase L — Intern coverage, settlement, and calibration
+
+Added 2026-09-10, after a user review of live behaviour. Three separate
+problems, worked in this order (the user's own sequencing): **L1 → L2 → L3**.
+L3 depends on L2 — the intern's pick/bet rule cannot be re-tuned without
+settled results to measure it against, and settlement has never once completed
+for an intern-covered card.
+
+**Live findings that motivated this phase** (production, 2026-09-10, via a
+read-only diagnostic):
+
+- **Every upcoming card already carries a full set of intern picks** —
+  `generateInternPicks` is scoped to *every* future event
+  (`event_date >= today`), 127 fights in the last run. The user wants the
+  opposite: picks scoped to the **single next card only**.
+- **No upcoming card has any odds** (`odds_snapshots` empty for all of them),
+  so every intern pick is anchored at a flat 50% and moved only by Elo. The
+  de-vigged market anchor — the intern's designed primary input — is never
+  present in practice yet.
+- **22 fights have `winner_id` set but `settled_at` NULL**, all on two past
+  cards (Nurmagomedov vs. Song 08-29, Hernandez vs. Rodrigues 08-22). Their
+  per-source columns (`wikipedia_winner_id` / `api_sports_winner_id` /
+  `*_reported_at`) are all empty, so `evaluateFightSettlement` sees no source
+  reports and parks them as "still waiting" indefinitely (123 stuck every run).
+- **Zero `wikipedia_reported_at` values exist anywhere in `fights`** — the
+  Wikipedia schedule sync does not appear to be writing per-source result
+  columns at all. ~20 recent fights carry only an API-Sports winner with no
+  Wikipedia corroboration and no 24h timeout firing.
+- **`settle_picks` has scored 0 picks, ever.** No intern (or human) pick has
+  ever been graded, so the scoreboard, calibration table, and every intern
+  line are structurally empty.
+- A mojibake duplicate fighter row (`FarÃ©s Ziam` vs `Farès Ziam`) sits on the
+  Hooker vs. Parnasse (09-05) card, whose Ziam bout has no result from any
+  source. (A data-fix migration for this is already staged on the K2 branch.)
+
+| # | Sub-phase | Status |
+|---|---|---|
+| L1 | Scope intern picks to the **upcoming card only** — `generateInternPicks` (and any human pick surface / card-read panel that assumes all future cards) picks the next unstarted event, not every future one. Decide what happens to the ~110 already-written picks on later cards (leave / delete / hide). | not started |
+| L2 | ⚠️ Settlement gap — (a) why `wikipedia_*` per-source columns are never written; (b) the 22 `winner_id`-set-but-unsettled fights; (c) single-source API-Sports results never timing out to settled. Correctness-critical: a wrong settle mis-scores real picks. | not started |
+| L3 | Re-evaluate the intern's pick + bet criteria (`decideInternPick` / `decideInternBet` / `flagPenalty` / `eloAdjustment`) against real settled results and the calibration table. Depends on L2 producing data. | not started |
+
+**L1 note.** This is a product decision, not a bug fix — the current
+"pick everything" behaviour was a deliberate G1 choice ("revise until the card
+locks"). The user has decided far-out picks are noise (no odds, no rumour
+scan, fighters still dropping out) and wants them gone until a card is next up.
+
 **J3 live findings (dry-run, first 100 upcoming-card fighters).** 87
 auto-match at confidence 1.00, each confirmed by the page-name guard;
 5 review-queue (Korean/Chinese names romanized family-name-first on
