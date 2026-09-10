@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_RATING } from "../elo/eloMath";
+import { fetchNearestUpcomingEventId } from "../events/nearestUpcomingEvent";
 import { fetchLatestEloRatings } from "../elo/fetchLatestEloRatings";
 import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
 import { decideInternBet } from "./decideInternBet";
@@ -48,12 +49,18 @@ function isLockedError(err: unknown): boolean {
  * exists, rumour-adjusted, Elo-adjusted (G1-follow-up), deterministic
  * (decideInternPick.ts).
  *
- * Scoped to every UPCOMING event, not just the nearest: unlike the rumour
- * job there is no per-fight external API cost here, and the intern is
- * meant to have an opinion on every fight. A fight three weeks out with
- * no price yet simply gets an unanchored pick now and a better one later,
- * which is exactly what "revise until the card locks" (user-confirmed
- * 2026-09-02) is for.
+ * Scoped to the SINGLE nearest upcoming card (Phase L1), the same
+ * definition the rumour scan uses (fetchNearestUpcomingEventId). G1
+ * originally picked every future event on the theory that "revise until
+ * the card locks" made an early pick harmless -- but in practice a card
+ * weeks out has no odds (nothing prices before ~T-12h), no rumour scan
+ * (that job is already nearest-card-only), and an unsettled roster, so
+ * those picks were a flat 50% market anchor nudged only by Elo: noise
+ * that cluttered every later card's view. The intern now forms an
+ * opinion only once a card is actually next up.
+ *
+ * Picks already written on a past card are left untouched -- they still
+ * need to settle. Only the forward horizon narrowed.
  *
  * Writes only when the decision actually CHANGED. Rewriting identical
  * values every run would leave picks.updated_at meaningless, and
@@ -77,21 +84,13 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     failed: 0,
   };
 
-  const today = new Date().toISOString().slice(0, 10);
-
-  const { data: events, error: eventsError } = await supabase
-    .from("events")
-    .select("id")
-    .gte("event_date", today)
-    .is("merged_into", null);
-  if (eventsError) throw eventsError;
-  const eventIds = (events ?? []).map((e) => e.id as string);
-  if (eventIds.length === 0) return summary;
+  const eventId = await fetchNearestUpcomingEventId(supabase);
+  if (eventId === null) return summary;
 
   const { data: rawFights, error: fightsError } = await supabase
     .from("fights")
     .select("id, weight_class, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)")
-    .in("event_id", eventIds);
+    .eq("event_id", eventId);
   if (fightsError) throw fightsError;
 
   const fights = (rawFights ?? []) as unknown as EmbeddedFight[];

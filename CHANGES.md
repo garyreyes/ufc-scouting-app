@@ -3229,3 +3229,43 @@ all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
 
 **Status:** `npm run lint` / `npm run test` (612, +6) / `npm run build`
 all green.
+
+## Phase 71 (L1) — Intern picks scoped to the upcoming card only (2026-09-10)
+
+**Why:** the scheduled intern job wrote a pick for every fight on every
+future card (127 last run). A card weeks out has no odds (nothing prices
+before ~T-12h), no rumour scan (that job was already nearest-card-only),
+and an unsettled roster, so those picks were a flat 50% market anchor
+nudged only by Elo — noise on every later card's view. User decided the
+intern should form an opinion only once a card is actually next up.
+
+**Changed:**
+
+- **`src/lib/events/nearestUpcomingEvent.ts`** — new shared helper
+  `fetchNearestUpcomingEventId`: the soonest `event_date >= today`,
+  `merged_into is null` event, or `null`. One definition, +3 tests
+  (fake-Supabase, same pattern as `mergeDuplicateSameDateEvents.test.ts`).
+- **`generateInternPicks.ts`** — was "all upcoming events", now calls the
+  helper for the single nearest card. Downstream unchanged; `fightIds` is
+  ~13 instead of 127 (strictly safer for the `.in()` calls). Doc comment
+  rewritten with the rationale.
+- **`runRumourScanJob.ts`** — refactored `fetchNearestUpcomingEventFights`
+  onto the same helper. No behaviour change — it already did exactly this
+  query inline; this just removes the duplicate.
+- **`runCleanupNonUpcomingInternPicks.ts`** + `npm run
+  intern:cleanup-future-picks` — one-time cleanup, dry-run by default,
+  `--commit` to delete, refuses to commit if any target pick carries a
+  bet or is settled. Uses `selectAllPages` for the `fights`/`picks` scans.
+
+**Ran live (with confirmation):** dry-run then `--commit` against
+production — **58 INTERN picks deleted** across 8 non-nearest upcoming
+cards (UFC 331 → Bonfim vs. Brady), 0 bets, 0 settled. Verified by
+re-query: Silva vs. Delgado (09-12, next up) keeps its 14 intern picks,
+every later card now reads `intern = 0`. The intern regenerates each
+card's picks when it becomes next up.
+
+**Not in scope:** the owner's own manual picks (unchanged, any card);
+L2 (settlement gap); L3 (intern criteria).
+
+**Status:** `npm run lint` / `npm run test` (615, +3) / `npm run build`
+all green, route table unchanged.

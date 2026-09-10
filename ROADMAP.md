@@ -1865,7 +1865,7 @@ read-only diagnostic):
 
 | # | Sub-phase | Status |
 |---|---|---|
-| L1 | Scope intern picks to the **upcoming card only** — `generateInternPicks` (and any human pick surface / card-read panel that assumes all future cards) picks the next unstarted event, not every future one. Decide what happens to the ~110 already-written picks on later cards (leave / delete / hide). | not started |
+| L1 | Scope intern picks to the **upcoming card only** — `generateInternPicks` picks the single nearest upcoming event, not every future one. Shared `lib/events/nearestUpcomingEvent.ts` (rumour job refactored onto it too). One-time `intern:cleanup-future-picks` deleted the 58 already-written picks on later cards. | **done** (2026-09-10) — `CHANGES.md` Phase 71. Ran live: 58 picks deleted, next card's 14 kept, later cards now empty. Owner's manual picks unchanged. |
 | L2 | ⚠️ Settlement gap — (a) why `wikipedia_*` per-source columns are never written; (b) the 22 `winner_id`-set-but-unsettled fights; (c) single-source API-Sports results never timing out to settled. Correctness-critical: a wrong settle mis-scores real picks. | not started |
 | L3 | Re-evaluate the intern's pick + bet criteria (`decideInternPick` / `decideInternBet` / `flagPenalty` / `eloAdjustment`) against real settled results and the calibration table. Depends on L2 producing data. | not started |
 
