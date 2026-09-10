@@ -3106,3 +3106,65 @@ make a skip rare) — a `job_runs`/conflict-queue signal is a K-follow-up.
 
 **Status:** `npm run lint` / `npm run test` (578, +15) / `npm run build`
 all green (`0039` applied to the live DB; the 2026-09-12 data-fix run).
+
+## Phase 69 (J7) — Sherdog as a third settlement source (2026-09-10)
+
+Closes Phase J. Sherdog now feeds `settleFights` alongside Wikipedia and
+API-Sports — the piece J1–J6 deliberately left out (the sidecar was
+read-only).
+
+**The reframe that shaped the design:** checked live 2026-09-10, every
+one of ~860 settled fights carries a *single-source* `settled_from`
+(`wikipedia_only_24h` 821, `api_sports_only_24h` 28, `wikipedia_draw_or_nc`
+11). `both_agree` and `disputed_result` have fired **zero** times —
+API-Sports free (2022+, 100/day) almost never reports the same bout
+Wikipedia does. So Wikipedia is effectively the lone settlement source
+and the 24h wait is pure delay. J7's real value is making Sherdog the
+*second* source that actually shows up: **Wikipedia + Sherdog agree →
+settle now, no 24h wait**, and a Sherdog disagreement turns a silent
+wrong Wikipedia result into a reviewable `disputed_result`.
+
+- **`0040_sherdog_settlement_source.sql`** — `fights.sherdog_winner_id` /
+  `sherdog_method` / `sherdog_round` / `sherdog_reported_at` /
+  `sherdog_bilateral`; `settled_from` widened with `majority_2_of_3` and
+  `sherdog_only_12h`.
+- **`matchSherdogFightResult.ts`** (pure, **test-first**, 14 cases) —
+  fight + both fighters' `fighter_sherdog_bouts` → `matched` /
+  `ambiguous` / `no_data`. Match key is `opponent_sherdog_id` (a real id,
+  not a name) + an event-date window. `bilateral` = both fighters' pages
+  listed the bout and agree. Conservative: rematch, page disagreement, or
+  an unknown result → `ambiguous`, never a guess.
+- **`evaluateFightSettlement.ts`** rewritten around a vote tally (19
+  cases): 2+ agree → `both_agree`; 2 of 3 agree → `majority_2_of_3`;
+  split with no majority → `conflict`; one source past timeout → solo
+  settle (Wikipedia/API 24h, **Sherdog 12h and only when bilateral** — a
+  one-sided scrape never settles a fight alone). Wikipedia stays the
+  method/round authority; Sherdog fills it in where Wikipedia is silent
+  (notably on `api_sports_only` settles, which had none).
+- **`applySherdogResults.ts`** — reads the sidecar into the `fights`
+  columns for near-term unsettled fights (`selectAllPages`; sets
+  `sherdog_reported_at` once, refreshes winner/bilateral each run).
+- **`reimportSherdogForPendingFights.ts`** — the sidecar refreshes on a
+  ~4–5 day cycle, too slow to break a fresh dispute, so this re-fetches
+  (capped 12/run) the Sherdog pages of fighters in fights that have
+  *happened* but not settled and lack a bilateral answer.
+- Both new steps run first in `runSettlementJobsOnce`, wrapped so a
+  Sherdog outage records a `job_runs` failure but **does not block**
+  settlement on Wikipedia + API-Sports.
+- **`settleFights.ts`** — reads the new columns; closes an open
+  `disputed_result` row when a majority now settles that fight.
+- `npm run sherdog:verify-results` (read-only) ran live: **25/25 settled
+  fights with both fighters Sherdog-linked matched, 25/25 agreed with the
+  app's `winner_id`, 0 ambiguous** — the matching rule is sound.
+
+**Not done:** UI provenance (a 3-source agreement badge) — backend only
+for now; `settled_from` carries the record. No test for the two I/O
+orchestrators (`applySherdogResults`, `reimport…`), matching the
+`sweepLatentDisputedOpponents` precedent — the two correctness cores
+(`matchSherdogFightResult`, `evaluateFightSettlement`) are covered
+test-first and the matcher was verified against all live settled fights.
+
+**Status:** `npm run lint` / `npm run test` (601, +23) / `npm run build`
+all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
+
+**Phase J is complete (J1–J7).**
