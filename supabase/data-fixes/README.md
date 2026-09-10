@@ -46,3 +46,4 @@ by a pick/odds/conflict/rumour row, and reports it instead.
 |---|---|
 | `2026-09-09_merge-ufc-paris-duplicate-event.sql` | "UFC Fight Night: Paris" and "UFC Fight Night: Hooker vs. Parnasse" were two rows for one 2026-09-05 card; Michael Page vs Ruziboev existed twice (one settled, one not) |
 | `2026-09-12_merge-rodriguez-silva-duplicate-event.sql` | Wikipedia renamed the 2026-09-12 card ("Rodríguez vs. Silva" → "Silva vs. Delgado") after the main event changed; K1 skipped the merge because the stale event's 9 fights had accreted INTERN picks + rumour flags |
+| `2026-09-10_merge-benardo-sopaj-duplicate-fighter.sql` | "Benardo Sopaj" was a stub duplicate `fighters` row of "Bernardo Sopaj" (missing 'r' — `upsertFighter`'s fold-match only covers accents); one UFC 332 fight repointed, stub deleted, `disputed_opponent` conflict resolved |

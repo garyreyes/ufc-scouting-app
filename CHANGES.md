@@ -3189,3 +3189,33 @@ live settled fight (25/25, 0 disagreements, re-run after the fixes).
 all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
 
 **Phase J is complete (J1–J7).**
+
+## Phase 70 (K2) — cross-date duplicate events + two fighter-identity conflicts (2026-09-10)
+
+- **K2: `planEventMerges` now clusters events within ±1 day**, not just
+  the exact same date. Found live: "UFC Fight Night: Gamrot vs Salkilld"
+  (API-Sports, 2026-08-09) and "... vs. Salkilld" (Wikipedia,
+  2026-08-08) — one card, split across a timezone/broadcast date
+  boundary, invisible to K1's exact-date grouping. The shared-exact-pair
+  requirement is the safety (two real cards a day apart never carry the
+  identical unordered fighter pair). `MAX_EVENT_DATE_SKEW_DAYS = 1`;
+  +4 test cases.
+- **`mergeDuplicateSameDateEvents` restructured to two passes** — K1's
+  same-date pre-filter for the FK-ref check no longer works when any pair
+  of events can cluster, so: pass 1 plans with all `hasBlockingRefs`
+  false to find the at-risk fights, check FK refs on just those, pass 2
+  plans for real. Keeps the whole `.in()` bounded to fights a merge would
+  actually delete.
+- Live: the Gamrot pair now surfaces as a **reported skip** (its Aug-9
+  loser has a settled fight) rather than staying invisible. Fully
+  resolving it needs a data-fix + confirming which opponent Louie
+  Sutherland actually faced (API-Sports says Henrique da Silva Lopes,
+  Wikipedia says José Montanha) — tracked as K2-followup.
+- **`supabase/data-fixes/2026-09-10_merge-benardo-sopaj-duplicate-fighter.sql`**
+  (run) — "Benardo Sopaj" was a stub duplicate of "Bernardo Sopaj"
+  (a missing 'r', which `upsertFighter`'s accent-only fold-match misses).
+  Repointed the one UFC 332 fight, deleted the stub, resolved the
+  `disputed_opponent` conflict. `disputed_opponent` open count 2 → 1.
+
+**Status:** `npm run lint` / `npm run test` (609, +3) / `npm run build`
+all green.

@@ -40,9 +40,40 @@ describe("planEventMerges", () => {
     expect(planEventMerges(events, fights)).toEqual({ plans: [], skipped: [] });
   });
 
-  it("ignores duplicate-looking rows on different dates", () => {
+  it("ignores duplicate-looking rows more than a day apart", () => {
     const events = [ev("a", "2026-09-12"), ev("b", "2026-09-19")];
     const fights = [ft("1", "a", "x", "y"), ft("2", "b", "x", "y")];
+    expect(planEventMerges(events, fights).plans).toEqual([]);
+  });
+
+  it("merges a card split across a timezone date boundary (1 day apart)", () => {
+    // The live "Gamrot vs Salkilld" case: API-Sports 2026-08-09,
+    // Wikipedia 2026-08-08, same bouts.
+    const events = [ev("api", "2026-08-09"), ev("wiki", "2026-08-08")];
+    const fights = [
+      ft("a1", "api", "gamrot", "salkilld"),
+      ft("a2", "api", "lopes", "sutherland"),
+      ft("w1", "wiki", "gamrot", "salkilld", { bout_order: 0 }),
+      ft("w2", "wiki", "lopes", "sutherland", { bout_order: 1 }),
+    ];
+    const result = planEventMerges(events, fights);
+    expect(result.skipped).toEqual([]);
+    expect(result.plans).toHaveLength(1);
+    expect(result.plans[0].keeperEventId).toBe("wiki"); // more bout_order-set
+    expect(result.plans[0].loserEventIds).toEqual(["api"]);
+    expect([...result.plans[0].deleteFightIds].sort()).toEqual(["a1", "a2"]);
+    expect(result.plans[0].event_date).toBe("2026-08-08");
+  });
+
+  it("does not merge events 2 days apart even when a fighter pair matches", () => {
+    const events = [ev("a", "2026-08-09"), ev("b", "2026-08-07")];
+    const fights = [ft("1", "a", "x", "y"), ft("2", "b", "x", "y")];
+    expect(planEventMerges(events, fights).plans).toEqual([]);
+  });
+
+  it("does not merge two events a day apart that share no exact fighter pair", () => {
+    const events = [ev("a", "2026-08-09"), ev("b", "2026-08-08")];
+    const fights = [ft("1", "a", "x", "y"), ft("2", "b", "x", "z")];
     expect(planEventMerges(events, fights).plans).toEqual([]);
   });
 

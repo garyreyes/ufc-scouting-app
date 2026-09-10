@@ -40,21 +40,36 @@ export interface MergePlanResult {
   skipped: SkippedCluster[];
 }
 
+// Two event rows this many days apart or fewer, that also share an exact
+// fighter pairing, are treated as the same card. 1 covers a timezone /
+// broadcast-vs-local date split (found live: "Gamrot vs Salkilld" on
+// 2026-08-09 from API-Sports vs "... vs. Salkilld" on 2026-08-08 from
+// Wikipedia). The shared-exact-pair requirement is what keeps this safe
+// -- two genuinely different cards a day apart never carry the identical
+// unordered fighter pair.
+const MAX_EVENT_DATE_SKEW_DAYS = 1;
+
 function pairKey(fight: { fighter1_id: string; fighter2_id: string }): string {
   return [fight.fighter1_id, fight.fighter2_id].sort().join("|");
 }
 
+function daysApart(a: string, b: string): number {
+  return Math.abs(new Date(a).getTime() - new Date(b).getTime()) / (1000 * 60 * 60 * 24);
+}
+
 /**
- * K1: decides which same-date `events` rows are duplicates of one real
- * card, which one survives, and which fights get removed -- the pure core
- * of mergeDuplicateSameDateEvents.ts.
+ * K1: decides which `events` rows are duplicates of one real card, which
+ * one survives, and which fights get removed -- the pure core of
+ * mergeDuplicateSameDateEvents.ts.
  *
- * The app tracks at most one UFC card per day, so two `events` rows on
- * the same date that share even one exact fighter pairing are the same
- * event that upsertEvent.ts failed to fold (a source renamed it, or the
- * two sources named it differently). Found live three times -- I4b
- * ("UFC 330"), the 2026-09-09 Paris data-fix, and 2026-09-12
- * ("Rodríguez vs. Silva" renamed to "Silva vs. Delgado").
+ * The app tracks at most one UFC card per day, so two `events` rows
+ * within a day of each other that share even one exact fighter pairing
+ * are the same event that upsertEvent.ts failed to fold (a source
+ * renamed it, the two sources named it differently, or they disagree on
+ * the calendar date by a timezone). Found live four times -- I4b
+ * ("UFC 330"), the 2026-09-09 Paris data-fix, 2026-09-12
+ * ("Rodríguez vs. Silva" renamed to "Silva vs. Delgado"), and the
+ * "Gamrot vs Salkilld" 2026-08-08/09 date split (K2).
  *
  * Keeper = the row with the most `bout_order`-set fights (Wikipedia
  * curation = the authoritative card ordering, same call I4b made), then
@@ -85,91 +100,81 @@ export function planEventMerges(
     fightsByEvent.set(fight.event_id, list);
   }
 
-  const eventsByDate = new Map<string, MergeEventInput[]>();
-  for (const event of events) {
-    const list = eventsByDate.get(event.event_date) ?? [];
-    list.push(event);
-    eventsByDate.set(event.event_date, list);
-  }
+  for (const cluster of clusterEventsBySharedBout(events, fightsByEvent)) {
+    if (cluster.length < 2) continue;
 
-  for (const [date, dateEvents] of eventsByDate) {
-    if (dateEvents.length < 2) continue;
+    const keeper = pickKeeper(cluster, fightsByEvent);
+    const losers = cluster.filter((e) => e.id !== keeper.id);
+    const keeperFights = fightsByEvent.get(keeper.id) ?? [];
+    const keeperFightCount = keeperFights.length;
 
-    for (const cluster of clusterEventsBySharedBout(dateEvents, fightsByEvent)) {
-      if (cluster.length < 2) continue;
+    let skipReason: string | null = null;
+    const deleteFightIds: string[] = [];
 
-      const keeper = pickKeeper(cluster, fightsByEvent);
-      const losers = cluster.filter((e) => e.id !== keeper.id);
-      const keeperFights = fightsByEvent.get(keeper.id) ?? [];
-      const keeperFightCount = keeperFights.length;
+    for (const loser of losers) {
+      const loserFights = fightsByEvent.get(loser.id) ?? [];
 
-      let skipReason: string | null = null;
-      const deleteFightIds: string[] = [];
+      if (loserFights.length > keeperFightCount) {
+        skipReason = `loser event ${loser.id} has more fights (${loserFights.length}) than keeper ${keeper.id} (${keeperFightCount}) -- manual review`;
+        break;
+      }
 
-      for (const loser of losers) {
-        const loserFights = fightsByEvent.get(loser.id) ?? [];
-
-        if (loserFights.length > keeperFightCount) {
-          skipReason = `loser event ${loser.id} has more fights (${loserFights.length}) than keeper ${keeper.id} (${keeperFightCount}) -- manual review`;
+      for (const fight of loserFights) {
+        if (fight.settled_at !== null || fight.winner_id !== null) {
+          // winner_id is only ever written by the settlement job (which
+          // also sets settled_at), so this is belt-and-suspenders -- but
+          // a real result must never be deleted on a guess.
+          skipReason = `loser fight ${fight.id} already carries a result -- manual review`;
           break;
         }
-
-        for (const fight of loserFights) {
-          if (fight.settled_at !== null || fight.winner_id !== null) {
-            // winner_id is only ever written by the settlement job (which
-            // also sets settled_at), so this is belt-and-suspenders -- but
-            // a real result must never be deleted on a guess.
-            skipReason = `loser fight ${fight.id} already carries a result -- manual review`;
-            break;
-          }
-          if (fight.hasBlockingRefs) {
-            skipReason = `loser fight ${fight.id} is referenced by a pick/odds/conflict/rumour row -- manual data-fix required`;
-            break;
-          }
-          // Every loser fight is removed, including a bout that exists
-          // ONLY on the loser (dropped from the card before the rename,
-          // or a late bout one source added and the other hasn't). Safe:
-          // it has no result and no refs (both checked above), and if it
-          // is still real, the next sync re-reports it -- upsertEvent
-          // follows `merged_into`, so it lands on the keeper, not a
-          // resurrected duplicate.
-          deleteFightIds.push(fight.id);
+        if (fight.hasBlockingRefs) {
+          skipReason = `loser fight ${fight.id} is referenced by a pick/odds/conflict/rumour row -- manual data-fix required`;
+          break;
         }
-        if (skipReason) break;
+        // Every loser fight is removed, including a bout that exists
+        // ONLY on the loser (dropped from the card before the rename,
+        // or a late bout one source added and the other hasn't). Safe:
+        // it has no result and no refs (both checked above), and if it
+        // is still real, the next sync re-reports it -- upsertEvent
+        // follows `merged_into`, so it lands on the keeper, not a
+        // resurrected duplicate.
+        deleteFightIds.push(fight.id);
       }
-
-      if (skipReason) {
-        skipped.push({ event_date: date, eventIds: cluster.map((e) => e.id).sort(), reason: skipReason });
-        continue;
-      }
-
-      plans.push({
-        event_date: date,
-        keeperEventId: keeper.id,
-        loserEventIds: losers.map((e) => e.id).sort(),
-        deleteFightIds,
-      });
+      if (skipReason) break;
     }
+
+    if (skipReason) {
+      skipped.push({ event_date: keeper.event_date, eventIds: cluster.map((e) => e.id).sort(), reason: skipReason });
+      continue;
+    }
+
+    plans.push({
+      event_date: keeper.event_date,
+      keeperEventId: keeper.id,
+      loserEventIds: losers.map((e) => e.id).sort(),
+      deleteFightIds,
+    });
   }
 
   return { plans, skipped };
 }
 
-// Connected components of same-date events, joined by any shared exact
-// fighter pairing. A three-way rename chain ("330" / "330: A vs B" /
-// "330: A vs. B") lands in one component; a genuinely separate same-date
-// event (no shared bout) stays on its own and is left alone.
+// Connected components of events joined by a shared exact fighter pairing
+// AND a date within MAX_EVENT_DATE_SKEW_DAYS. A three-way rename chain
+// ("330" / "330: A vs B" / "330: A vs. B") lands in one component; a
+// genuinely separate event (no shared bout, or too far apart) stays on
+// its own and is left alone.
 function clusterEventsBySharedBout(
-  dateEvents: MergeEventInput[],
+  events: MergeEventInput[],
   fightsByEvent: Map<string, MergeFightInput[]>,
 ): MergeEventInput[][] {
   const pairKeysByEvent = new Map<string, Set<string>>();
-  for (const event of dateEvents) {
+  for (const event of events) {
     pairKeysByEvent.set(event.id, new Set((fightsByEvent.get(event.id) ?? []).map(pairKey)));
   }
 
   const parent = new Map<string, string>();
-  for (const event of dateEvents) parent.set(event.id, event.id);
+  for (const event of events) parent.set(event.id, event.id);
   const find = (id: string): string => {
     let root = id;
     while (parent.get(root) !== root) root = parent.get(root)!;
@@ -187,16 +192,17 @@ function clusterEventsBySharedBout(
     if (rootA !== rootB) parent.set(rootA, rootB);
   };
 
-  for (let i = 0; i < dateEvents.length; i++) {
-    for (let j = i + 1; j < dateEvents.length; j++) {
-      const a = pairKeysByEvent.get(dateEvents[i].id)!;
-      const b = pairKeysByEvent.get(dateEvents[j].id)!;
-      if ([...a].some((k) => b.has(k))) union(dateEvents[i].id, dateEvents[j].id);
+  for (let i = 0; i < events.length; i++) {
+    for (let j = i + 1; j < events.length; j++) {
+      if (daysApart(events[i].event_date, events[j].event_date) > MAX_EVENT_DATE_SKEW_DAYS) continue;
+      const a = pairKeysByEvent.get(events[i].id)!;
+      const b = pairKeysByEvent.get(events[j].id)!;
+      if ([...a].some((k) => b.has(k))) union(events[i].id, events[j].id);
     }
   }
 
   const groups = new Map<string, MergeEventInput[]>();
-  for (const event of dateEvents) {
+  for (const event of events) {
     const root = find(event.id);
     const list = groups.get(root) ?? [];
     list.push(event);
