@@ -6,10 +6,22 @@ import { runSettlementJobsOnce } from "./runSettlementJobsOnce";
 // their freshly-written per-source reports to have anything to evaluate.
 async function main() {
   const supabase = getSupabaseAdmin();
-  const { fights, picks, elo, records } = await runSettlementJobsOnce(supabase);
+  const { sherdogReimport, sherdogResults, fights, picks, elo, records } =
+    await runSettlementJobsOnce(supabase);
 
   console.log(
-    `Fight settlement: ${fights.settled} settled, ${fights.conflicts} disputed (queued), ${fights.stillWaiting} still waiting.`,
+    `Sherdog re-import: ${sherdogReimport.pendingFights} pending fights, ` +
+      `${sherdogReimport.fightersReimported} fighters refreshed (cap ${sherdogReimport.cappedAt}).`,
+  );
+  console.log(
+    `Sherdog results: ${sherdogResults.fightsChecked} both-linked fights checked, ` +
+      `${sherdogResults.matched} matched, ${sherdogResults.written} written, ` +
+      `${sherdogResults.retracted} retracted, ${sherdogResults.ambiguous} ambiguous, ` +
+      `${sherdogResults.errors} write errors.`,
+  );
+  console.log(
+    `Fight settlement: ${fights.settled} settled, ${fights.conflicts} disputed (queued), ` +
+      `${fights.stillWaiting} still waiting, ${fights.resultDisputesResolved} prior disputes auto-resolved.`,
   );
   console.log(`Pick settlement: ${picks.picksSettled} picks settled across ${picks.fightsProcessed} fights.`);
   console.log(

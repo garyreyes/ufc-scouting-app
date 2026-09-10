@@ -5,87 +5,204 @@ export interface FightSourceState {
   wikipediaReportedAt: string | null;
   apiSportsWinnerId: string | null;
   apiSportsReportedAt: string | null;
+  // J7. sherdogWinnerId is null for a Sherdog-reported draw / NC (unlike
+  // API-Sports, Sherdog records those). sherdogBilateral = both of the
+  // fight's fighters' Sherdog pages listed this bout and agreed on it
+  // (matchSherdogFightResult.ts). A non-bilateral Sherdog vote is
+  // CORROBORATION ONLY -- it can confirm an agreement but never settle a
+  // fight alone and never cast the deciding vote in a disagreement.
+  sherdogWinnerId: string | null;
+  sherdogMethod: string | null;
+  sherdogRound: number | null;
+  sherdogReportedAt: string | null;
+  sherdogBilateral: boolean;
 }
 
-export type SettledFrom = "both_agree" | "wikipedia_only_24h" | "api_sports_only_24h" | "wikipedia_draw_or_nc";
+export type SettledFrom =
+  | "both_agree"
+  | "wikipedia_only_24h"
+  | "api_sports_only_24h"
+  | "wikipedia_draw_or_nc"
+  | "majority_2_of_3"
+  | "sherdog_only_12h";
 
 export type FightSettlementDecision =
   | { action: "wait" }
   | { action: "conflict" }
-  | { action: "settle"; winnerId: string | null; method: string | null; round: number | null; settledFrom: SettledFrom };
+  | {
+      action: "settle";
+      winnerId: string | null;
+      method: string | null;
+      round: number | null;
+      settledFrom: SettledFrom;
+    };
 
 // The single source of truth for ARCHITECTURE.md Fork 6's settlement
 // policy. Pure and I/O-free by design (lib/scoring/'s own convention),
 // so lib/settlement/settleFights.ts owns fetching the current state and
 // writing the decision, and this owns only the judgment.
+//
+// Policy:
+//   - 2+ sources report and all agree            -> settle "both_agree"
+//   - 2 of 3 agree, the third dissents            -> settle "majority_2_of_3"
+//   - sources split with no majority              -> "conflict" (queue)
+//   - exactly one source, past its timeout        -> settle on it, flagged
+//       Wikipedia / API-Sports: 24h
+//       Sherdog: 12h, and only when bilateral
+//   - Wikipedia-only draw/NC                      -> settle immediately
+//       ("wikipedia_draw_or_nc")
+//
+// A non-bilateral Sherdog vote counts toward "everyone agrees" but is
+// dropped before the tie-break math -- it can't create a dispute or
+// decide one.
+//
+// J7 note (live check 2026-09-10): every one of ~860 settled fights
+// carries a single-source settled_from -- API-Sports free almost never
+// reports the same bout Wikipedia does. So in practice Sherdog is the
+// SECOND source that shows up, and "Wikipedia + Sherdog agree" is the
+// path that actually fires, settling without the 24h wait.
 const SINGLE_SOURCE_TIMEOUT_HOURS = 24;
+const SHERDOG_SOLO_TIMEOUT_HOURS = 12;
+
+type SourceName = "wikipedia" | "api_sports" | "sherdog";
+
+interface Vote {
+  source: SourceName;
+  winnerId: string | null; // fighter id, or null for a reported draw / NC
+  reportedAt: string;
+  method: string | null;
+  round: number | null;
+}
+
+// Map a winner value to a tally key -- a real draw (null) is its own
+// bucket, distinct from any fighter id.
+const winnerKey = (winnerId: string | null): string => (winnerId === null ? " draw-or-nc" : winnerId);
+
+function groupByWinner(votes: Vote[]): Map<string, Vote[]> {
+  const groups = new Map<string, Vote[]>();
+  for (const vote of votes) {
+    const list = groups.get(winnerKey(vote.winnerId)) ?? [];
+    list.push(vote);
+    groups.set(winnerKey(vote.winnerId), list);
+  }
+  return groups;
+}
+
+// method/round authority among the sources actually settling this fight:
+// Wikipedia's detail first, then Sherdog's, then none (API-Sports never
+// carries either).
+function methodRoundFrom(settling: Vote[]): { method: string | null; round: number | null } {
+  const wiki = settling.find((v) => v.source === "wikipedia");
+  if (wiki && (wiki.method !== null || wiki.round !== null)) return { method: wiki.method, round: wiki.round };
+  const sherdog = settling.find((v) => v.source === "sherdog");
+  if (sherdog && (sherdog.method !== null || sherdog.round !== null)) {
+    return { method: sherdog.method, round: sherdog.round };
+  }
+  return { method: null, round: null };
+}
 
 export function evaluateFightSettlement(state: FightSourceState, now: Date): FightSettlementDecision {
-  const wikipediaReported = state.wikipediaReportedAt !== null;
-  const apiSportsReported = state.apiSportsReportedAt !== null;
-
-  if (!wikipediaReported && !apiSportsReported) {
-    return { action: "wait" };
-  }
-
-  if (wikipediaReported && state.wikipediaWinnerId === null) {
-    // A Wikipedia draw/NC. api_sports can only ever report a clear win or
-    // stay silent (fetchFightHistory.ts has no "no winner" signal at
-    // all), so if it's silent here there is no second opinion that will
-    // ever arrive -- waiting the usual 24h buys no real confidence, so
-    // this settles immediately (user-confirmed). If api_sports HAS
-    // actively reported a winner, that is a genuine disagreement between
-    // sources, not the "nothing to wait for" case, so it queues like any
-    // other disagreement instead.
-    if (apiSportsReported) {
-      return { action: "conflict" };
-    }
-    return {
-      action: "settle",
-      winnerId: null,
+  const votes: Vote[] = [];
+  if (state.wikipediaReportedAt !== null) {
+    votes.push({
+      source: "wikipedia",
+      winnerId: state.wikipediaWinnerId,
+      reportedAt: state.wikipediaReportedAt,
       method: state.wikipediaMethod,
       round: state.wikipediaRound,
-      settledFrom: "wikipedia_draw_or_nc",
-    };
+    });
+  }
+  if (state.apiSportsReportedAt !== null) {
+    votes.push({
+      source: "api_sports",
+      winnerId: state.apiSportsWinnerId,
+      reportedAt: state.apiSportsReportedAt,
+      method: null,
+      round: null,
+    });
+  }
+  if (state.sherdogReportedAt !== null) {
+    votes.push({
+      source: "sherdog",
+      winnerId: state.sherdogWinnerId,
+      reportedAt: state.sherdogReportedAt,
+      method: state.sherdogMethod,
+      round: state.sherdogRound,
+    });
   }
 
-  if (wikipediaReported && apiSportsReported) {
-    // wikipediaWinnerId is non-null here -- the draw/NC branch above
-    // already returned for the null case.
-    if (state.wikipediaWinnerId === state.apiSportsWinnerId) {
+  if (votes.length === 0) return { action: "wait" };
+
+  const soloDecision = (only: Vote): FightSettlementDecision => {
+    if (only.source === "wikipedia" && only.winnerId === null) {
       return {
         action: "settle",
-        winnerId: state.wikipediaWinnerId,
-        method: state.wikipediaMethod,
-        round: state.wikipediaRound,
+        winnerId: null,
+        method: only.method,
+        round: only.round,
+        settledFrom: "wikipedia_draw_or_nc",
+      };
+    }
+    // Sherdog alone is only trusted bilaterally.
+    if (only.source === "sherdog" && !state.sherdogBilateral) return { action: "wait" };
+
+    const timeoutHours =
+      only.source === "sherdog" ? SHERDOG_SOLO_TIMEOUT_HOURS : SINGLE_SOURCE_TIMEOUT_HOURS;
+    const hoursSinceReport = (now.getTime() - new Date(only.reportedAt).getTime()) / (1000 * 60 * 60);
+    if (hoursSinceReport < timeoutHours) return { action: "wait" };
+
+    const soloSettledFrom: Record<SourceName, SettledFrom> = {
+      wikipedia: "wikipedia_only_24h",
+      api_sports: "api_sports_only_24h",
+      sherdog: "sherdog_only_12h",
+    };
+    return {
+      action: "settle",
+      winnerId: only.winnerId,
+      method: only.method,
+      round: only.round,
+      settledFrom: soloSettledFrom[only.source],
+    };
+  };
+
+  // Everyone who reported agrees -- a non-bilateral Sherdog vote is fine
+  // as corroboration here.
+  if (groupByWinner(votes).size === 1) {
+    if (votes.length >= 2) {
+      const { method, round } = methodRoundFrom(votes);
+      return { action: "settle", winnerId: votes[0].winnerId, method, round, settledFrom: "both_agree" };
+    }
+    return soloDecision(votes[0]);
+  }
+
+  // There is a disagreement. Drop a non-bilateral Sherdog vote before the
+  // tie-break -- it may not create or decide a dispute.
+  const decisiveVotes =
+    state.sherdogBilateral ? votes : votes.filter((v) => v.source !== "sherdog");
+  const decisiveGroups = groupByWinner(decisiveVotes);
+
+  if (decisiveGroups.size <= 1) {
+    // The only disagreement was the weak Sherdog vote; the sources that
+    // count either agree or there is just one of them.
+    if (decisiveVotes.length >= 2) {
+      const { method, round } = methodRoundFrom(decisiveVotes);
+      return {
+        action: "settle",
+        winnerId: decisiveVotes[0].winnerId,
+        method,
+        round,
         settledFrom: "both_agree",
       };
     }
-    return { action: "conflict" };
+    return soloDecision(decisiveVotes[0]);
   }
 
-  // Exactly one source has reported. Measured against THAT source's own
-  // first-report timestamp, never the event's scheduled start -- a
-  // delayed or postponed card must not shorten the wait.
-  const soleReportedAt = wikipediaReported ? state.wikipediaReportedAt! : state.apiSportsReportedAt!;
-  const hoursSinceReport = (now.getTime() - new Date(soleReportedAt).getTime()) / (1000 * 60 * 60);
-  if (hoursSinceReport < SINGLE_SOURCE_TIMEOUT_HOURS) {
-    return { action: "wait" };
+  const ranked = [...decisiveGroups.values()].sort((a, b) => b.length - a.length);
+  if (ranked[0].length >= 2 && ranked[0].length > (ranked[1]?.length ?? 0)) {
+    const majority = ranked[0];
+    const { method, round } = methodRoundFrom(majority);
+    return { action: "settle", winnerId: majority[0].winnerId, method, round, settledFrom: "majority_2_of_3" };
   }
 
-  return wikipediaReported
-    ? {
-        action: "settle",
-        winnerId: state.wikipediaWinnerId,
-        method: state.wikipediaMethod,
-        round: state.wikipediaRound,
-        settledFrom: "wikipedia_only_24h",
-      }
-    : {
-        action: "settle",
-        winnerId: state.apiSportsWinnerId,
-        method: null,
-        round: null,
-        settledFrom: "api_sports_only_24h",
-      };
+  return { action: "conflict" };
 }

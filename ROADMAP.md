@@ -1749,13 +1749,14 @@ real participant still accepted.
 Added 2026-09-07, after a user question about paying for a Tapology feed
 turned into a source comparison. Confirmed with the user before any code.
 
-**Status: J1–J6 done and merged** (PRs #56, #57, #58; J6 on
-`feat/sherdog-schedule`). 128 upcoming-card fighters keyed to a stable
-Sherdog id, 2,545 bouts imported, full-career records live, the
-`sherdog.yml` daily job wired. **J7 (Sherdog as a third settlement
-source) is the remaining piece** — it's what would speed up settlement,
-the scoreboard, and `disputed_result` resolution, none of which J1–J6
-touch.
+**Status: J1–J7 done** (J1–J6 merged as PRs #56–#59; J7 = PR #60,
+`0040` applied 2026-09-10). 128 upcoming-card fighters
+keyed to a stable Sherdog id, 2,545 bouts imported, full-career records
+live, `sherdog.yml` daily, and Sherdog now a third source in
+`settleFights` — reframed once the live data showed `both_agree` had
+never once fired, so the real win is a Wikipedia+Sherdog agreement
+settling without the 24h wait rather than the originally-imagined
+2-of-3 tiebreak.
 
 **Why Sherdog, and why not the paid option.** The paid "Tapology API" is
 an unofficial third-party scrape reseller — it breaks the hard $0
@@ -1803,9 +1804,9 @@ every branch asserted reachable.
 
 | # | Sub-phase | Status |
 |---|---|---|
-| J1 | Migration `0036_sherdog_identity.sql` + `lib/sherdog/client.ts` (the one wrapper: integer-id validation, 1.5s throttle, injectable fetch) + `identityGuard.ts` (the name-assertion guard) + failing tests | **code done, migration not yet applied** (2026-09-07) |
+| J1 | Migration `0036_sherdog_identity.sql` + `lib/sherdog/client.ts` (the one wrapper: integer-id validation, 1.5s throttle, injectable fetch) + `identityGuard.ts` (the name-assertion guard) + failing tests | **done** (2026-09-07) — 0036 applied |
 | J2 | Parsers + saved-HTML fixtures + failing tests: bio, headline record, fight history, name search | **done** (2026-09-07) — 6 trimmed real fixtures, 56 tests. The headline-record-equals-counted-rows cross-check passes on all 4 fighter fixtures (the invariant J4/J5 lean on). Every history row on every fixture carries method + round + opponent id + date |
-| J3 | `resolveSherdogIdentity` (search → auto-match \| conflict \| no-candidates) + identity job over the upcoming-card queue. Dry-run first | **code done, migration 0037 not yet applied; live dry-run of first 20 looked right (15 auto-match, 2 queue, 3 not-in-Sherdog)** (2026-09-07) |
+| J3 | `resolveSherdogIdentity` (search → auto-match \| conflict \| no-candidates) + identity job over the upcoming-card queue. Dry-run first | **done** (2026-09-07) — 0037 applied; see J3-live for the full-roster result |
 | J3b | `/conflicts` card + resolver + api.ts branch + action to resolve a `low_confidence_sherdog_match` → write `sherdog_id` | **done** (2026-09-07) — `resolveSherdogMatch.ts` (pure), `LowConfidenceSherdogMatchCard` (shows why it was queued), `resolveSherdogMatchAction` (owner-gated, `sherdog_id` unique constraint is the race net). Migration 0037 applied |
 | J3-review | `reviewer` pass on J1–J3b, then fixes | **done** (2026-09-07) — see below |
 | J3-tiebreak | fight-count tie-break for `ambiguous` matches | **done** (2026-09-07) — dry-run over 100: **86 auto-match, 9 queue, 5 not-found, 0 failed** (was 75/20/5/3 before the review fixes). Tie-break recovered 11 champions/contenders with regional namesakes (Pantoja, Moreno, Volkov's opponent pool etc.); the 9 left are 5 genuine romanization mismatches + 4 real multi-namesake ties |
@@ -1813,7 +1814,7 @@ every branch asserted reachable.
 | J4 | Sherdog history import — **read-only sidecar** (`fighter_sherdog_bouts` + 6 finish columns on `fighters`), NOT merged into `fights`/`events`/Elo (fork decided with user 2026-09-08). `parseSherdogDate` + `buildSherdogBoutRows` test-first; the build step refuses a page that doesn't reconcile against its own headline. `/fighters/[id]` gets a "Full Career (Sherdog)" section | **done** (2026-09-09) — 0038 applied, ran live: **2,545 bouts across 128 fighters**, 0 skipped, 0 failed, 121 with finish stats. Dry-run caught the `draws` vs `draw` class bug (20 real-draw fighters). `reviewer` pass: no HIGH; fixes applied — upsert+delete-tail write (no zero-row window), real leap-year date check, `--refresh` ordering + `--sherdog-id` target, arg guards |
 | J5 | Record source switch — for a Sherdog-linked fighter, W-L-D comes from counting `fighter_sherdog_bouts`, not the app fight graph. Elo untouched (still graph-only). Fighter-page + tale-of-the-tape caveats updated. `deriveSherdogRecords` + `applySherdogRecordOverride` test-first | **done, ran live** (2026-09-09) — 128 fighters switched to full-career records (Pantoja 1-1 → 30-6, Figueiredo 1-3 → 25-7-1, Vera 0-2 → 23-12-1). `npm run records:recompute` standalone runner added |
 | J6 | Sherdog takes over height/weight (bio fill on import, `bioFillPayload` never overwrites); **`sherdog.yml` daily** (resolve-identity → import-history → `--refresh --batch=30` → records:recompute); `PROJECT_FACTS.md` Sherdog section + close-out. API-Sports enrichment left as-is — a linked fighter still needs its `external_id` for the results sync, and that lookup returns reach+stance anyway, so there was nothing to narrow | **done** (2026-09-09) |
-| J7 | **Sherdog as a third settlement source** — wire `fighter_sherdog_bouts` into `settleFights`/`evaluateFightSettlement` so a `disputed_result` resolves on a 2-of-3 majority and a fight settles when Sherdog has the result and Wikipedia/API-Sports lag. Needs J6's scheduled refresh so post-fight data is fresh. Added 2026-09-09 after a user question about whether Sherdog speeds up settlement/scoreboard — J1–J5 deliberately do NOT touch settlement | pending |
+| J7 | **Sherdog as a third settlement source** — wire `fighter_sherdog_bouts` into `settleFights`/`evaluateFightSettlement` so a `disputed_result` resolves on a 2-of-3 majority and a fight settles when Sherdog has the result and Wikipedia/API-Sports lag. Needs J6's scheduled refresh so post-fight data is fresh. Added 2026-09-09 after a user question about whether Sherdog speeds up settlement/scoreboard — J1–J5 deliberately do NOT touch settlement | **done** (2026-09-10) — 0040 applied; `matchSherdogFightResult` + `evaluateFightSettlement` test-first; `sherdog:verify-results` ran clean 25/25 vs live settled fights. Reframed on the live finding that `both_agree` has *never* fired: the real win is Wikipedia+Sherdog agreeing → no 24h wait. `sherdog_only_12h` needs bilateral corroboration; Sherdog steps wrapped so an outage can't block settlement. `reviewer` pass fixes applied |
 
 ## Phase K — Live data-integrity fixes (post-Phase-J review)
 

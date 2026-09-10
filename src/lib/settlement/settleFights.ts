@@ -6,6 +6,7 @@ export interface SettleFightsSummary {
   settled: number;
   conflicts: number;
   stillWaiting: number;
+  resultDisputesResolved: number;
 }
 
 /**
@@ -39,7 +40,7 @@ export async function settleFights(supabase: SupabaseClient): Promise<SettleFigh
   const { data: fights, error } = await supabase
     .from("fights")
     .select(
-      "id, wikipedia_winner_id, wikipedia_method, wikipedia_round, wikipedia_reported_at, api_sports_winner_id, api_sports_reported_at",
+      "id, wikipedia_winner_id, wikipedia_method, wikipedia_round, wikipedia_reported_at, api_sports_winner_id, api_sports_reported_at, sherdog_winner_id, sherdog_method, sherdog_round, sherdog_reported_at, sherdog_bilateral",
     )
     .is("settled_at", null);
   if (error) throw error;
@@ -52,7 +53,25 @@ export async function settleFights(supabase: SupabaseClient): Promise<SettleFigh
   if (disputesError) throw disputesError;
   const disputedFightIds = new Set((openDisputes ?? []).map((row) => row.fight_id as string));
 
-  const summary: SettleFightsSummary = { settled: 0, conflicts: 0, stillWaiting: 0 };
+  // J7: an open disputed_result that a Sherdog-fed majority can now
+  // settle needs its queue row closed as part of the same run -- otherwise
+  // it lingers in /conflicts after the fight is already scored.
+  const { data: openResultDisputes, error: resultDisputesError } = await supabase
+    .from("data_conflicts")
+    .select("id, fight_id")
+    .eq("kind", "disputed_result")
+    .is("resolved_at", null);
+  if (resultDisputesError) throw resultDisputesError;
+  const openResultDisputeByFightId = new Map(
+    (openResultDisputes ?? []).map((row) => [row.fight_id as string, row.id as string]),
+  );
+
+  const summary: SettleFightsSummary = {
+    settled: 0,
+    conflicts: 0,
+    stillWaiting: 0,
+    resultDisputesResolved: 0,
+  };
 
   for (const fight of fights ?? []) {
     if (disputedFightIds.has(fight.id)) {
@@ -67,6 +86,11 @@ export async function settleFights(supabase: SupabaseClient): Promise<SettleFigh
       wikipediaReportedAt: fight.wikipedia_reported_at,
       apiSportsWinnerId: fight.api_sports_winner_id,
       apiSportsReportedAt: fight.api_sports_reported_at,
+      sherdogWinnerId: fight.sherdog_winner_id,
+      sherdogMethod: fight.sherdog_method,
+      sherdogRound: fight.sherdog_round,
+      sherdogReportedAt: fight.sherdog_reported_at,
+      sherdogBilateral: fight.sherdog_bilateral ?? false,
     };
     const decision = evaluateFightSettlement(state, now);
 
@@ -88,23 +112,28 @@ export async function settleFights(supabase: SupabaseClient): Promise<SettleFigh
         .eq("id", fight.id);
       if (updateError) throw updateError;
       summary.settled++;
+
+      // J7: if a Sherdog-fed majority just settled a fight that was
+      // already in the disputed_result queue, close that row now.
+      const openResultDisputeId = openResultDisputeByFightId.get(fight.id);
+      if (openResultDisputeId) {
+        const { error: resolveError } = await supabase
+          .from("data_conflicts")
+          .update({
+            resolved_at: now.toISOString(),
+            resolution: `auto-settled: ${decision.settledFrom} (winner ${decision.winnerId ?? "draw/NC"})`,
+          })
+          .eq("id", openResultDisputeId);
+        if (resolveError) throw resolveError;
+        summary.resultDisputesResolved++;
+      }
       continue;
     }
 
-    // action === "conflict" -- same reuse-existing-open-row pattern as
-    // upsertFight.ts's disputed_opponent handling, so a fight stuck in
-    // disagreement across several twice-daily runs doesn't pile up
-    // duplicate queue entries.
-    const { data: existingConflict, error: existingError } = await supabase
-      .from("data_conflicts")
-      .select("id")
-      .eq("kind", "disputed_result")
-      .eq("fight_id", fight.id)
-      .is("resolved_at", null)
-      .maybeSingle();
-    if (existingError) throw existingError;
-
-    if (!existingConflict) {
+    // action === "conflict" -- reuse an existing open row rather than
+    // stacking one per twice-daily run (same pattern as upsertFight.ts's
+    // disputed_opponent handling).
+    if (!openResultDisputeByFightId.has(fight.id)) {
       const { error: insertError } = await supabase.from("data_conflicts").insert({
         kind: "disputed_result",
         fight_id: fight.id,
@@ -113,6 +142,8 @@ export async function settleFights(supabase: SupabaseClient): Promise<SettleFigh
           wikipedia_method: fight.wikipedia_method,
           wikipedia_round: fight.wikipedia_round,
           api_sports_winner_id: fight.api_sports_winner_id,
+          sherdog_winner_id: fight.sherdog_winner_id,
+          sherdog_bilateral: fight.sherdog_bilateral ?? false,
         },
       });
       if (insertError) throw insertError;

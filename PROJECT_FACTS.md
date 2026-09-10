@@ -268,14 +268,25 @@ Decided 2026-08-29, user-originated.
   only ever searched once, and a new upcoming card's fighters are picked
   up on the next run.
 
-### Sherdog integration — where it stands after Phase J (2026-09-09)
+### Sherdog integration — where it stands after Phase J (2026-09-10)
 
 - **Sherdog is a read-only sidecar, deliberately NOT merged into
-  `fights` / `events` / Elo / settlement.** A fighter's ~30-55 bouts
-  against regional opponents don't belong in the app's own graph.
-  `fighter_sherdog_bouts` (0038) stores the career; opponent and event
-  are Sherdog id + name text, never foreign keys. Reconsidering this
-  means reopening the J4 fork, which was decided with the user against.
+  `fights` / `events` / Elo.** A fighter's ~30-55 bouts against regional
+  opponents don't belong in the app's own graph. `fighter_sherdog_bouts`
+  (0038) stores the career; opponent and event are Sherdog id + name
+  text, never foreign keys. Reconsidering this means reopening the J4
+  fork, which was decided with the user against.
+- **Settlement (J7, 0040): Sherdog IS now a third result source** — read
+  out of the sidecar into `fights.sherdog_*`, not merged as fight rows.
+  `evaluateFightSettlement` takes a 3-vote tally: 2+ agree → `both_agree`,
+  2 of 3 → `majority_2_of_3`, split → `conflict`. Sherdog settles a fight
+  alone only after 12h AND when both fighters' pages corroborate
+  (`sherdog_only_12h`). **Load-bearing finding (checked live 2026-09-10):
+  `both_agree` had fired ZERO times across ~860 settled fights** —
+  API-Sports free barely overlaps Wikipedia — so J7's real effect is
+  Wikipedia+Sherdog agreeing and settling *without* the 24h single-source
+  wait, not the 2-of-3 tiebreak that motivated it. `sherdog:verify-results`
+  matched 25/25 live settled fights, 25/25 agreeing with `winner_id`.
 - **Record source:** for a Sherdog-linked fighter *with imported bouts*,
   `fighters.wins/losses/draws` is counted from `fighter_sherdog_bouts`
   (J5, `applySherdogRecordOverride`). Unlinked fighters, and linked
@@ -292,10 +303,14 @@ Decided 2026-08-29, user-originated.
   the linked roster ~every 4-5 days for post-fight freshness) →
   records:recompute. Sherdog is unmetered, so no quota scheduling.
 - **A linked fighter's record still lags a fight by up to ~4-5 days** —
-  the `--refresh` cycle time. The scoreboard and pick settlement are
-  unaffected (they read the fight graph, settled by Wikipedia +
-  API-Sports twice daily). Closing that lag, and using Sherdog to break
-  `disputed_result` conflicts, is **J7** (not built).
+  the `--refresh` cycle time. For *settlement* J7 closes this with a
+  targeted re-import: `reimportSherdogForPendingFights` (settlement chain,
+  capped 12 fighters/run) re-fetches the pages of fighters in fights that
+  have happened but not settled. The record recount still rides the
+  4-5 day cycle.
+- **The two Sherdog settlement steps never block settlement** — wrapped
+  in `runOptionalStep`, so a Sherdog outage writes a `job_runs` failure
+  row but the chain still settles on Wikipedia + API-Sports.
 
 ## Odds
 
