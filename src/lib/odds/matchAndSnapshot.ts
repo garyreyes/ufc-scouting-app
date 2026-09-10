@@ -45,6 +45,23 @@ export async function matchAndSnapshot(
 
   const candidates = await fetchEligibleUnpricedFights(supabase, now);
 
+  // Dedup low_confidence_odds_match the same way upsertFight.ts dedups
+  // disputed_opponent: the odds job runs every 2h, and a genuinely
+  // unmatched recurring odds event would otherwise file a fresh conflict
+  // every run (37 such rows accreted from one 2026-09-05 feed anomaly
+  // before this guard). One open row per odds event is enough.
+  const { data: openOddsConflicts, error: openError } = await supabase
+    .from("data_conflicts")
+    .select("details")
+    .eq("kind", "low_confidence_odds_match")
+    .is("resolved_at", null);
+  if (openError) throw openError;
+  const alreadyQueuedEventIds = new Set(
+    (openOddsConflicts ?? [])
+      .map((row) => (row.details as { oddsEvent?: { id?: string } } | null)?.oddsEvent?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+
   for (const oddsEvent of oddsEvents) {
     const decision = decideMatch(oddsEvent, candidates);
 
@@ -54,6 +71,10 @@ export async function matchAndSnapshot(
     }
 
     if (decision.kind === "low_confidence") {
+      if (alreadyQueuedEventIds.has(oddsEvent.id)) {
+        summary.lowConfidence++;
+        continue;
+      }
       // fight_id is deliberately null here, not decision.fightId --
       // 0014_data_conflicts.sql's own design: an unmatched odds event
       // doesn't identify a specific fight with enough confidence to
@@ -67,6 +88,7 @@ export async function matchAndSnapshot(
         details: { oddsEvent, confidence: decision.confidence, candidateFightId: decision.fightId },
       });
       if (error) throw error;
+      alreadyQueuedEventIds.add(oddsEvent.id);
       summary.lowConfidence++;
       continue;
     }

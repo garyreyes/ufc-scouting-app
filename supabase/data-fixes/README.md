@@ -46,3 +46,4 @@ by a pick/odds/conflict/rumour row, and reports it instead.
 |---|---|
 | `2026-09-09_merge-ufc-paris-duplicate-event.sql` | "UFC Fight Night: Paris" and "UFC Fight Night: Hooker vs. Parnasse" were two rows for one 2026-09-05 card; Michael Page vs Ruziboev existed twice (one settled, one not) |
 | `2026-09-12_merge-rodriguez-silva-duplicate-event.sql` | Wikipedia renamed the 2026-09-12 card ("Rodríguez vs. Silva" → "Silva vs. Delgado") after the main event changed; K1 skipped the merge because the stale event's 9 fights had accreted INTERN picks + rumour flags |
+| `2026-09-10_resolve-stale-odds-match-conflicts.sql` | 37 inert `low_confidence_odds_match` rows (fight_id null) from one 2026-09-05 Odds-API feed anomaly — cross-promotion bouts this app doesn't track; `matchAndSnapshot.ts` gained a dedup guard in the same change |
