@@ -3209,16 +3209,23 @@ all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
   (fake-Supabase, 3 cases) — the first test for either K1/K2 orchestrator,
   locking the "pass-1 at-risk set ⊇ pass-2 deletions" invariant the
   `reviewer` flagged as subtle.
-- Live: the Gamrot pair now surfaces as a **reported skip** (its Aug-9
-  loser has a settled fight) rather than staying invisible. Fully
-  resolving it needs a data-fix + confirming which opponent Louie
-  Sutherland actually faced (API-Sports says Henrique da Silva Lopes,
-  Wikipedia says José Montanha) — tracked as K2-followup.
-- **`supabase/data-fixes/2026-09-10_merge-benardo-sopaj-duplicate-fighter.sql`**
-  (run) — "Benardo Sopaj" was a stub duplicate of "Bernardo Sopaj"
-  (a missing 'r', which `upsertFighter`'s accent-only fold-match misses).
-  Repointed the one UFC 332 fight, deleted the stub, resolved the
-  `disputed_opponent` conflict. `disputed_opponent` open count 2 → 1.
+- Live: the Gamrot pair surfaced as a **reported skip** (its Aug-9 loser
+  carried stale winners), then resolved by
+  **`2026-09-10_merge-gamrot-salkilld-date-split.sql`** — user confirmed
+  Louie Sutherland fought **José Montanha** (Wikipedia), not Henrique da
+  Silva Lopes (API-Sports). The Aug-8 Wikipedia row (fully settled,
+  `bout_order`) is the keeper; the 12 stale Aug-9 fights + **24
+  double-counted `fighter_elo_history` rows** deleted, the last open
+  `disputed_opponent` resolved. `recompute_elo` re-run — 904 fights /
+  1800 snapshots (was double-counting this card).
+- **`2026-09-10_merge-benardo-sopaj-duplicate-fighter.sql`** (run) —
+  "Benardo Sopaj" was a stub duplicate of "Bernardo Sopaj" (a missing
+  'r', which `upsertFighter`'s accent-only fold-match misses). Repointed
+  the one UFC 332 fight, deleted the stub, resolved its
+  `disputed_opponent`.
+- **`data_conflicts` open count: `disputed_opponent` 2 → 0**,
+  `low_confidence_odds_match` 37 → 0 (PR #61). Only the 13
+  `low_confidence_sherdog_match` remain (owner picks).
 
 **Status:** `npm run lint` / `npm run test` (612, +6) / `npm run build`
 all green.
