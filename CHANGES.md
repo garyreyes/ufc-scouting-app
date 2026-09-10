@@ -3205,7 +3205,10 @@ all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
   of events can cluster, so: pass 1 plans with all `hasBlockingRefs`
   false to find the at-risk fights, check FK refs on just those, pass 2
   plans for real. Keeps the whole `.in()` bounded to fights a merge would
-  actually delete.
+  actually delete. **`mergeDuplicateSameDateEvents.test.ts` added**
+  (fake-Supabase, 3 cases) — the first test for either K1/K2 orchestrator,
+  locking the "pass-1 at-risk set ⊇ pass-2 deletions" invariant the
+  `reviewer` flagged as subtle.
 - Live: the Gamrot pair now surfaces as a **reported skip** (its Aug-9
   loser has a settled fight) rather than staying invisible. Fully
   resolving it needs a data-fix + confirming which opponent Louie
@@ -3217,5 +3220,5 @@ all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
   Repointed the one UFC 332 fight, deleted the stub, resolved the
   `disputed_opponent` conflict. `disputed_opponent` open count 2 → 1.
 
-**Status:** `npm run lint` / `npm run test` (609, +3) / `npm run build`
+**Status:** `npm run lint` / `npm run test` (612, +6) / `npm run build`
 all green.

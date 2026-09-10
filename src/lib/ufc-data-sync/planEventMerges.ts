@@ -160,10 +160,14 @@ export function planEventMerges(
 }
 
 // Connected components of events joined by a shared exact fighter pairing
-// AND a date within MAX_EVENT_DATE_SKEW_DAYS. A three-way rename chain
-// ("330" / "330: A vs B" / "330: A vs. B") lands in one component; a
-// genuinely separate event (no shared bout, or too far apart) stays on
-// its own and is left alone.
+// AND a pairwise date within MAX_EVENT_DATE_SKEW_DAYS. A three-way rename
+// chain ("330" / "330: A vs B" / "330: A vs. B") lands in one component;
+// a genuinely separate event (no shared bout, or too far apart) stays on
+// its own. (A transitive chain -- A~B, B~C, each within the window --
+// can span more than the window end to end; that needs three rows for
+// one card across three dates all sharing exact pairs down the chain,
+// which real UFC data does not produce, and the result/ref skip guards
+// still apply.)
 function clusterEventsBySharedBout(
   events: MergeEventInput[],
   fightsByEvent: Map<string, MergeFightInput[]>,

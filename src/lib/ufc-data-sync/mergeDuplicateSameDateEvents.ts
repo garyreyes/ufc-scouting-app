@@ -114,6 +114,10 @@ export async function mergeDuplicateSameDateEvents(
 
   const blockedFightIds = new Set<string>();
   for (const table of BLOCKING_REF_TABLES) {
+    // selectAllPages, not a bare `.in()`: odds_snapshots accrues one
+    // immutable row per fight per poll, so even this now-bounded set can
+    // page -- and a missed row would read as "not blocked", the one
+    // mistake that turns into a failed RESTRICT delete mid-merge.
     const rows = await selectAllPages<{ id: string; fight_id: string | null }>(
       supabase,
       table,
