@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripNullish } from "./stripNullish";
-import { namesMatchExactly } from "../text/namesMatchExactly";
+import { namesLikelySamePerson } from "../text/namesLikelySamePerson";
 
 export interface FighterWrite {
   name: string;
@@ -60,25 +60,38 @@ export async function upsertFighter(
     return byName.id;
   }
 
-  // The plain exact match above missed a real duplicate live in
-  // production (I2b, 2026-09-03): Wikipedia's "André Lima" and
-  // API-Sports' "Andre Lima" are the same person, but `ilike` alone is
-  // diacritic-sensitive, so each source kept its own separate row.
-  // Fetching every name and comparing with namesMatchExactly (fold
-  // diacritics, then require an EXACT match -- never fuzzy) is the same
-  // "fetch broadly, decide in tested code" pattern this codebase already
-  // uses elsewhere, and cheap at this table's size; only paid on the
-  // (rare) path where a plain exact match found nothing.
-  const { data: allFighters, error: allError } = await supabase.from("fighters").select("id, name");
+  // The plain exact match above missed real duplicates live in production:
+  // I2b (2026-09-03) -- Wikipedia's "André Lima" vs API-Sports' "Andre
+  // Lima", `ilike` being diacritic-sensitive -- and L2b (2026-09-10) --
+  // "Sumudaerji" / "Su Mudaerji" (missing space) and "Ce Liu" / "Liu Ce"
+  // (family-name-first romanisation), which fold identically once space
+  // and token order are ignored. `namesLikelySamePerson` covers all three
+  // structural rewrites and nothing looser (never a nickname). Same
+  // "fetch broadly, decide in tested code" pattern used elsewhere here,
+  // cheap at this table's size, only paid when a plain exact match found
+  // nothing.
+  const { data: allFighters, error: allError } = await supabase
+    .from("fighters")
+    .select("id, name, external_id");
   if (allError) throw allError;
-  const foldedMatch = (allFighters ?? []).find((f) => namesMatchExactly(f.name as string, fighter.name));
-  if (foldedMatch) {
+  const foldedMatches = (allFighters ?? []).filter((f) =>
+    namesLikelySamePerson(f.name as string, fighter.name),
+  );
+  if (foldedMatches.length > 0) {
+    // When several rows fold to the same name (a duplicate that predates
+    // this check), update the one carrying an external_id -- that is the
+    // identity row API-Sports' results sync and Sherdog both key on, and
+    // picking it deterministically stops the two rows ping-ponging which
+    // one each source writes to.
+    const target =
+      foldedMatches.find((f) => f.external_id !== null && f.external_id !== undefined) ??
+      foldedMatches[0];
     const { error: updateError } = await supabase
       .from("fighters")
       .update(updatePayload)
-      .eq("id", foldedMatch.id);
+      .eq("id", target.id);
     if (updateError) throw updateError;
-    return foldedMatch.id;
+    return target.id;
   }
 
   const { data: inserted, error: insertError } = await supabase

@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "sync:recent": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncJob.ts",
     "sync:schedule": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/syncSchedule.ts",
+    "sync:refresh-recent-results": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runRefreshRecentEventResults.ts",
     "sync": "npm run sync:recent && npm run sync:schedule",
     "odds:discover-start-times": "dotenv -e .env.local -- tsx src/lib/odds/runDiscoverStartTimes.ts",
     "odds:scheduled-job": "dotenv -e .env.local -- tsx src/lib/odds/runScheduledOddsJob.ts",

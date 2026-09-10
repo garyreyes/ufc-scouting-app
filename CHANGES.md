@@ -3269,3 +3269,53 @@ L2 (settlement gap); L3 (intern criteria).
 
 **Status:** `npm run lint` / `npm run test` (615, +3) / `npm run build`
 all green, route table unchanged.
+
+## Phase 72 (L2 / L2b) — recently-finished cards get their Wikipedia results (2026-09-10)
+
+**Why:** 22 fights on two August cards (Nurmagomedov vs. Song 08-29,
+Hernandez vs. Rodrigues 08-22) plus 3 on Hooker vs. Parnasse (09-05) had
+never settled. Root cause: `syncSchedule` only covers
+`Category:Scheduled`, which drops a card ~when it finishes, and the I4
+backfill is gap-only — so a card synced while upcoming never gets its
+`wikipedia_*` per-source result columns and settles single-source on
+API-Sports' ~3-day window at best.
+
+**L2 — the fix:**
+
+- **`src/lib/ufc-data-sync/selectEventsNeedingResultRefresh.ts`** (pure,
+  +10 tests) — the queue: an event that is past + inside a 30-day window
+  + not merged + has a Wikipedia-title external_id + still has a fight
+  with no `wikipedia_reported_at`.
+- **`refreshRecentEventResults.ts`** — re-runs `processScheduleEvent` for
+  each such card (`upsertFight` matches the existing row and writes its
+  per-source columns; never inserts a duplicate). Per-event try/catch.
+- **`syncSchedule.ts`** calls it at the tail of every run, right before
+  `sync.yml`'s settlement step.
+- **`runRefreshRecentEventResults.ts`** + `npm run
+  sync:refresh-recent-results` — standalone, dry-run by default.
+
+**L2b — fighter dedup exposed by L2's first run:** re-fetching the two
+August cards surfaced 8 `disputed_opponent` conflicts, each a genuine
+API-Sports-enriched / Wikipedia-placeholder duplicate fighter pair
+(missing space, name-order swap, diacritic, nickname).
+
+- **`src/lib/text/namesLikelySamePerson.ts`** (+11 tests) — widens
+  `upsertFighter`'s automatic fold-match to also catch missing internal
+  spaces and name-order swaps (not nicknames — still a human call).
+  `upsertFighter` now also prefers the `external_id` row when several
+  names fold together.
+- **`supabase/data-fixes/2026-09-10_merge-8-name-variant-duplicate-fighters.sql`**
+  — repoints the 8 placeholders' fights + Elo onto the identity row,
+  adopts the Wikipedia display name, drops the placeholders, resolves the
+  8 conflicts. All six `fights` id columns repointed in one statement (a
+  per-column sequence transiently violates `0031`'s winner-in-bout
+  CHECK). Verified rollback-first, then applied.
+
+**Ran live (with confirmation):** refresh → merge data-fix → refresh again
+→ `settlement:run-jobs`. All 40 fights across the 3 cards now have
+Wikipedia results, 0 open `disputed_opponent` conflicts, and every one
+settles `wikipedia_only_24h` on the next sync (~24h after the result was
+written). Records recompute changed 6 fighters (the merges).
+
+**Status:** `npm run lint` / `npm run test` (635, +20) / `npm run build`
+all green, route table unchanged.

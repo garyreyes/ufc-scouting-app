@@ -154,13 +154,25 @@ Decided 2026-08-29, user-originated.
   likely isn't.
 - **Not every "same fighter, different name" gap is a diacritic
   problem.** I2c's sweep of the whole table found 10 real duplicate
-  clusters; only 2 were diacritics (which I2b now catches). The other 6
-  were nicknames (Wesley/Wes, Stan/Stanley), name order swapped
-  (Liu Ce/Ce Liu), and missing spaces in transliterated names (Aori
-  Qileng/Aoriqileng) — none of which `namesMatchExactly.ts` catches, and
-  none of which should be silently auto-merged; they're real, different-
-  looking strings, and only a human confirming via `/conflicts` should
-  decide they're the same person.
+  clusters; only 2 were diacritics. **L2b (2026-09-10) widened the
+  automatic fold-match:** `namesLikelySamePerson.ts` (used by
+  `upsertFighter`'s fallback) now also folds **missing internal spaces**
+  (Aoriqileng/Aori Qileng) and **name-order swaps** (Liu Ce/Ce Liu,
+  Xiong Jingnan/Jingnan Xiong) — both are pure rearrangements of the same
+  characters, judged safe to auto-merge (user-confirmed). It still does
+  **not** fold a **nickname / short form** (Wes/Wesley, Stan/Stanley):
+  that stays a human call via `/conflicts`. When several rows fold to one
+  name, `upsertFighter` updates the one carrying an `external_id` (the
+  identity row) so the two sources stop ping-ponging which row they
+  write.
+- **L2's `refreshRecentEventResults` will surface latent duplicate-fighter
+  pairs the first time it re-processes an old card** whose fighter rows
+  predate current name conventions (8 found on the two August cards,
+  2026-09-10, merged via
+  `supabase/data-fixes/2026-09-10_merge-8-name-variant-duplicate-fighters.sql`).
+  Expected to be rare going forward — a genuinely recent card's names are
+  already current (Hooker vs. Parnasse, 5 days old, refreshed with zero
+  conflicts).
 - **One conflict is open on purpose and should stay open until someone
   identifies the fighter**: Louie Sutherland's opponent at UFC Fight
   Night: Gamrot vs. Salkilld. Wikipedia currently says "José Montanha
@@ -311,6 +323,26 @@ Decided 2026-08-29, user-originated.
 - **The two Sherdog settlement steps never block settlement** — wrapped
   in `runOptionalStep`, so a Sherdog outage writes a `job_runs` failure
   row but the chain still settles on Wikipedia + API-Sports.
+- **A card gets no Wikipedia result unless something re-fetches it after
+  it finishes.** `syncSchedule.ts`'s loop only covers
+  `Category:Scheduled mixed martial arts events`, which drops a card ~when
+  it finishes; the I4 backfill is gap-only (skips any event that has
+  fights). So a card synced while upcoming had ZERO `wikipedia_*` result
+  columns and settled single-source on API-Sports at best (L2, 2026-09-10,
+  found 2 cards fully stuck + 3 Hooker/Parnasse fights). **Fix:**
+  `refreshRecentEventResults` re-runs `processScheduleEvent` for every
+  finished card in a trailing 30-day window
+  (`REFRESH_WINDOW_DAYS`), at the tail of every `syncSchedule` run, right
+  before `sync.yml`'s settlement step. `selectEventsNeedingResultRefresh`
+  (pure) is the queue: past + in-window + non-merged + title-shaped
+  external_id + has a fight with no `wikipedia_reported_at`.
+- **API-Sports free tier IS serving 2026 results now** (L2 live check,
+  2026-09-10) — 70 `api_sports_reported_at` rows, 50 fights settled
+  `api_sports_only_24h`. Contradicts the Phase 5 "free tier refuses 2025+"
+  note for the *results* endpoint, though the ~3-day date window still
+  applies (`syncJob.ts` `WINDOW_DAYS_PAST = 3`), so it only ever covers a
+  card for ~3 days after it happens — Wikipedia is still the durable
+  source.
 
 ## Odds
 
@@ -949,6 +981,15 @@ Decided 2026-08-29, user-originated.
   would wipe every rating. Both `computeEloHistory.ts` and
   `deriveFighterRecords.ts` guard it now; any future third reader of
   "what happened in this fight" needs the same one-line check.
+- **Merging one fighter id into another: repoint every `fights` column in
+  ONE statement, not one per column.** `0031`'s
+  `fights_winner_is_in_the_bout` CHECK is evaluated per-row per-statement,
+  so `update ... set fighter1_id = keep` followed by a separate
+  `update ... set winner_id = keep` leaves the row transiently invalid
+  (winner points at the now-removed id) and the first statement throws.
+  A single `update fights set <all six id columns> = case ... end` takes
+  the row straight to its consistent final state. Caught by the
+  rollback-first verify on the L2b merge data-fix, 2026-09-10.
 - **`selectAllPages.ts` uses keyset pagination (`id > cursor`), not
   offset (`.range()`) — this was a deliberate correction, not the first
   design.** An offset is positional, so a concurrent insert/delete on a

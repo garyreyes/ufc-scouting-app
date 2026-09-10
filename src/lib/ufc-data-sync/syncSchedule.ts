@@ -2,6 +2,7 @@ import { listUpcomingUfcEventTitles, fetchEventSchedule } from "./fetchSchedule"
 import { getSupabaseAdmin } from "../supabase/admin";
 import { processScheduleEvent } from "./processScheduleEvent";
 import { mergeDuplicateSameDateEvents } from "./mergeDuplicateSameDateEvents";
+import { refreshRecentEventResults } from "./refreshRecentEventResults";
 
 export async function runScheduleSync() {
   const supabase = getSupabaseAdmin();
@@ -23,6 +24,19 @@ export async function runScheduleSync() {
   }
 
   console.log(`Schedule sync (Wikipedia): ${eventCount} events, ${fightCount} fights.`);
+
+  // L2: a card leaves Category:Scheduled ~when it finishes, so the loop
+  // above stops covering it exactly when its results appear. Re-pull the
+  // last ~30 days of finished cards here so their wikipedia_* result
+  // columns get written -- sync.yml runs settlement immediately after
+  // this, so a freshly-pulled result settles the same run.
+  const refresh = await refreshRecentEventResults(supabase);
+  if (refresh.candidateTitles.length > 0) {
+    console.log(
+      `Recent-results refresh: ${refresh.eventsRefreshed}/${refresh.candidateTitles.length} cards refreshed, ` +
+        `${refresh.fightsTouched} fight rows touched, ${refresh.failed} failed.`,
+    );
+  }
 
   // A source renaming a card (or the two sources naming it differently)
   // leaves one real event as two rows that upsertEvent.ts can't fold --
