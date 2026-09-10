@@ -344,4 +344,87 @@ describe("evaluateFightSettlement", () => {
       settledFrom: "both_agree",
     });
   });
+
+  // A one-sided (non-bilateral) Sherdog vote must not cast the deciding
+  // vote in a Wikipedia-vs-API disagreement, in EITHER direction.
+  it("does not let a non-bilateral Sherdog vote break a Wikipedia/API tie toward API", () => {
+    const state: FightSourceState = {
+      ...NOT_REPORTED,
+      wikipediaWinnerId: FIGHTER_A,
+      wikipediaMethod: "Decision (split)",
+      wikipediaRound: 3,
+      wikipediaReportedAt: hoursAgo(1),
+      apiSportsWinnerId: FIGHTER_B,
+      apiSportsReportedAt: hoursAgo(1),
+      sherdogWinnerId: FIGHTER_B,
+      sherdogReportedAt: hoursAgo(1),
+      sherdogBilateral: false,
+    };
+    expect(evaluateFightSettlement(state, NOW)).toEqual({ action: "conflict" });
+  });
+
+  it("does not let a non-bilateral Sherdog vote break a Wikipedia/API tie toward Wikipedia", () => {
+    const state: FightSourceState = {
+      ...NOT_REPORTED,
+      wikipediaWinnerId: FIGHTER_A,
+      wikipediaMethod: "Decision (split)",
+      wikipediaRound: 3,
+      wikipediaReportedAt: hoursAgo(1),
+      apiSportsWinnerId: FIGHTER_B,
+      apiSportsReportedAt: hoursAgo(1),
+      sherdogWinnerId: FIGHTER_A,
+      sherdogReportedAt: hoursAgo(1),
+      sherdogBilateral: false,
+    };
+    expect(evaluateFightSettlement(state, NOW)).toEqual({ action: "conflict" });
+  });
+
+  it("settles on the two agreeing sources when only a non-bilateral Sherdog dissents", () => {
+    const state: FightSourceState = {
+      ...NOT_REPORTED,
+      wikipediaWinnerId: FIGHTER_A,
+      wikipediaMethod: "Decision (unanimous)",
+      wikipediaRound: 3,
+      wikipediaReportedAt: hoursAgo(1),
+      apiSportsWinnerId: FIGHTER_A,
+      apiSportsReportedAt: hoursAgo(1),
+      sherdogWinnerId: FIGHTER_B,
+      sherdogReportedAt: hoursAgo(1),
+      sherdogBilateral: false,
+    };
+    expect(evaluateFightSettlement(state, NOW)).toMatchObject({
+      action: "settle",
+      winnerId: FIGHTER_A,
+      settledFrom: "both_agree",
+    });
+  });
+
+  it("a non-bilateral Sherdog dissent against Wikipedia-only falls back to Wikipedia's own timeout", () => {
+    const state: FightSourceState = {
+      ...NOT_REPORTED,
+      wikipediaWinnerId: FIGHTER_A,
+      wikipediaMethod: "Decision (unanimous)",
+      wikipediaRound: 3,
+      wikipediaReportedAt: hoursAgo(2),
+      sherdogWinnerId: FIGHTER_B,
+      sherdogReportedAt: hoursAgo(1),
+      sherdogBilateral: false,
+    };
+    // < 24h since Wikipedia -> still waiting, not a conflict
+    expect(evaluateFightSettlement(state, NOW)).toEqual({ action: "wait" });
+  });
+
+  it("a BILATERAL Sherdog dissent against Wikipedia-only IS a real conflict", () => {
+    const state: FightSourceState = {
+      ...NOT_REPORTED,
+      wikipediaWinnerId: FIGHTER_A,
+      wikipediaMethod: "Decision (unanimous)",
+      wikipediaRound: 3,
+      wikipediaReportedAt: hoursAgo(2),
+      sherdogWinnerId: FIGHTER_B,
+      sherdogReportedAt: hoursAgo(1),
+      sherdogBilateral: true,
+    };
+    expect(evaluateFightSettlement(state, NOW)).toEqual({ action: "conflict" });
+  });
 });

@@ -10,8 +10,10 @@ export interface ApplySherdogResultsSummary {
   fightsChecked: number;
   matched: number;
   written: number;
+  retracted: number; // a firm Sherdog opinion that no longer matches cleanly
   ambiguous: number;
   noData: number;
+  errors: number;
   dryRun: boolean;
 }
 
@@ -22,6 +24,10 @@ interface Options {
   // days). A fight further out has no Sherdog bout yet -- the matcher
   // returns no_data -- so this just avoids the wasted bout fetch.
   lookAheadDays?: number;
+  // ...and on or after (today - this many days). A fight this old that
+  // still isn't settled is a manual problem; excluding it bounds the
+  // `.in()` fighter-id list so it can't grow unbounded.
+  lookBackDays?: number;
 }
 
 /**
@@ -36,9 +42,12 @@ interface Options {
  * All the judgement is in matchSherdogFightResult (pure, tested): match
  * on `opponent_sherdog_id` + an event-date window, and only when it is
  * unambiguous. `sherdog_reported_at` is set once (the single-source
- * timeout clock); the winner / method / round / bilateral flag are
- * refreshed on every run while the fight is unsettled, so a later import
- * that turns a one-sided match bilateral is picked up.
+ * timeout clock) while a clean match holds; the winner / method / round
+ * / bilateral flag are refreshed each run, so a later import that turns
+ * a one-sided match bilateral is picked up. If a fight that once matched
+ * cleanly stops matching (a corrected sidecar row now makes it
+ * `ambiguous` / `no_data`), the whole Sherdog opinion is RETRACTED --
+ * left standing it could solo-settle a stale winner.
  *
  * Runs first in runSettlementJobsOnce, so settleFights sees the freshest
  * Sherdog opinion in the same pass.
@@ -47,19 +56,21 @@ export async function applySherdogResults(
   supabase: SupabaseClient,
   opts: Options = {},
 ): Promise<ApplySherdogResultsSummary> {
-  const { dryRun = false, now = () => new Date(), lookAheadDays = 2 } = opts;
+  const { dryRun = false, now = () => new Date(), lookAheadDays = 2, lookBackDays = 120 } = opts;
   const summary: ApplySherdogResultsSummary = {
     fightsChecked: 0,
     matched: 0,
     written: 0,
+    retracted: 0,
     ambiguous: 0,
     noData: 0,
+    errors: 0,
     dryRun,
   };
 
-  const cutoff = new Date(now().getTime() + lookAheadDays * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const cutoffFuture = new Date(now().getTime() + lookAheadDays * dayMs).toISOString().slice(0, 10);
+  const cutoffPast = new Date(now().getTime() - lookBackDays * dayMs).toISOString().slice(0, 10);
 
   const unsettled = await selectAllPages<{
     id: string;
@@ -85,7 +96,7 @@ export async function applySherdogResults(
 
   const inScope = unsettled.filter((f) => {
     const date = eventDateById.get(f.event_id);
-    return date !== null && date !== undefined && date <= cutoff;
+    return date != null && date <= cutoffFuture && date >= cutoffPast;
   });
   if (inScope.length === 0) return summary;
 
@@ -143,42 +154,74 @@ export async function applySherdogResults(
     ];
 
     const match = matchSherdogFightResult(forMatch, bouts);
-    if (match.status === "ambiguous") {
-      summary.ambiguous++;
-      continue;
-    }
-    if (match.status === "no_data") {
-      summary.noData++;
-      continue;
-    }
-    summary.matched++;
 
-    const unchanged =
-      fight.sherdog_reported_at !== null &&
-      fight.sherdog_winner_id === match.winnerId &&
-      fight.sherdog_bilateral === match.bilateral;
-    if (unchanged) continue;
+    // A per-fight write failure (a bad sidecar row, a transient error)
+    // must not abort the whole pass and starve every fight after it --
+    // count it and move on. runSettlementJobsOnce still gets a non-empty
+    // summary, and settleFights runs regardless.
+    try {
+      if (match.status !== "matched") {
+        if (match.status === "ambiguous") summary.ambiguous++;
+        else summary.noData++;
 
-    if (dryRun) {
-      console.log(
-        `[dry-run] fight ${fight.id}: sherdog winner=${match.winnerId ?? "draw/nc"} ` +
-          `bilateral=${match.bilateral} method=${match.method ?? "-"} round=${match.round ?? "-"}`,
-      );
+        // Regression guard: a fight that ONCE had a firm Sherdog opinion
+        // and now doesn't match cleanly must have that opinion retracted
+        // -- otherwise a stale `sherdog_bilateral` winner could
+        // solo-settle the fight ("sherdog_only_12h") on data Sherdog no
+        // longer supports.
+        if (fight.sherdog_reported_at !== null) {
+          if (dryRun) {
+            console.log(`[dry-run] fight ${fight.id}: RETRACT stale Sherdog opinion (now ${match.status})`);
+          } else {
+            const { error } = await supabase
+              .from("fights")
+              .update({
+                sherdog_winner_id: null,
+                sherdog_method: null,
+                sherdog_round: null,
+                sherdog_reported_at: null,
+                sherdog_bilateral: false,
+              })
+              .eq("id", fight.id);
+            if (error) throw error;
+          }
+          summary.retracted++;
+        }
+        continue;
+      }
+
+      summary.matched++;
+
+      const unchanged =
+        fight.sherdog_reported_at !== null &&
+        fight.sherdog_winner_id === match.winnerId &&
+        fight.sherdog_bilateral === match.bilateral;
+      if (unchanged) continue;
+
+      if (dryRun) {
+        console.log(
+          `[dry-run] fight ${fight.id}: sherdog winner=${match.winnerId ?? "draw/nc"} ` +
+            `bilateral=${match.bilateral} method=${match.method ?? "-"} round=${match.round ?? "-"}`,
+        );
+        summary.written++;
+        continue;
+      }
+
+      const payload: Record<string, unknown> = {
+        sherdog_winner_id: match.winnerId,
+        sherdog_method: match.method,
+        sherdog_round: match.round,
+        sherdog_bilateral: match.bilateral,
+      };
+      if (fight.sherdog_reported_at === null) payload.sherdog_reported_at = nowIso;
+
+      const { error } = await supabase.from("fights").update(payload).eq("id", fight.id);
+      if (error) throw error;
       summary.written++;
-      continue;
+    } catch (err) {
+      summary.errors++;
+      console.error(`applySherdogResults: fight ${fight.id} write failed -- skipping:`, err);
     }
-
-    const payload: Record<string, unknown> = {
-      sherdog_winner_id: match.winnerId,
-      sherdog_method: match.method,
-      sherdog_round: match.round,
-      sherdog_bilateral: match.bilateral,
-    };
-    if (fight.sherdog_reported_at === null) payload.sherdog_reported_at = nowIso;
-
-    const { error } = await supabase.from("fights").update(payload).eq("id", fight.id);
-    if (error) throw error;
-    summary.written++;
   }
 
   return summary;

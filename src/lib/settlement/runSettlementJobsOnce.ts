@@ -51,8 +51,10 @@ const EMPTY_SHERDOG_RESULTS: ApplySherdogResultsSummary = {
   fightsChecked: 0,
   matched: 0,
   written: 0,
+  retracted: 0,
   ambiguous: 0,
   noData: 0,
+  errors: 0,
   dryRun: false,
 };
 

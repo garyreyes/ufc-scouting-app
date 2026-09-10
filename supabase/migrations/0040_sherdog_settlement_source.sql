@@ -28,27 +28,46 @@ alter table fights
   -- it. applySherdogResults.ts writes all of these together.
   add column sherdog_reported_at timestamptz,
   -- True when BOTH fighters' Sherdog pages listed this bout and agreed on
-  -- the winner (matchSherdogFightResult.ts). Required before Sherdog may
-  -- settle a fight with no other source behind it ("sherdog_only_12h");
-  -- a one-sided match still corroborates or breaks a tie.
+  -- the winner (matchSherdogFightResult.ts). A one-sided (non-bilateral)
+  -- Sherdog vote is CORROBORATION ONLY: it can confirm an agreement
+  -- ("both_agree") but never settle a fight alone ("sherdog_only_12h")
+  -- and never cast the deciding vote in a disagreement ("majority_2_of_3").
   add column sherdog_bilateral boolean not null default false;
 
--- Same defensive pairing 0021 applied to wikipedia_method/round: a
--- sherdog_method or sherdog_round without a sherdog_reported_at would
--- mean the writer drifted out of sync.
-alter table fights
-  add constraint fights_sherdog_report_columns_together
-  check (
-    (sherdog_reported_at is null)
-    or (sherdog_method is not null or sherdog_round is not null or sherdog_winner_id is not null)
-  );
+-- NOTE: 0021 pairs wikipedia_method/round with wikipedia_reported_at via
+-- a CHECK. The Sherdog analogue is deliberately NOT added: a Sherdog
+-- draw / NC has sherdog_winner_id null by design, and Sherdog's own
+-- history rows frequently carry a null method AND round on older cards
+-- (parseFightHistory returns null when the cell doesn't parse), so a
+-- legitimate bilateral draw can be {winner null, method null, round null,
+-- reported_at set} -- which such a CHECK would reject, wedging
+-- applySherdogResults for every fight after it. applySherdogResults.ts
+-- writes all the sherdog_* columns from one code path, so the drift the
+-- CHECK would guard against can't arise here anyway.
 
 -- Widen settled_from for the two new outcomes:
 --   both_agree            -- unchanged name, now also fires for wiki+sherdog / api+sherdog / all three
 --   majority_2_of_3       -- exactly two of the three sources agree, the third dissents
 --   sherdog_only_12h      -- wiki + api both silent, Sherdog reported >=12h ago AND both
 --                            fighters' Sherdog pages corroborate each other (bilateral)
-alter table fights drop constraint fights_settled_from_check;
+--
+-- settled_from's CHECK was added inline+unnamed in 0021, so Postgres
+-- auto-named it; drop it by whatever name it actually has rather than
+-- assuming.
+do $$
+declare
+  constraint_name text;
+begin
+  select conname into constraint_name
+  from pg_constraint
+  where conrelid = 'fights'::regclass
+    and contype = 'c'
+    and pg_get_constraintdef(oid) ilike '%settled_from%';
+  if constraint_name is not null then
+    execute format('alter table fights drop constraint %I', constraint_name);
+  end if;
+end $$;
+
 alter table fights
   add constraint fights_settled_from_check
   check (

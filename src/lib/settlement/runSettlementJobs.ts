@@ -15,7 +15,9 @@ async function main() {
   );
   console.log(
     `Sherdog results: ${sherdogResults.fightsChecked} both-linked fights checked, ` +
-      `${sherdogResults.matched} matched, ${sherdogResults.written} written, ${sherdogResults.ambiguous} ambiguous.`,
+      `${sherdogResults.matched} matched, ${sherdogResults.written} written, ` +
+      `${sherdogResults.retracted} retracted, ${sherdogResults.ambiguous} ambiguous, ` +
+      `${sherdogResults.errors} write errors.`,
   );
   console.log(
     `Fight settlement: ${fights.settled} settled, ${fights.conflicts} disputed (queued), ` +

@@ -3157,14 +3157,33 @@ wrong Wikipedia result into a reviewable `disputed_result`.
   fights with both fighters Sherdog-linked matched, 25/25 agreed with the
   app's `winner_id`, 0 ambiguous** — the matching rule is sound.
 
-**Not done:** UI provenance (a 3-source agreement badge) — backend only
-for now; `settled_from` carries the record. No test for the two I/O
-orchestrators (`applySherdogResults`, `reimport…`), matching the
-`sweepLatentDisputedOpponents` precedent — the two correctness cores
-(`matchSherdogFightResult`, `evaluateFightSettlement`) are covered
-test-first and the matcher was verified against all live settled fights.
+**`reviewer` pass — fixes applied:**
 
-**Status:** `npm run lint` / `npm run test` (601, +23) / `npm run build`
+- **MED** — a firm Sherdog opinion was never retracted when a later
+  sidecar correction made the match `ambiguous`/`no_data`, so a stale
+  `sherdog_bilateral` winner could later solo-settle
+  (`sherdog_only_12h`). `applySherdogResults` now clears all `sherdog_*`
+  columns on that regression.
+- **MED** — `majority_2_of_3` didn't require the deciding Sherdog vote to
+  be bilateral, so a one-sided scrape + API-Sports could outvote
+  Wikipedia. A non-bilateral Sherdog vote is now dropped before the
+  tie-break entirely (it still corroborates a unanimous agreement).
+- **MED** — the `fights_sherdog_report_columns_together` CHECK would
+  reject a legitimate bilateral Sherdog draw with a null method/round
+  (common on old cards) and wedge the whole apply pass. Dropped the
+  CHECK; the migration also drops `settled_from`'s CHECK by a live
+  `pg_constraint` lookup rather than an assumed name.
+- **LOW** — `applySherdogResults` now catches per-fight write errors
+  (one bad row no longer starves the rest of the pass) and bounds its
+  fight scope to a trailing 120-day window (bounds the `.in()` list).
+
+**Not done:** UI provenance badge (backend only; `settled_from` carries
+the record). No fake-Supabase test for the two I/O orchestrators
+(`sweepLatentDisputedOpponents` precedent) — the correctness cores are
+test-first and `sherdog:verify-results` checks the matcher against every
+live settled fight (25/25, 0 disagreements, re-run after the fixes).
+
+**Status:** `npm run lint` / `npm run test` (606, +28) / `npm run build`
 all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
 
 **Phase J is complete (J1–J7).**

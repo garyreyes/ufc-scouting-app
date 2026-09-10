@@ -15,7 +15,8 @@ async function main() {
     `applySherdogResults${dryRun ? " (dry-run)" : ""}: ` +
       `${summary.fightsChecked} both-linked fights checked, ${summary.matched} matched, ` +
       `${summary.written} ${dryRun ? "would be written" : "written"}, ` +
-      `${summary.ambiguous} ambiguous, ${summary.noData} no data.`,
+      `${summary.retracted} retracted, ${summary.ambiguous} ambiguous, ${summary.noData} no data, ` +
+      `${summary.errors} errors.`,
   );
 }
 
