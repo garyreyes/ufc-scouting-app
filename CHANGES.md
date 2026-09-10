@@ -3171,8 +3171,10 @@ wrong Wikipedia result into a reviewable `disputed_result`.
 - **MED** — the `fights_sherdog_report_columns_together` CHECK would
   reject a legitimate bilateral Sherdog draw with a null method/round
   (common on old cards) and wedge the whole apply pass. Dropped the
-  CHECK; the migration also drops `settled_from`'s CHECK by a live
-  `pg_constraint` lookup rather than an assumed name.
+  CHECK. (Also: the first apply of `0040` failed — a too-clever `DO`
+  block matched the wrong `settled_from` constraint. The editor rolled
+  it back cleanly; `0040` is now plain idempotent `if [not] exists`
+  statements.)
 - **LOW** — `applySherdogResults` now catches per-fight write errors
   (one bad row no longer starves the rest of the pass) and bounds its
   fight scope to a trailing 120-day window (bounds the `.in()` list).

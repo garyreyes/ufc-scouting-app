@@ -18,21 +18,26 @@
 -- fetchFightHistory (API-Sports) has no "no winner" signal, but Sherdog
 -- DOES record draw / nc explicitly (fighter_sherdog_bouts.result), so
 -- unlike API-Sports it can corroborate a Wikipedia draw/NC.
+--
+-- Idempotent: every statement is `if [not] exists`, so a partial or
+-- repeated apply is safe.
 
 alter table fights
-  add column sherdog_winner_id uuid references fighters (id),
-  add column sherdog_method text,
-  add column sherdog_round smallint,
+  add column if not exists sherdog_winner_id uuid references fighters (id),
+  add column if not exists sherdog_method text,
+  add column if not exists sherdog_round smallint,
   -- Same "set once, never refreshed" clock as wikipedia_reported_at /
-  -- api_sports_reported_at -- the single-source timeout measures against
-  -- it. applySherdogResults.ts writes all of these together.
-  add column sherdog_reported_at timestamptz,
+  -- api_sports_reported_at while a clean match holds -- the single-source
+  -- timeout measures against it. applySherdogResults.ts writes the
+  -- sherdog_* columns together and retracts them all if the match later
+  -- stops being clean.
+  add column if not exists sherdog_reported_at timestamptz,
   -- True when BOTH fighters' Sherdog pages listed this bout and agreed on
   -- the winner (matchSherdogFightResult.ts). A one-sided (non-bilateral)
   -- Sherdog vote is CORROBORATION ONLY: it can confirm an agreement
   -- ("both_agree") but never settle a fight alone ("sherdog_only_12h")
   -- and never cast the deciding vote in a disagreement ("majority_2_of_3").
-  add column sherdog_bilateral boolean not null default false;
+  add column if not exists sherdog_bilateral boolean not null default false;
 
 -- NOTE: 0021 pairs wikipedia_method/round with wikipedia_reported_at via
 -- a CHECK. The Sherdog analogue is deliberately NOT added: a Sherdog
@@ -41,33 +46,14 @@ alter table fights
 -- (parseFightHistory returns null when the cell doesn't parse), so a
 -- legitimate bilateral draw can be {winner null, method null, round null,
 -- reported_at set} -- which such a CHECK would reject, wedging
--- applySherdogResults for every fight after it. applySherdogResults.ts
--- writes all the sherdog_* columns from one code path, so the drift the
--- CHECK would guard against can't arise here anyway.
+-- applySherdogResults for every fight after it.
 
 -- Widen settled_from for the two new outcomes:
---   both_agree            -- unchanged name, now also fires for wiki+sherdog / api+sherdog / all three
---   majority_2_of_3       -- exactly two of the three sources agree, the third dissents
---   sherdog_only_12h      -- wiki + api both silent, Sherdog reported >=12h ago AND both
---                            fighters' Sherdog pages corroborate each other (bilateral)
---
--- settled_from's CHECK was added inline+unnamed in 0021, so Postgres
--- auto-named it; drop it by whatever name it actually has rather than
--- assuming.
-do $$
-declare
-  constraint_name text;
-begin
-  select conname into constraint_name
-  from pg_constraint
-  where conrelid = 'fights'::regclass
-    and contype = 'c'
-    and pg_get_constraintdef(oid) ilike '%settled_from%';
-  if constraint_name is not null then
-    execute format('alter table fights drop constraint %I', constraint_name);
-  end if;
-end $$;
-
+--   majority_2_of_3       -- two of the three sources agree, the third dissents
+--   sherdog_only_12h      -- wiki + api both silent, Sherdog reported >=12h ago AND bilateral
+-- The existing CHECK was added inline+unnamed in 0021, which Postgres
+-- auto-named `fights_settled_from_check` (confirmed live 2026-09-10).
+alter table fights drop constraint if exists fights_settled_from_check;
 alter table fights
   add constraint fights_settled_from_check
   check (
