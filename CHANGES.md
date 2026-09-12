@@ -3454,3 +3454,68 @@ authors' windows.
 
 **Status:** `npm run lint` / `npm run test` (659, +7) / `npm run build`
 all green, route table unchanged.
+
+## Phase 75 (L3-age) — a peak-age signal for the intern (2026-09-13)
+
+**What.** The intern's pick now takes each fighter's age into account,
+using a peak-age curve: 27–32 costs nothing, each year under 27 costs
+half, each year over 32 costs one, and the gap is scaled to a ±0.04 cap at
+8 weighted years. It is the weakest of the four signals, and the existing
+0.25 combined ceiling is unchanged. Reasoning for every choice is in the
+new `DECISIONS.md`.
+
+**Why the source changed.** The roadmap planned API-Sports. A live check
+found its `birth_date`/`age` fields null on 18/18 fighters (3 champions by
+search, 15 enriched roster fighters from production), so the old
+`PROJECT_FACTS.md` claim was wrong and is corrected. Sherdog's bio already
+carried a birth date (`parseBio` parsed it; nothing saved it), confirmed
+on every live page checked.
+
+- `0042_fighter_birth_date.sql` — nullable `fighters.birth_date date`. Age
+  is never stored; it's computed on the card's date.
+- `parseSherdogBirthDate` (`parseSherdogDate.ts`, sharing the existing
+  month/leap-year check) — "Dec 4, 2002" → `2002-12-04`, built from the
+  text, not `Date` (a UTC+8 local-midnight `Date` lands a day early).
+- `shared/utils/ageOnDate.ts` — birthday-aware whole years by string
+  comparison.
+- `parseBio` now also reads the age Sherdog prints beside the date;
+  `birthDateFill.ts` writes a date only when it agrees with that printed
+  age, never overwrites, and reports fill / keep / missing / mismatch.
+- `lib/intern/ageAdjustment.ts`; `decideInternPick.ts` adds the shift and
+  an "Age:" reasoning line; `generateInternPicks.ts` reads `birth_date`
+  and the card's `event_date`.
+- `importSherdogHistoryJob.ts` fills `birth_date` through the existing
+  `--refresh` path and counts filled / missing / mismatch in its summary.
+  No new backfill script.
+
+**Tests:** written first; all failed for the right reason before any code
+existed. 8 deliberate breaks tried: 7 caught; the 8th (`>` → `>=` at the
+32 edge) is an equivalent change — distance-from-peak is 0 either way.
+
+**Reviewer pass:** no high or medium findings. Two low:
+`importSherdogHistory` (already over the 50-line limit) grew ~15 lines —
+split left as cleanup; the mismatch check uses the UTC date — kept, since
+Sherdog's printed age comes from a US-time server, and a mismatch only
+ever withholds a write.
+
+**Ran live:** 0042 pushed (ref checked: `vrwlfcywyfzfczajpdoh`, the only
+pending migration) and read back. Dry run: 132 attempted, 132 would fill,
+0 missing, 0 mismatches. Live: 132 birth dates written, 2,600 bouts
+refreshed, 0 failed. Read-back: 132 with a date, 0 linked fighters missing
+one, Marlon Vera `1992-12-02` and Jessie Rosas `2002-12-04` match Sherdog.
+Intern job run on Silva vs. Delgado: every fight was already past the
+intern's T-6h lock, so nothing was written (the new `birth_date` /
+`event_date` reads ran without error). A read-only preview of that card:
+9/14 fights carry an age edge (e.g. Bahamondes 29 vs Salikhov 42 → 4.00%,
+the cap). The first stored "Age:" line lands on the next card.
+
+**Found along the way:** locked intern picks are counted as `failed` (a
+PostgREST error isn't an `Error`, so `isLockedError` never sees the
+message). Log-only — no banner reads the count. Logged as `ROADMAP.md`
+L4-fix and in `PROJECT_FACTS.md`; not fixed here.
+
+**Not in scope:** showing age on the fighter page / tale-of-the-tape
+(later); L3-stance (still deferred).
+
+**Status:** `npx vitest run` (699, +40) / `npx tsc --noEmit` / `eslint` /
+`npm run build` all green, route table unchanged.

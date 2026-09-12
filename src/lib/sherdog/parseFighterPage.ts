@@ -11,6 +11,9 @@ export interface SherdogBio {
   heightCm: number | null;
   weightKg: number | null;
   birthDate: string | null; // "Oct 17, 1989" as printed; not reformatted here
+  // The age Sherdog prints beside the birth date -- a cross-check for it
+  // (birthDateFill.ts), never stored.
+  printedAge: number | null;
   nationality: string | null;
   birthplace: string | null;
 }
@@ -77,6 +80,8 @@ export function parseBio(html: string): SherdogBio {
   // metric value Sherdog already computed rather than re-deriving it.
   const heightCm = firstMatch(html, /itemprop="height"[^>]*>[^<]*<\/b>\s*<em>\/<\/em>\s*([\d.]+)\s*cm/);
   const weightKg = firstMatch(html, /itemprop="weight"[^>]*>[^<]*<\/b>\s*<em>\/<\/em>\s*([\d.]+)\s*kg/);
+  // "<td><b>36</b> <em>/</em> <span itemprop="birthDate">Oct 17, 1989</span>"
+  const printedAge = firstMatch(html, /<b>(\d+)<\/b>\s*<em>\/<\/em>\s*<span itemprop="birthDate">/);
 
   return {
     name: parseFighterName(html),
@@ -84,6 +89,7 @@ export function parseBio(html: string): SherdogBio {
     heightCm: heightCm ? Math.round(Number(heightCm)) : null,
     weightKg: weightKg ? Math.round(Number(weightKg)) : null,
     birthDate: firstMatch(html, /<span itemprop="birthDate">([^<]+)<\/span>/),
+    printedAge: printedAge ? Number(printedAge) : null,
     nationality: firstMatch(html, /<strong itemprop="nationality">([^<]+)<\/strong>/),
     birthplace: firstMatch(html, /<span itemprop="addressLocality"[^>]*>([^<]+)<\/span>/),
   };

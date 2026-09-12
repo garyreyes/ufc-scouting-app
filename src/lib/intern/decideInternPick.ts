@@ -1,18 +1,18 @@
 import { applyProbabilityDelta } from "../scoring/applyProbabilityDelta";
 import { devigTwoWay } from "../scoring/devigTwoWay";
 import { eloAdjustment } from "../elo/eloAdjustment";
+import { ageAdjustment } from "./ageAdjustment";
 import { flagPenalty } from "./flagPenalty";
 import { sizeAdjustment } from "./sizeAdjustment";
-import type { InternPickDecision, InternPickInput } from "./types";
+import type { InternFighter, InternPickDecision, InternPickInput } from "./types";
 
-// L3: the per-signal caps above (rumours ±0.12, Elo ±0.15, size ±0.06)
-// bound each signal on its own, but nothing previously stopped them
-// adding together -- three signals that all happened to agree on the
-// same fight could shift the anchor by up to ~0.33. This is the shared
-// ceiling: even if every signal agrees, the market anchor's own read
-// still dominates. Set above eloAdjustment's own cap (0.15) so Elo alone
-// never fights this ceiling -- only a genuine stack of agreeing signals
-// does.
+// L3: the per-signal caps (rumours ±0.12, Elo ±0.15, size ±0.06, age
+// ±0.04) bound each signal on its own, but nothing previously stopped them
+// adding together -- signals that all happened to agree on the same fight
+// could shift the anchor by up to ~0.37. This is the shared ceiling: even
+// if every signal agrees, the market anchor's own read still dominates.
+// Set above eloAdjustment's own cap (0.15) so Elo alone never fights this
+// ceiling -- only a genuine stack of agreeing signals does.
 export const MAX_TOTAL_ADJUSTMENT = 0.25;
 
 /**
@@ -43,6 +43,13 @@ function confidenceFor(probability: number, minRatedFightCount: number): number 
 
 function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function ageNoteFor(fighter1: InternFighter, fighter2: InternFighter, ageDelta: number): string {
+  if (fighter1.ageYears === null || fighter2.ageYears === null) return "No usable age data.";
+  const ages = `Age: ${fighter1.name} ${fighter1.ageYears}, ${fighter2.name} ${fighter2.ageYears}`;
+  if (ageDelta === 0) return `${ages} (no edge).`;
+  return `${ages} — edge ${ageDelta > 0 ? fighter1.name : fighter2.name} (${pct(Math.abs(ageDelta))}).`;
 }
 
 /**
@@ -88,16 +95,16 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
 
   // A concern on your opponent helps you by exactly as much as it hurts
   // them -- one shared shift, applied once, so the two sides always stay
-  // complementary. Elo is the same shape: one more bounded, signed shift
-  // toward whichever fighter rates higher, added alongside the rumour
-  // delta rather than blended/averaged with the market anchor -- see
-  // lib/elo/eloAdjustment.ts for why.
+  // complementary. Elo, size and age are the same shape: bounded, signed
+  // shifts added alongside the rumour delta rather than blended/averaged
+  // with the market anchor -- see lib/elo/eloAdjustment.ts for why.
   const eloDelta = eloAdjustment(fighter1.eloRating, fighter2.eloRating);
   const sizeDelta = sizeAdjustment(
     { reachCm: fighter1.reachCm, heightCm: fighter1.heightCm },
     { reachCm: fighter2.reachCm, heightCm: fighter2.heightCm },
   );
-  const rawDelta = penalty2 - penalty1 + eloDelta + sizeDelta;
+  const ageDelta = ageAdjustment(fighter1.ageYears, fighter2.ageYears);
+  const rawDelta = penalty2 - penalty1 + eloDelta + sizeDelta + ageDelta;
   const delta = Math.max(-MAX_TOTAL_ADJUSTMENT, Math.min(MAX_TOTAL_ADJUSTMENT, rawDelta));
   const probability1 = applyProbabilityDelta(anchor1, delta);
 
@@ -122,13 +129,15 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
       ? "No usable size data."
       : `Size edge: ${sizeDelta > 0 ? fighter1.name : fighter2.name} (${pct(Math.abs(sizeDelta))}).`;
 
+  const ageNote = ageNoteFor(fighter1, fighter2, ageDelta);
+
   const minRatedFightCount = Math.min(fighter1.ratedFightCount, fighter2.ratedFightCount);
 
   return {
     predictedFighterId: predicted.id,
     estimatedProbability,
     confidence: confidenceFor(estimatedProbability, minRatedFightCount),
-    reasoning: `${anchorNote} ${rumourNote} ${eloNote} ${sizeNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
+    reasoning: `${anchorNote} ${rumourNote} ${eloNote} ${sizeNote} ${ageNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
     marketAnchored,
   };
 }
