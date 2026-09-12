@@ -48,7 +48,7 @@ export function QuickPick({
   if (locked) {
     return (
       <div className={styles.locked}>
-        Picks locked — the card has started.
+        Picks locked — locks 1 hour before the card starts.
         {existingPick && (
           <span className={styles.lockedPick}>
             {" "}

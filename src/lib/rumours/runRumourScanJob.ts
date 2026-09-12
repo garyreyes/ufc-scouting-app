@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BlueskyAuthError } from "../bluesky";
+import { fetchNearestUpcomingEventId } from "../events/nearestUpcomingEvent";
 import { scanFightForRumours } from "./scanFightForRumours";
 import type { FightToScan } from "./scanFightForRumours";
 
@@ -23,32 +24,20 @@ interface EmbeddedFight {
 async function fetchNearestUpcomingEventFights(
   supabase: SupabaseClient,
 ): Promise<{ eventId: string | null; fights: FightToScan[] }> {
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Same shape as features/fights/api.ts's getUpcomingEvents, scoped to
-  // just the soonest one -- UC-1's own framing is "before a card, I open
-  // an event," and one card's worth of fighters (~12-15) keeps every run
-  // comfortably inside Gemini's free-tier daily budget (lib/llm.ts).
-  const { data: events, error: eventsError } = await supabase
-    .from("events")
-    .select("id")
-    .gte("event_date", today)
-    .is("merged_into", null)
-    .order("event_date", { ascending: true })
-    .limit(1);
-  if (eventsError) throw eventsError;
-
-  const event = events?.[0] as { id: string } | undefined;
-  if (!event) return { eventId: null, fights: [] };
+  // The soonest not-yet-happened card -- one card's worth of fighters
+  // (~12-15) keeps every run comfortably inside Gemini's free-tier daily
+  // budget (lib/llm.ts). Shared with the intern job since Phase L1.
+  const eventId = await fetchNearestUpcomingEventId(supabase);
+  if (eventId === null) return { eventId: null, fights: [] };
 
   const { data: fights, error: fightsError } = await supabase
     .from("fights")
     .select("id, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)")
-    .eq("event_id", event.id);
+    .eq("event_id", eventId);
   if (fightsError) throw fightsError;
 
   return {
-    eventId: event.id,
+    eventId,
     fights: ((fights ?? []) as unknown as EmbeddedFight[]).map((f) => ({
       id: f.id,
       fighter1: f.fighter1,

@@ -154,13 +154,60 @@ Decided 2026-08-29, user-originated.
   likely isn't.
 - **Not every "same fighter, different name" gap is a diacritic
   problem.** I2c's sweep of the whole table found 10 real duplicate
-  clusters; only 2 were diacritics (which I2b now catches). The other 6
-  were nicknames (Wesley/Wes, Stan/Stanley), name order swapped
-  (Liu Ce/Ce Liu), and missing spaces in transliterated names (Aori
-  Qileng/Aoriqileng) — none of which `namesMatchExactly.ts` catches, and
-  none of which should be silently auto-merged; they're real, different-
-  looking strings, and only a human confirming via `/conflicts` should
-  decide they're the same person.
+  clusters; only 2 were diacritics. **L2b (2026-09-10) widened the
+  automatic fold-match:** `namesLikelySamePerson.ts` (used by
+  `upsertFighter`'s fallback) now also folds **missing internal spaces**
+  (Aoriqileng/Aori Qileng) and **name-order swaps** (Liu Ce/Ce Liu,
+  Xiong Jingnan/Jingnan Xiong) — both are pure rearrangements of the same
+  characters, judged safe to auto-merge (user-confirmed). It still does
+  **not** fold a **nickname / short form** (Wes/Wesley, Stan/Stanley):
+  that stays a human call via `/conflicts`. When several rows fold to one
+  name, `upsertFighter` updates the one carrying an `external_id` (the
+  identity row) so the two sources stop ping-ponging which row they
+  write.
+- **L2's `refreshRecentEventResults` will surface latent duplicate-fighter
+  pairs the first time it re-processes an old card** whose fighter rows
+  predate current name conventions (8 found on the two August cards,
+  2026-09-10, merged via
+  `supabase/data-fixes/2026-09-10_merge-8-name-variant-duplicate-fighters.sql`).
+  Expected to be rare going forward — a genuinely recent card's names are
+  already current (Hooker vs. Parnasse, 5 days old, refreshed with zero
+  conflicts).
+- **That merge is durable for 6 of the 8 pairs, not all 8** (`reviewer`
+  finding, confirmed correct). The 6 structural ones (missing space,
+  name-order swap, diacritic) are fixed for good — `namesLikelySamePerson`
+  now folds them automatically. The 2 nickname ones (Wes/Wesley Schultz,
+  Stan/Stanley Dorsainvil) can recur: `upsertFighter`'s external_id
+  branch overwrites a fighter's `name` unconditionally on every write, so
+  the next time API-Sports syncs either fighter it silently reverts the
+  KEEP row's name back to the short form, and the next Wikipedia mention
+  of the long form mints a fresh placeholder + a new
+  `disputed_opponent`. That's the intended, safe fallback (human call via
+  `/conflicts`), not corruption — nicknames are deliberately never
+  auto-folded — but don't expect the rename alone to have permanently
+  closed those two.
+- **`upsertFighter`'s fold-match must pick a fully deterministic row when
+  several fighters fold to one name, not just "prefer external_id".**
+  `foldedMatches.find(...)` on an unordered PostgREST result is itself
+  nondeterministic when zero or 2+ candidates carry an `external_id` —
+  each sync could then rewrite a different row's name, recreating the
+  exact ping-pong the external_id preference was meant to stop. Fixed by
+  sorting by `id` within each group before picking (L2b, reviewer
+  finding).
+- **`namesLikelySamePerson`'s name-order-swap rule is a known, accepted
+  latent risk, not a proven-safe one.** It's sound for every real case
+  seen so far (CJK family-name-first romanizations), but nothing stops it
+  matching two genuinely different Latin-named fighters whose tokens
+  happen to reorder into each other (e.g. two unrelated people "P Q" /
+  "Q P") — there's no contextual guard (shared event, shared opponent)
+  behind it, only the structural token-set check. No such collision has
+  been observed in production. If one ever is, that's the rule to narrow
+  first, not `upsertFighter`'s overall design.
+- **Merging a fighter: check `fighters.sherdog_id` specifically, not just
+  the FK tables.** It's a separate unique identity link (`0036`), not
+  referenced by anything else, so a generic FK sweep won't surface a lost
+  Sherdog link on the row being deleted. None of the 8 L2b merges had one
+  set, but a future merge might.
 - **One conflict is open on purpose and should stay open until someone
   identifies the fighter**: Louie Sutherland's opponent at UFC Fight
   Night: Gamrot vs. Salkilld. Wikipedia currently says "José Montanha
@@ -311,6 +358,26 @@ Decided 2026-08-29, user-originated.
 - **The two Sherdog settlement steps never block settlement** — wrapped
   in `runOptionalStep`, so a Sherdog outage writes a `job_runs` failure
   row but the chain still settles on Wikipedia + API-Sports.
+- **A card gets no Wikipedia result unless something re-fetches it after
+  it finishes.** `syncSchedule.ts`'s loop only covers
+  `Category:Scheduled mixed martial arts events`, which drops a card ~when
+  it finishes; the I4 backfill is gap-only (skips any event that has
+  fights). So a card synced while upcoming had ZERO `wikipedia_*` result
+  columns and settled single-source on API-Sports at best (L2, 2026-09-10,
+  found 2 cards fully stuck + 3 Hooker/Parnasse fights). **Fix:**
+  `refreshRecentEventResults` re-runs `processScheduleEvent` for every
+  finished card in a trailing 30-day window
+  (`REFRESH_WINDOW_DAYS`), at the tail of every `syncSchedule` run, right
+  before `sync.yml`'s settlement step. `selectEventsNeedingResultRefresh`
+  (pure) is the queue: past + in-window + non-merged + title-shaped
+  external_id + has a fight with no `wikipedia_reported_at`.
+- **API-Sports free tier IS serving 2026 results now** (L2 live check,
+  2026-09-10) — 70 `api_sports_reported_at` rows, 50 fights settled
+  `api_sports_only_24h`. Contradicts the Phase 5 "free tier refuses 2025+"
+  note for the *results* endpoint, though the ~3-day date window still
+  applies (`syncJob.ts` `WINDOW_DAYS_PAST = 3`), so it only ever covers a
+  card for ~3 days after it happens — Wikipedia is still the durable
+  source.
 
 ## Odds
 
@@ -799,11 +866,40 @@ Decided 2026-08-29, user-originated.
   indistinguishable from a bad day. If a future session is tempted to
   route this through Gemini for "smarter" picks, that trade-off needs
   re-confirming with the user, not assumed to be a strict upgrade.
-- **The intern revises its pick until the card locks, not once — this
-  only became safe once the pick-lock gap above was closed, and the two
+- **The intern revises its pick until it locks, not once — this only
+  became safe once the pick-lock gap above was closed, and the two
   decisions are linked, not independent.** Don't consider disabling the
   lock-narrowing fix without also reconsidering whether revision is still
   safe.
+- **L4 (2026-09-10): author-aware pick lock, confirmed intern T-6h /
+  owner T-1h before `events.starts_at` — not the T-12h first requested.**
+  Owner direction: the intern should be able to react to a late rumour
+  (a Friday pick flipping on bad news) but lock well ahead of the card;
+  the owner's own picks should stay open almost to the last minute.
+  T-12h was rejected because it collides with `odds_snapshots`' own
+  write-once T-12h price window (`SNAPSHOT_LEAD_HOURS`,
+  `lib/odds/snapshotWindow.ts`) — a lock exactly there would mean the
+  intern's last allowed write always happens strictly before the market
+  ever prices the fight, permanently defeating the market-anchor design
+  (Fork 10). T-6h leaves ~3 of the intern cron's scheduled runs (every
+  2h, `30 */2 * * *`) to react to the real price before its own window
+  closes. Implemented `0041_author_aware_pick_lock.sql` +
+  `src/lib/picks/pickLockOffsets.ts`; both files carry the same two
+  numbers by hand and must be kept in sync (a trigger can't import TS).
+- **L4 also added a visible "Intern picks lock in Xh" / "locked" line on
+  `/events/[id]`** (`InternLockStatus`), confirmed with the user rather
+  than assumed — without it there was no on-page way to tell whether the
+  intern could still react to a late rumour on the card being viewed.
+  **Reviewer caught a real bug in it same-day:** the caption's hour count
+  was computed against raw `startsAt` instead of the intern's actual lock
+  instant (`startsAt - INTERN_LOCK_OFFSET_HOURS`), so it overstated the
+  remaining window by exactly 6 hours every time, even though the
+  `locked`/`not-locked` boolean itself (driven by `isPickLocked`) was
+  correct throughout. This is the specific risk of arithmetic living
+  inside a presentation component that this project's own "no tests for
+  UI" convention doesn't catch — worth a second look any time a
+  component does its own date/interval math rather than calling a tested
+  pure function for the exact value it displays, not just the boolean.
 - **Nothing yet shows the intern's pick on the card view's bout row
   (G1), even though Flow 1's own diagram includes it — a real, open gap,
   not an oversight buried in G3's scope.** `ROADMAP.md`'s G3 line
@@ -949,6 +1045,15 @@ Decided 2026-08-29, user-originated.
   would wipe every rating. Both `computeEloHistory.ts` and
   `deriveFighterRecords.ts` guard it now; any future third reader of
   "what happened in this fight" needs the same one-line check.
+- **Merging one fighter id into another: repoint every `fights` column in
+  ONE statement, not one per column.** `0031`'s
+  `fights_winner_is_in_the_bout` CHECK is evaluated per-row per-statement,
+  so `update ... set fighter1_id = keep` followed by a separate
+  `update ... set winner_id = keep` leaves the row transiently invalid
+  (winner points at the now-removed id) and the first statement throws.
+  A single `update fights set <all six id columns> = case ... end` takes
+  the row straight to its consistent final state. Caught by the
+  rollback-first verify on the L2b merge data-fix, 2026-09-10.
 - **`selectAllPages.ts` uses keyset pagination (`id > cursor`), not
   offset (`.range()`) — this was a deliberate correction, not the first
   design.** An offset is positional, so a concurrent insert/delete on a
@@ -991,3 +1096,37 @@ Decided 2026-08-29, user-originated.
   (pick = who wins, bet = where the price is wrong). If these underdog
   bets systematically lose once settled, the −12pt max flag penalty
   (`flagPenalty.ts` `MAX_PENALTY_PER_FIGHTER`) is the thing to dial back.
+- **L3 (2026-09-12): reach/height ship as ONE combined "size" signal, not
+  two.** They measure a correlated advantage (a taller fighter usually
+  has longer reach too); adding both independently would count the same
+  real edge twice. Reach is preferred whenever both fighters have it;
+  height is the fallback only when that's not the case. Coverage is
+  real but partial today — Sherdog (128/146 upcoming-card fighters) has
+  neither field, so the signal is a documented no-op until API-Sports
+  enrichment reaches a given fighter — checked live on a real card
+  (2026-09-12): both fighters had a known reach on only 5 of 14 fights,
+  both had a known height on 12 of 14.
+- **Stance-matchup is deliberately NOT an intern signal.**
+  `describeStanceMatchup.ts` stays scoreboard-display-only
+  (E2/tale-of-the-tape). Unlike reach/height (an objective physical
+  fact) or Elo (derived from this app's own real results), "southpaw
+  beats orthodox more often" has never been measured against this app's
+  data — it's MMA folklore, contested in real research. Do not add a
+  directional stance bump on that basis alone; wait for G3 calibration
+  or a stance-specific accuracy breakdown to show a real, own-data
+  direction first.
+- **Age is not in this app anywhere** — no `birth_date`/`age` column,
+  and `fetchFighter.ts`'s own `ApiSportsFighter` type doesn't declare
+  the field even though API-Sports' payload includes it (Phase I's own
+  spike notes). Adding it is a real, separate feature (`ROADMAP.md`
+  L3-age): a migration, a `fetchFighter.ts` change, AND a backfill for
+  the ~150 fighters already enriched — the enrichment queue
+  (`enrichment_checked_at is not null`) is one-shot and will not pick up
+  a newly-added field on its own.
+- **Every additive probability adjustment now has a shared ceiling,
+  not just its own per-signal cap.** `decideInternPick.ts`'s
+  `MAX_TOTAL_ADJUSTMENT = 0.25` clamps `rumours + Elo + size` together,
+  set above Elo's own cap (0.15) so Elo alone never fights it — only a
+  genuine stack of agreeing signals does. Any FUTURE signal added to
+  this sum (age, once it exists) needs no code change here, but its own
+  cap should be sized with this ceiling in mind, not in isolation.

@@ -2,7 +2,18 @@ import { applyProbabilityDelta } from "../scoring/applyProbabilityDelta";
 import { devigTwoWay } from "../scoring/devigTwoWay";
 import { eloAdjustment } from "../elo/eloAdjustment";
 import { flagPenalty } from "./flagPenalty";
+import { sizeAdjustment } from "./sizeAdjustment";
 import type { InternPickDecision, InternPickInput } from "./types";
+
+// L3: the per-signal caps above (rumours ±0.12, Elo ±0.15, size ±0.06)
+// bound each signal on its own, but nothing previously stopped them
+// adding together -- three signals that all happened to agree on the
+// same fight could shift the anchor by up to ~0.33. This is the shared
+// ceiling: even if every signal agrees, the market anchor's own read
+// still dominates. Set above eloAdjustment's own cap (0.15) so Elo alone
+// never fights this ceiling -- only a genuine stack of agreeing signals
+// does.
+export const MAX_TOTAL_ADJUSTMENT = 0.25;
 
 /**
  * Confidence (1-5) derived from the final probability's distance from a
@@ -82,7 +93,12 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
   // delta rather than blended/averaged with the market anchor -- see
   // lib/elo/eloAdjustment.ts for why.
   const eloDelta = eloAdjustment(fighter1.eloRating, fighter2.eloRating);
-  const delta = penalty2 - penalty1 + eloDelta;
+  const sizeDelta = sizeAdjustment(
+    { reachCm: fighter1.reachCm, heightCm: fighter1.heightCm },
+    { reachCm: fighter2.reachCm, heightCm: fighter2.heightCm },
+  );
+  const rawDelta = penalty2 - penalty1 + eloDelta + sizeDelta;
+  const delta = Math.max(-MAX_TOTAL_ADJUSTMENT, Math.min(MAX_TOTAL_ADJUSTMENT, rawDelta));
   const probability1 = applyProbabilityDelta(anchor1, delta);
 
   // Ties break toward fighter1, the same deterministic convention
@@ -101,13 +117,18 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
 
   const eloNote = `Elo: ${fighter1.name} ${Math.round(fighter1.eloRating)} (${fighter1.ratedFightCount} rated), ${fighter2.name} ${Math.round(fighter2.eloRating)} (${fighter2.ratedFightCount} rated).`;
 
+  const sizeNote =
+    sizeDelta === 0
+      ? "No usable size data."
+      : `Size edge: ${sizeDelta > 0 ? fighter1.name : fighter2.name} (${pct(Math.abs(sizeDelta))}).`;
+
   const minRatedFightCount = Math.min(fighter1.ratedFightCount, fighter2.ratedFightCount);
 
   return {
     predictedFighterId: predicted.id,
     estimatedProbability,
     confidence: confidenceFor(estimatedProbability, minRatedFightCount),
-    reasoning: `${anchorNote} ${rumourNote} ${eloNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
+    reasoning: `${anchorNote} ${rumourNote} ${eloNote} ${sizeNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
     marketAnchored,
   };
 }

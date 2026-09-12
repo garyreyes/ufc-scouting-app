@@ -1826,6 +1826,58 @@ every branch asserted reachable.
 | K2 | **Cross-date duplicate events.** `planEventMerges` clusters events within ±1 day (not just exact same date) — catches a card split across a timezone/broadcast date boundary ("Gamrot vs Salkilld" Aug 8/9). `mergeDuplicateSameDateEvents` restructured to a two-pass FK-ref check. +4 tests. Also: `2026-09-10_merge-benardo-sopaj-duplicate-fighter.sql` folded a stub duplicate fighter, resolving 1 of the 2 `disputed_opponent` conflicts | **done** (2026-09-10) |
 | K2-followup | Merge the Gamrot Aug 8/9 date-split card. | **done** (2026-09-10) — `2026-09-10_merge-gamrot-salkilld-date-split.sql`. User confirmed Sutherland fought José Montanha; Aug-8 Wikipedia row is keeper; 12 stale fights + 24 double-counted Elo rows removed; Elo recomputed. **`disputed_opponent` is now 0 open.** |
 
+---
+
+## Phase L — Intern coverage, settlement, and calibration
+
+Added 2026-09-10, after a user review of live behaviour. Three separate
+problems, worked in this order (the user's own sequencing): **L1 → L2 → L3**.
+L3 depends on L2 — the intern's pick/bet rule cannot be re-tuned without
+settled results to measure it against, and settlement has never once completed
+for an intern-covered card.
+
+**Live findings that motivated this phase** (production, 2026-09-10, via a
+read-only diagnostic):
+
+- **Every upcoming card already carries a full set of intern picks** —
+  `generateInternPicks` is scoped to *every* future event
+  (`event_date >= today`), 127 fights in the last run. The user wants the
+  opposite: picks scoped to the **single next card only**.
+- **No upcoming card has any odds** (`odds_snapshots` empty for all of them),
+  so every intern pick is anchored at a flat 50% and moved only by Elo. The
+  de-vigged market anchor — the intern's designed primary input — is never
+  present in practice yet.
+- **22 fights have `winner_id` set but `settled_at` NULL**, all on two past
+  cards (Nurmagomedov vs. Song 08-29, Hernandez vs. Rodrigues 08-22). Their
+  per-source columns (`wikipedia_winner_id` / `api_sports_winner_id` /
+  `*_reported_at`) are all empty, so `evaluateFightSettlement` sees no source
+  reports and parks them as "still waiting" indefinitely (123 stuck every run).
+- **Zero `wikipedia_reported_at` values exist anywhere in `fights`** — the
+  Wikipedia schedule sync does not appear to be writing per-source result
+  columns at all. ~20 recent fights carry only an API-Sports winner with no
+  Wikipedia corroboration and no 24h timeout firing.
+- **`settle_picks` has scored 0 picks, ever.** No intern (or human) pick has
+  ever been graded, so the scoreboard, calibration table, and every intern
+  line are structurally empty.
+- A mojibake duplicate fighter row (`FarÃ©s Ziam` vs `Farès Ziam`) sits on the
+  Hooker vs. Parnasse (09-05) card, whose Ziam bout has no result from any
+  source. (A data-fix migration for this is already staged on the K2 branch.)
+
+| # | Sub-phase | Status |
+|---|---|---|
+| L1 | Scope intern picks to the **upcoming card only** — `generateInternPicks` picks the single nearest upcoming event, not every future one. Shared `lib/events/nearestUpcomingEvent.ts` (rumour job refactored onto it too). One-time `intern:cleanup-future-picks` deleted the 58 already-written picks on later cards. | **done** (2026-09-10) — `CHANGES.md` Phase 71. Ran live: 58 picks deleted, next card's 14 kept, later cards now empty. Owner's manual picks unchanged. |
+| L2 | ⚠️ Settlement gap. **Root cause:** `syncSchedule` drops a card when it leaves `Category:Scheduled` (≈ when it finishes) and the I4 backfill is gap-only, so a card synced while upcoming never gets its `wikipedia_*` result columns. **Fix:** `refreshRecentEventResults` — re-fetch every finished card in a trailing 30-day window through `processScheduleEvent` at the tail of every `syncSchedule` run; `selectEventsNeedingResultRefresh` (pure, test-first) is the queue. | **done** (2026-09-10) — `CHANGES.md` Phase 72. Ran live on the 3 stuck cards: 32/40 fights now settle; the other 8 exposed pre-existing duplicate-fighter rows → L2b. |
+| L2b | ⚠️ Fighter dedup exposed by L2's first run — 8 API-Sports-enriched / Wikipedia-placeholder duplicate pairs on the two August cards. Merged via `2026-09-10_merge-8-name-variant-duplicate-fighters.sql`; `namesLikelySamePerson.ts` now folds missing-spaces + name-order swaps (not nicknames) and `upsertFighter` prefers the `external_id` row on a multi-match. | **done** (2026-09-10) — `CHANGES.md` Phase 72. 8 merged, 8 conflicts resolved, 0 open `disputed_opponent`. |
+| L3 | ⚠️ Add a **size** signal (reach, falling back to height when reach is missing — deliberately one combined signal, not two, to avoid double-counting a correlated advantage) to `decideInternPick.ts`, plus a **combined cap** (`MAX_TOTAL_ADJUSTMENT`) across rumour + Elo + size so no combination of agreeing signals can overwhelm the market anchor. `sizeAdjustment.ts`, test-first. | **done** (2026-09-12) — `CHANGES.md` Phase 73. Ran live: 10/14 fights on the real next card got a size nudge, 4/14 correctly showed no data. |
+| L3-age | Age-gap signal — needs its own migration (`fighters.birth_date`/`.age`), a `fetchFighter.ts` change, and a backfill for the ~150 already-enriched fighters (the enrichment queue is one-shot and won't pick it up on its own). Split out from L3 (2026-09-10) as its own scope/risk. | not started |
+| L3-stance | Stance-matchup signal — deferred (2026-09-10): no real, app-measured directional win-rate effect exists yet (`describeStanceMatchup.ts` stays a scoreboard-only bucket). Revisit once G3 calibration or a stance-specific accuracy breakdown shows a real direction, not a borrowed claim. | not started, deliberately deferred |
+| L4 | ⚠️ Author-aware pick lock. Owner direction (2026-09-10): intern picks lock earlier than the owner's own — so the intern can react to a late rumour (e.g. Friday's pick flips after bad news breaks) but still locks well before the card, while the owner's own picks stay open almost to the last minute. **Real conflict found and resolved before building:** the intern's lock cannot land at the same instant the T-12h odds snapshot fires (both jobs run every 2h, odds at `:00` / intern at `:30`; the snapshot is write-once) — a lock exactly at T-12h would mean the intern's final pick is *always* unpriced, undoing the whole "anchors on the market" design. **Confirmed: intern locks T-6h, owner locks T-1h.** `check_pick_constraints()` made author-aware (`0041_author_aware_pick_lock.sql`), `src/lib/picks/pickLockOffsets.ts` (test-first), `events/[id]/page.tsx`'s owner-facing lock switched to the USER offset, and a new `InternLockStatus` line shows the intern's own remaining window. `supabase/tests/rls.sql` checks 26/27 verify the two authors get genuinely different thresholds. | **done** (2026-09-12) — `CHANGES.md` Phase 74. Migration + rls.sql (27/27) run live against production. |
+
+**L1 note.** This is a product decision, not a bug fix — the current
+"pick everything" behaviour was a deliberate G1 choice ("revise until the card
+locks"). The user has decided far-out picks are noise (no odds, no rumour
+scan, fighters still dropping out) and wants them gone until a card is next up.
+
 **J3 live findings (dry-run, first 100 upcoming-card fighters).** 87
 auto-match at confidence 1.00, each confirmed by the page-name guard;
 5 review-queue (Korean/Chinese names romanized family-name-first on

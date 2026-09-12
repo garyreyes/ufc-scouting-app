@@ -10,6 +10,8 @@ import { getRumourFlagSummaries } from "@/features/rumours/api";
 import { RumourHealthNotice } from "@/features/rumours/components/RumourHealthNotice";
 import { describeOwnerConfigError } from "@/lib/describeOwnerConfigError";
 import { OwnerConfigNotice } from "@/shared/components/OwnerConfigNotice";
+import { isPickLocked } from "@/lib/picks/pickLockOffsets";
+import { InternLockStatus } from "@/features/picks/components/InternLockStatus";
 import type { InternPickSummary, MyPick } from "@/features/picks/types";
 import styles from "./page.module.css";
 
@@ -88,7 +90,12 @@ export default async function EventDetailPage({
   // user-flows.md shows flags on the read-only card view too.
   const rumourFlagsByFight = await getRumourFlagSummaries(event.fights.map((f) => f.id));
 
-  const locked = event.starts_at !== null && new Date() >= new Date(event.starts_at);
+  // L4: authors lock at different offsets before starts_at (INTERN 6h,
+  // USER 1h -- src/lib/picks/pickLockOffsets.ts). This gates YOUR OWN
+  // QuickPick/BetRow below, so it must use the USER threshold, not a raw
+  // starts_at comparison -- otherwise the UI would let you submit a pick
+  // between T-1h and T-0 that the DB then rejects.
+  const locked = isPickLocked(event.starts_at, "USER", new Date());
 
   return (
     <div>
@@ -100,6 +107,7 @@ export default async function EventDetailPage({
         </p>
       )}
       {ownerConfigError && <OwnerConfigNotice message={ownerConfigError} />}
+      {viewerIsOwner && <InternLockStatus startsAt={event.starts_at} />}
       <RumourHealthNotice />
       {viewerIsOwner && event.fights.length > 0 && (
         <>

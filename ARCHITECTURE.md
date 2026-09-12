@@ -622,10 +622,14 @@ Three real decisions, all confirmed with the user before G1 was built:
    50% instead, adjusts on rumours only, and says so in its own
    reasoning text — not silently treated as market-anchored.
 3. **Revises until the card locks**, rather than committing once. The
-   intern's final answer uses the most complete scouting available,
-   right up to `events.starts_at` — the same moment a human pick locks.
-   This is what actually made Fork 4's discovery (below) matter: revision
-   only works safely once nothing can slip a late write past the lock.
+   intern's final answer uses the most complete scouting available, right
+   up to its own lock. This is what actually made Fork 4's discovery
+   (below) matter: revision only works safely once nothing can slip a
+   late write past the lock.
+   **Updated in L4:** the intern's lock is `events.starts_at` minus 6
+   hours, not the same instant a human pick locks (that's now T-1h) —
+   see correctness-critical item #4's L4 note and
+   `src/lib/picks/pickLockOffsets.ts`.
 
 **Found while planning, before writing intern code, and fixed the same
 day:** the pick-lock trigger's settlement bypass keyed on the WRITER's
@@ -1492,7 +1496,19 @@ never "this should pass now."
    INSERT and a late prediction revision are both correctly rejected, the
    real settlement UPDATE still succeeds. Same lesson `odds_snapshots`
    already recorded in a different shape — an absent or role-shaped check
-   does nothing to stop the job itself
+   does nothing to stop the job itself.
+   **Updated in L4** (`0041_author_aware_pick_lock.sql`): the lock is no
+   longer one shared instant for every author. INTERN locks 6 hours
+   before `events.starts_at`, USER locks 1 hour before — owner direction,
+   so the intern can still react to a late rumour but is settled well
+   ahead of the card, while the owner's own picks stay open almost to the
+   last minute. The two offsets are mirrored by hand in
+   `src/lib/picks/pickLockOffsets.ts` (a trigger can't import a TS
+   module) and in `events/[id]/page.tsx`'s own `locked` boolean, which
+   must use the USER offset since it gates the owner's `QuickPick`/
+   `BetRow`. `supabase/tests/rls.sql` checks 26/27 verify the two authors
+   actually get different thresholds on the same card, live-tested
+   2026-09-12
 5. **Odds snapshot immutability** — a later sync must not overwrite a price
    that is already pending or settled. **A second half, found while building
    B5:** a too-early write is just as permanent as an overwrite — the

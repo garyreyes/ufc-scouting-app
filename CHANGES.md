@@ -3229,3 +3229,228 @@ all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
 
 **Status:** `npm run lint` / `npm run test` (612, +6) / `npm run build`
 all green.
+
+## Phase 71 (L1) — Intern picks scoped to the upcoming card only (2026-09-10)
+
+**Why:** the scheduled intern job wrote a pick for every fight on every
+future card (127 last run). A card weeks out has no odds (nothing prices
+before ~T-12h), no rumour scan (that job was already nearest-card-only),
+and an unsettled roster, so those picks were a flat 50% market anchor
+nudged only by Elo — noise on every later card's view. User decided the
+intern should form an opinion only once a card is actually next up.
+
+**Changed:**
+
+- **`src/lib/events/nearestUpcomingEvent.ts`** — new shared helper
+  `fetchNearestUpcomingEventId`: the soonest `event_date >= today`,
+  `merged_into is null` event, or `null`. One definition, +3 tests
+  (fake-Supabase, same pattern as `mergeDuplicateSameDateEvents.test.ts`).
+- **`generateInternPicks.ts`** — was "all upcoming events", now calls the
+  helper for the single nearest card. Downstream unchanged; `fightIds` is
+  ~13 instead of 127 (strictly safer for the `.in()` calls). Doc comment
+  rewritten with the rationale.
+- **`runRumourScanJob.ts`** — refactored `fetchNearestUpcomingEventFights`
+  onto the same helper. No behaviour change — it already did exactly this
+  query inline; this just removes the duplicate.
+- **`runCleanupNonUpcomingInternPicks.ts`** + `npm run
+  intern:cleanup-future-picks` — one-time cleanup, dry-run by default,
+  `--commit` to delete, refuses to commit if any target pick carries a
+  bet or is settled. Uses `selectAllPages` for the `fights`/`picks` scans.
+
+**Ran live (with confirmation):** dry-run then `--commit` against
+production — **58 INTERN picks deleted** across 8 non-nearest upcoming
+cards (UFC 331 → Bonfim vs. Brady), 0 bets, 0 settled. Verified by
+re-query: Silva vs. Delgado (09-12, next up) keeps its 14 intern picks,
+every later card now reads `intern = 0`. The intern regenerates each
+card's picks when it becomes next up.
+
+**Not in scope:** the owner's own manual picks (unchanged, any card);
+L2 (settlement gap); L3 (intern criteria).
+
+**Status:** `npm run lint` / `npm run test` (615, +3) / `npm run build`
+all green, route table unchanged.
+
+## Phase 72 (L2 / L2b) — recently-finished cards get their Wikipedia results (2026-09-10)
+
+**Why:** 22 fights on two August cards (Nurmagomedov vs. Song 08-29,
+Hernandez vs. Rodrigues 08-22) plus 3 on Hooker vs. Parnasse (09-05) had
+never settled. Root cause: `syncSchedule` only covers
+`Category:Scheduled`, which drops a card ~when it finishes, and the I4
+backfill is gap-only — so a card synced while upcoming never gets its
+`wikipedia_*` per-source result columns and settles single-source on
+API-Sports' ~3-day window at best.
+
+**L2 — the fix:**
+
+- **`src/lib/ufc-data-sync/selectEventsNeedingResultRefresh.ts`** (pure,
+  +10 tests) — the queue: an event that is past + inside a 30-day window
+  + not merged + has a Wikipedia-title external_id + still has a fight
+  with no `wikipedia_reported_at`.
+- **`refreshRecentEventResults.ts`** — re-runs `processScheduleEvent` for
+  each such card (`upsertFight` matches the existing row and writes its
+  per-source columns; never inserts a duplicate). Per-event try/catch.
+- **`syncSchedule.ts`** calls it at the tail of every run, right before
+  `sync.yml`'s settlement step.
+- **`runRefreshRecentEventResults.ts`** + `npm run
+  sync:refresh-recent-results` — standalone, dry-run by default.
+
+**L2b — fighter dedup exposed by L2's first run:** re-fetching the two
+August cards surfaced 8 `disputed_opponent` conflicts, each a genuine
+API-Sports-enriched / Wikipedia-placeholder duplicate fighter pair
+(missing space, name-order swap, diacritic, nickname).
+
+- **`src/lib/text/namesLikelySamePerson.ts`** (+11 tests) — widens
+  `upsertFighter`'s automatic fold-match to also catch missing internal
+  spaces and name-order swaps (not nicknames — still a human call).
+  `upsertFighter` now also prefers the `external_id` row when several
+  names fold together.
+- **`supabase/data-fixes/2026-09-10_merge-8-name-variant-duplicate-fighters.sql`**
+  — repoints the 8 placeholders' fights + Elo onto the identity row,
+  adopts the Wikipedia display name, drops the placeholders, resolves the
+  8 conflicts. All six `fights` id columns repointed in one statement (a
+  per-column sequence transiently violates `0031`'s winner-in-bout
+  CHECK). Verified rollback-first, then applied.
+
+**Ran live (with confirmation):** refresh → merge data-fix → refresh again
+→ `settlement:run-jobs`. All 40 fights across the 3 cards now have
+Wikipedia results, 0 open `disputed_opponent` conflicts, and every one
+settles `wikipedia_only_24h` on the next sync (~24h after the result was
+written). Records recompute changed 6 fighters (the merges).
+
+**Status:** `npm run lint` / `npm run test` (635, +20) / `npm run build`
+all green, route table unchanged.
+
+**`reviewer` pass, fixes applied same-day:**
+
+- `upsertFighter`'s fold-match tie-break wasn't fully deterministic when
+  zero or 2+ folded rows carried an `external_id` (only the "exactly one"
+  case was). Now sorts by `id` within each group before picking, so a
+  repeat sync can't rewrite a different row's name each time.
+- `refreshRecentEventResults`'s call in `syncSchedule.ts` is now wrapped
+  in try/catch — a failure in its own reads must not skip the unrelated
+  duplicate-event merge that runs after it.
+- The data-fix's claim that renaming the KEEP row "prevents recurrence"
+  was only true for 6 of the 8 pairs — corrected in the file: the two
+  nickname pairs (Wes/Wesley, Stan/Stanley) can still recur, since
+  `upsertFighter`'s external_id branch overwrites `name` unconditionally
+  on every API-Sports write. That's the intended safe fallback (routes
+  back to `/conflicts`), not a bug, but the comment overclaimed.
+  `PROJECT_FACTS.md` updated with this and two informational notes (the
+  name-order-swap rule's accepted latent risk; check `sherdog_id`
+  specifically on any future fighter merge).
+- Added the one missing test branch (`selectEventsNeedingResultRefresh`'s
+  title dedup) and fixed a mislabeled test in `namesLikelySamePerson.test.ts`.
+- Not changed: the name-order-swap heuristic itself (accepted risk, no
+  observed collision, narrowing it is only worth doing if one occurs).
+
+`npm run lint` / `npm run test` (637, +2) / `npm run build` re-verified
+green after the fixes.
+
+## Phase 73 (L3) — a size (reach/height) signal for the intern (2026-09-12)
+
+**Why:** user direction — the intern's picks were Elo + rumours off a
+mostly-unpriced market; reach/height are real, already-synced fighter
+data the intern never read. Narrowed from an original four-signal ask
+(age, reach, height, stance) after four forks: reach and height combine
+into ONE signal (avoids double-counting a correlated advantage); stance
+deferred (no app-measured directional effect exists yet -- folklore, not
+data); age split into its own follow-up (needs a new column +
+`fetchFighter.ts` change + a backfill for ~150 already-enriched
+fighters -- real scope beyond a pure function); and a combined cap added
+across every signal (previously unbounded when they agree).
+
+**Changed:**
+
+- **`src/lib/intern/sizeAdjustment.ts`** (pure, +8 tests, test-first) —
+  reach gap when both fighters have it; falls back to height only when
+  both have that instead; `0` for any other missing-data combination
+  (never mixes one fighter's reach with the other's height). Capped at
+  `MAX_SIZE_ADJUSTMENT = 0.06` (smaller than rumours' 0.12 and Elo's
+  0.15 — the weakest-evidence signal here, first dial to turn), reached
+  at a 15cm gap.
+- **`decideInternPick.ts`** — adds the size delta into the existing sum,
+  then clamps the WHOLE combined delta (`MAX_TOTAL_ADJUSTMENT = 0.25`)
+  before it reaches the market anchor, so rumours + Elo + size all
+  agreeing on one fight still can't overwhelm the market's own read.
+  Reasoning string gains a size line. +9 tests, including an exact-value
+  test that a fight where all three signals agree (unclamped sum 0.33)
+  lands at exactly 0.75 (anchor 0.5 + the 0.25 cap), not 0.83.
+- **`InternFighter`** gains `reachCm`/`heightCm`; `generateInternPicks.ts`'s
+  existing embedded fighter select gains the two columns (no new query).
+
+**Ran live:** the scheduled intern job re-ran against the real next card
+(Silva vs. Delgado, 14 fights) — 10/14 had usable size data (correctly
+small nudges, 0.8%–2.0%), 4/14 correctly showed "No usable size data."
+No errors.
+
+**Not in scope:** `predictInternMethod.ts` (method-of-victory, unchanged);
+`describeStanceMatchup.ts` (stays scoreboard-only); age (own follow-up,
+`ROADMAP.md` L3-age).
+
+**Status:** `npm run lint` / `npm run test` (652, +15) / `npm run build`
+all green, route table unchanged.
+
+## Phase 74 (L4) — author-aware pick lock (2026-09-12)
+
+Owner direction (2026-09-10): the intern should be able to react to a late
+rumour (a Friday pick flipping after bad news breaks) but lock well ahead
+of the card, while the owner's own picks stay open almost to the last
+minute. Confirmed after a real conflict was found and resolved in
+planning: the intern's first-requested T-12h lock would collide with
+`odds_snapshots`' own write-once T-12h price window, meaning the intern's
+final pick could never see a real price — **intern locks T-6h, owner
+locks T-1h**, both before `events.starts_at`.
+
+**Changed:**
+
+- **`supabase/migrations/0041_author_aware_pick_lock.sql`** —
+  `check_pick_constraints()`'s lock predicate keyed off `new.author`
+  instead of one shared `now() >= starts_at` for everyone. Every other
+  check in the trigger (fighter membership, disputed-opponent block,
+  settlement-field guard, the 0027 settlement bypass) untouched.
+- **`src/lib/picks/pickLockOffsets.ts`** (pure, +7 tests, test-first) —
+  the TS mirror of the SQL trigger's two offsets (`INTERN_LOCK_OFFSET_HOURS
+  = 6`, `USER_LOCK_OFFSET_HOURS = 1`) and `isPickLocked(startsAt, author,
+  now)`. A trigger can't import a TS module, so the two files carry the
+  numbers by hand — comments in both point at the other.
+- **`supabase/tests/rls.sql`** — checks 26/27: a card 3h from start
+  rejects an INTERN insert (inside its 6h window) but accepts a USER
+  insert at the same instant (outside its 1h window) — the one pair of
+  checks that actually proves the two authors get different thresholds,
+  not just "still enforced" (checks 17–25 predate this and never tested
+  that).
+- **`events/[id]/page.tsx`** — the owner-facing `locked` boolean (gates
+  `QuickPick`/`BetRow`) switched from raw `starts_at` to
+  `isPickLocked(..., "USER", ...)`, so the UI can't offer a pick the DB
+  would then reject.
+- **`InternLockStatus.tsx`** (new) — owner-only caption on the event page:
+  "Intern picks lock in Xh." / "Intern picks: locked." Confirmed with the
+  user rather than assumed, since otherwise there was no on-page way to
+  tell whether the intern could still react to a late rumour on the card
+  being viewed.
+- **`QuickPick.tsx`** — locked copy corrected from "the card has started"
+  to "locks 1 hour before the card starts" (no longer the same instant).
+
+**Reviewer pass:** caught one real bug same-day — `InternLockStatus`'s
+"Xh until lock" caption computed hours until *card start*, not until the
+intern's actual T-6h lock instant, overstating the remaining window by
+exactly 6 hours every time (`locked` itself was correct; only the
+not-yet-locked caption text was wrong). Fixed: `formatTimeUntil` now takes
+the real lock instant (`startsAt - INTERN_LOCK_OFFSET_HOURS`), not raw
+`startsAt`. Re-verified clean (lint/build) after the fix. No other
+findings — the SQL diff against 0027, the SQL/TS boundary agreement, and
+every other reader of `events.starts_at` in `src/` were all checked and
+came back clean.
+
+**Ran live:** migration pushed to the linked project
+(`vrwlfcywyfzfczajpdoh`); full `supabase/tests/rls.sql` suite (27 checks)
+run via a scratch copy with real user ids substituted (never committed) —
+"All RLS checks passed." Real scheduled intern job re-run against the
+actual next card (Silva vs. Delgado, ~16h out at the time): 14/14
+unchanged, 0 failed, 0 locked — correct, since the card was outside both
+authors' windows.
+
+**Not in scope:** L3-age, L3-stance (both already logged, unstarted).
+
+**Status:** `npm run lint` / `npm run test` (659, +7) / `npm run build`
+all green, route table unchanged.
