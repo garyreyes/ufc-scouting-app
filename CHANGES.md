@@ -3189,3 +3189,43 @@ live settled fight (25/25, 0 disagreements, re-run after the fixes).
 all green. `0040` pending on `vrwlfcywyfzfczajpdoh`.
 
 **Phase J is complete (J1–J7).**
+
+## Phase 70 (K2) — cross-date duplicate events + two fighter-identity conflicts (2026-09-10)
+
+- **K2: `planEventMerges` now clusters events within ±1 day**, not just
+  the exact same date. Found live: "UFC Fight Night: Gamrot vs Salkilld"
+  (API-Sports, 2026-08-09) and "... vs. Salkilld" (Wikipedia,
+  2026-08-08) — one card, split across a timezone/broadcast date
+  boundary, invisible to K1's exact-date grouping. The shared-exact-pair
+  requirement is the safety (two real cards a day apart never carry the
+  identical unordered fighter pair). `MAX_EVENT_DATE_SKEW_DAYS = 1`;
+  +4 test cases.
+- **`mergeDuplicateSameDateEvents` restructured to two passes** — K1's
+  same-date pre-filter for the FK-ref check no longer works when any pair
+  of events can cluster, so: pass 1 plans with all `hasBlockingRefs`
+  false to find the at-risk fights, check FK refs on just those, pass 2
+  plans for real. Keeps the whole `.in()` bounded to fights a merge would
+  actually delete. **`mergeDuplicateSameDateEvents.test.ts` added**
+  (fake-Supabase, 3 cases) — the first test for either K1/K2 orchestrator,
+  locking the "pass-1 at-risk set ⊇ pass-2 deletions" invariant the
+  `reviewer` flagged as subtle.
+- Live: the Gamrot pair surfaced as a **reported skip** (its Aug-9 loser
+  carried stale winners), then resolved by
+  **`2026-09-10_merge-gamrot-salkilld-date-split.sql`** — user confirmed
+  Louie Sutherland fought **José Montanha** (Wikipedia), not Henrique da
+  Silva Lopes (API-Sports). The Aug-8 Wikipedia row (fully settled,
+  `bout_order`) is the keeper; the 12 stale Aug-9 fights + **24
+  double-counted `fighter_elo_history` rows** deleted, the last open
+  `disputed_opponent` resolved. `recompute_elo` re-run — 904 fights /
+  1800 snapshots (was double-counting this card).
+- **`2026-09-10_merge-benardo-sopaj-duplicate-fighter.sql`** (run) —
+  "Benardo Sopaj" was a stub duplicate of "Bernardo Sopaj" (a missing
+  'r', which `upsertFighter`'s accent-only fold-match misses). Repointed
+  the one UFC 332 fight, deleted the stub, resolved its
+  `disputed_opponent`.
+- **`data_conflicts` open count: `disputed_opponent` 2 → 0**,
+  `low_confidence_odds_match` 37 → 0 (PR #61). Only the 13
+  `low_confidence_sherdog_match` remain (owner picks).
+
+**Status:** `npm run lint` / `npm run test` (612, +6) / `npm run build`
+all green.
