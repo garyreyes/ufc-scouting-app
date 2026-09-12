@@ -20,6 +20,10 @@ export interface InternFighter {
   // these being null.
   reachCm: number | null;
   heightCm: number | null;
+  // L3-age: whole years on the card's date, from fighters.birth_date
+  // (Sherdog-sourced -- API-Sports has none). Null when unknown;
+  // ageAdjustment.ts returns 0 for any missing side.
+  ageYears: number | null;
 }
 
 // One flag as the intern consumes it -- only what the adjustment rule

@@ -14,6 +14,7 @@ const fighter1 = {
   ratedFightCount: 10,
   reachCm: null,
   heightCm: null,
+  ageYears: null,
 };
 const fighter2 = {
   id: "f2",
@@ -22,6 +23,7 @@ const fighter2 = {
   ratedFightCount: 10,
   reachCm: null,
   heightCm: null,
+  ageYears: null,
 };
 
 function input(overrides: Partial<InternPickInput> = {}): InternPickInput {
@@ -263,6 +265,45 @@ describe("decideInternPick", () => {
     });
   });
 
+  describe("age integration", () => {
+    // No price (anchor 0.5), equal Elo, no size data -- only age moves it,
+    // so the result is exactly 0.5 + ageAdjustment(29, 38) = 0.53.
+    it("shades toward the fighter closer to peak age by exactly ageAdjustment's amount", () => {
+      const decision = decideInternPick(
+        input({ odds: null, fighter1: { ...fighter1, ageYears: 29 }, fighter2: { ...fighter2, ageYears: 38 } }),
+      );
+      expect(decision.predictedFighterId).toBe("f1");
+      expect(decision.estimatedProbability).toBeCloseTo(0.53, 10);
+    });
+
+    it("shades away from the fighter further from peak", () => {
+      const decision = decideInternPick(
+        input({ odds: null, fighter1: { ...fighter1, ageYears: 38 }, fighter2: { ...fighter2, ageYears: 29 } }),
+      );
+      expect(decision.predictedFighterId).toBe("f2");
+      expect(decision.estimatedProbability).toBeCloseTo(0.53, 10);
+    });
+
+    it("says so when either age is unknown", () => {
+      const decision = decideInternPick(input({ fighter1: { ...fighter1, ageYears: 29 } }));
+      expect(decision.reasoning).toContain("No usable age data.");
+    });
+
+    it("names both ages and the edge in the reasoning", () => {
+      const decision = decideInternPick(
+        input({ fighter1: { ...fighter1, ageYears: 29 }, fighter2: { ...fighter2, ageYears: 38 } }),
+      );
+      expect(decision.reasoning).toContain("Age: Alexandre Pantoja 29, Joshua Van 38 — edge Alexandre Pantoja (3.0%).");
+    });
+
+    it("reports no edge when both are in their prime", () => {
+      const decision = decideInternPick(
+        input({ fighter1: { ...fighter1, ageYears: 30 }, fighter2: { ...fighter2, ageYears: 31 } }),
+      );
+      expect(decision.reasoning).toContain("Age: Alexandre Pantoja 30, Joshua Van 31 (no edge).");
+    });
+  });
+
   describe("combined adjustment cap", () => {
     // Rumours (+0.12 toward f1, two max-corroboration flags on f2),
     // Elo (+0.15 toward f1, capped by a 500-point gap), and size (+0.06
@@ -290,6 +331,31 @@ describe("decideInternPick", () => {
       // above but fail this one.
       const decision = decideInternPick(input({ odds: null, fighter1: { ...fighter1, eloRating: 2000 } }));
       expect(decision.estimatedProbability).toBeCloseTo(0.65, 10);
+    });
+
+    it("still clamps to MAX_TOTAL_ADJUSTMENT with age agreeing on top", () => {
+      const decision = decideInternPick(
+        input({
+          odds: null,
+          flags: [flag("f2", 3), flag("f2", 3)],
+          fighter1: { ...fighter1, eloRating: 2000, reachCm: 200, ageYears: 29 },
+          fighter2: { ...fighter2, eloRating: 1500, reachCm: 170, ageYears: 45 },
+        }),
+      );
+      expect(decision.estimatedProbability).toBeCloseTo(0.75, 10);
+    });
+
+    // Elo +0.15 and age +0.03 = 0.18, under the 0.25 ceiling -- age must
+    // ADD to another signal, not replace it.
+    it("adds age to another signal below the ceiling", () => {
+      const decision = decideInternPick(
+        input({
+          odds: null,
+          fighter1: { ...fighter1, eloRating: 2000, ageYears: 29 },
+          fighter2: { ...fighter2, ageYears: 38 },
+        }),
+      );
+      expect(decision.estimatedProbability).toBeCloseTo(0.68, 10);
     });
   });
 });

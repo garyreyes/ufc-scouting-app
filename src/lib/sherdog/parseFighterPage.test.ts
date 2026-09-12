@@ -19,9 +19,14 @@ describe("parseBio", () => {
       heightCm: 178,
       weightKg: 70,
       birthDate: "Oct 17, 1989",
+      printedAge: 36,
       nationality: "Brazil",
       birthplace: "Guaruja, Sao Paulo",
     });
+  });
+
+  it("reads the age Sherdog prints beside the birth date (Makhachev)", () => {
+    expect(parseBio(MAKHACHEV).printedAge).toBe(34);
   });
 
   it("takes the clean display name, not the nickname-laden meta (Makhachev)", () => {
@@ -36,6 +41,7 @@ describe("parseBio", () => {
     expect(bio.name).toBe("Liam Letoi");
     expect(bio.heightCm).toBeNull();
     expect(bio.birthDate).toBeNull();
+    expect(bio.printedAge).toBeNull();
     expect(bio.birthplace).toBeNull();
   });
 });

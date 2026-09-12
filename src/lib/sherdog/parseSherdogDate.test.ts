@@ -1,5 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { parseSherdogDate } from "./parseSherdogDate";
+import { parseSherdogBirthDate, parseSherdogDate } from "./parseSherdogDate";
+
+// L3-age: the bio's birth date is a DIFFERENT format from fight history
+// ("Oct 17, 1989", day not zero-padded). Built from the text, never via
+// Date parsing -- in UTC+8 a local-midnight Date shifts to the previous
+// day on toISOString(), a silently wrong birth date.
+describe("parseSherdogBirthDate", () => {
+  it("parses Sherdog's bio format to an ISO date", () => {
+    expect(parseSherdogBirthDate("Oct 17, 1989")).toBe("1989-10-17");
+  });
+
+  it("zero-pads a single-digit day (seen live: 'Dec 4, 2002')", () => {
+    expect(parseSherdogBirthDate("Dec 4, 2002")).toBe("2002-12-04");
+  });
+
+  it("does not shift Jan 1 into the previous year (the timezone trap)", () => {
+    expect(parseSherdogBirthDate("Jan 1, 2000")).toBe("2000-01-01");
+  });
+
+  it("applies the real leap-year rule", () => {
+    expect(parseSherdogBirthDate("Feb 29, 2000")).toBe("2000-02-29");
+    expect(parseSherdogBirthDate("Feb 29, 2001")).toBeNull();
+    expect(parseSherdogBirthDate("Feb 30, 1990")).toBeNull();
+  });
+
+  it("returns null rather than guessing on anything else", () => {
+    expect(parseSherdogBirthDate(null)).toBeNull();
+    expect(parseSherdogBirthDate("N/A")).toBeNull();
+    expect(parseSherdogBirthDate("1989-10-17")).toBeNull();
+    expect(parseSherdogBirthDate("Mar / 07 / 2026")).toBeNull();
+    expect(parseSherdogBirthDate("Octember 17, 1989")).toBeNull();
+  });
+});
 
 describe("parseSherdogDate", () => {
   it("parses Sherdog's 'Mon / DD / YYYY' format to an ISO date", () => {

@@ -30,7 +30,9 @@ async function main() {
   console.log(
     `Sherdog history import${dryRun ? " (DRY RUN — nothing written)" : ""}: ` +
       `${summary.attempted} attempted, ${summary.imported} imported (${summary.boutsWritten} bouts, ` +
-      `${summary.bioFilled} height/weight filled), ${summary.skipped} skipped (cross-check), ` +
+      `${summary.bioFilled} height/weight filled), ` +
+      `${summary.birthDateFilled} birth dates filled, ${summary.birthDateMissing} with no usable birth date, ` +
+      `${summary.birthDateMismatch} birth-date mismatches (not written), ${summary.skipped} skipped (cross-check), ` +
       `${summary.guardRejected} guard-rejected, ${summary.finishNulled} with an unreconciled finish breakdown, ` +
       `${summary.failed} failed.`,
   );

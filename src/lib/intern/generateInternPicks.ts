@@ -9,6 +9,7 @@ import { decideInternPick } from "./decideInternPick";
 import { predictInternMethod } from "./predictInternMethod";
 import type { InternMethodDecision } from "./predictInternMethod";
 import type { InternFlag, InternPickDecision } from "./types";
+import { ageOnDate } from "../../shared/utils/ageOnDate";
 
 export interface InternPicksSummary {
   fightsConsidered: number;
@@ -26,6 +27,7 @@ interface EmbeddedFighter {
   name: string;
   reach_cm: number | null;
   height_cm: number | null;
+  birth_date: string | null;
 }
 
 interface EmbeddedFight {
@@ -96,10 +98,21 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   const eventId = await fetchNearestUpcomingEventId(supabase);
   if (eventId === null) return summary;
 
+  // L3-age: ages are measured on the card's own date, not "today", so the
+  // same fight always produces the same inputs.
+  const { data: eventRow, error: eventError } = await supabase
+    .from("events")
+    .select("event_date")
+    .eq("id", eventId)
+    .single();
+  if (eventError) throw eventError;
+  const cardDate = eventRow.event_date as string;
+  const ageOnCard = (birthDate: string | null) => (birthDate === null ? null : ageOnDate(birthDate, cardDate));
+
   const { data: rawFights, error: fightsError } = await supabase
     .from("fights")
     .select(
-      "id, weight_class, fighter1:fighter1_id(id, name, reach_cm, height_cm), fighter2:fighter2_id(id, name, reach_cm, height_cm)",
+      "id, weight_class, fighter1:fighter1_id(id, name, reach_cm, height_cm, birth_date), fighter2:fighter2_id(id, name, reach_cm, height_cm, birth_date)",
     )
     .eq("event_id", eventId);
   if (fightsError) throw fightsError;
@@ -144,6 +157,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
         ratedFightCount: elo1.ratedFightCount,
         reachCm: fight.fighter1.reach_cm,
         heightCm: fight.fighter1.height_cm,
+        ageYears: ageOnCard(fight.fighter1.birth_date),
       },
       fighter2: {
         id: fight.fighter2.id,
@@ -152,6 +166,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
         ratedFightCount: elo2.ratedFightCount,
         reachCm: fight.fighter2.reach_cm,
         heightCm: fight.fighter2.height_cm,
+        ageYears: ageOnCard(fight.fighter2.birth_date),
       },
       odds,
       flags: flagsByFightId.get(fight.id) ?? [],

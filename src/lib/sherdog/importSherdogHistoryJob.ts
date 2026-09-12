@@ -5,6 +5,7 @@ import { parseFightHistory } from "./parseFightHistory";
 import { sherdogNameMatchesExpected } from "./identityGuard";
 import { buildSherdogBoutRows } from "./buildSherdogBoutRows";
 import { bioFillPayload } from "./bioFillPayload";
+import { birthDateFill, type BirthDateFill } from "./birthDateFill";
 
 export interface SherdogImportSummary {
   attempted: number;
@@ -14,6 +15,9 @@ export interface SherdogImportSummary {
   boutsWritten: number;
   finishNulled: number; // imported, but the finish breakdown didn't reconcile
   bioFilled: number; // had a null height_cm / weight_kg that Sherdog filled (J6)
+  birthDateFilled: number; // L3-age: had no birth_date, Sherdog's agreed with its printed age
+  birthDateMissing: number; // L3-age: no birth date on the page, or it didn't parse
+  birthDateMismatch: number; // L3-age: parsed date disagrees with Sherdog's printed age -- not written
   failed: number;
   dryRun: boolean;
 }
@@ -73,13 +77,16 @@ export async function importSherdogHistory(
     boutsWritten: 0,
     finishNulled: 0,
     bioFilled: 0,
+    birthDateFilled: 0,
+    birthDateMissing: 0,
+    birthDateMismatch: 0,
     failed: 0,
     dryRun,
   };
 
   let query = supabase
     .from("fighters")
-    .select("id, name, sherdog_id, height_cm, weight_kg")
+    .select("id, name, sherdog_id, height_cm, weight_kg, birth_date")
     .not("sherdog_id", "is", null);
 
   if (sherdogId !== undefined) {
@@ -105,6 +112,7 @@ export async function importSherdogHistory(
       sherdog_id: number;
       height_cm: number | null;
       weight_kg: number | null;
+      birth_date: string | null;
     }>) ?? [];
 
   for (const fighter of queue) {
@@ -133,8 +141,12 @@ export async function importSherdogHistory(
 
       // J6: fill height_cm / weight_kg from Sherdog's bio where they're
       // still null. Never overwrites -- Sherdog has no reach/stance, so
-      // API-Sports enrichment still runs for those.
-      const bioFill = bioFillPayload(fighter, parseBio(html));
+      // API-Sports enrichment still runs for those. L3-age: birth_date the
+      // same way, but only when it agrees with the age Sherdog prints.
+      const bio = parseBio(html);
+      const bioFill = bioFillPayload(fighter, bio);
+      const birth = birthDateFill(fighter.birth_date, bio, now().toISOString().slice(0, 10));
+      recordBirthDate(summary, fighter.name, birth);
 
       if (built.finish === null) summary.finishNulled++;
       if (Object.keys(bioFill).length > 0) summary.bioFilled++;
@@ -142,19 +154,21 @@ export async function importSherdogHistory(
 
       if (dryRun) {
         const f = built.finish;
-        const bio = Object.keys(bioFill).length > 0 ? ` | +${Object.keys(bioFill).join("/")}` : "";
+        const bioNote = Object.keys(bioFill).length > 0 ? ` | +${Object.keys(bioFill).join("/")}` : "";
         console.log(
           `  ${fighter.name} -> ${built.bouts.length} bouts` +
             (f
               ? ` | W ${f.sherdog_wins_by_ko}KO/${f.sherdog_wins_by_sub}S/${f.sherdog_wins_by_dec}D` +
                 ` L ${f.sherdog_losses_by_ko}KO/${f.sherdog_losses_by_sub}S/${f.sherdog_losses_by_dec}D`
               : " | finish breakdown did not reconcile -> null") +
-            bio,
+            bioNote +
+            describeBirthDate(birth),
         );
         continue;
       }
 
       const importedAt = now().toISOString();
+      const birthDateWrite = birth.kind === "fill" ? { birth_date: birth.birthDate } : {};
 
       try {
         // Upsert on (fighter_id, bout_order) then delete the stale tail,
@@ -179,7 +193,12 @@ export async function importSherdogHistory(
 
         const { error: updError } = await supabase
           .from("fighters")
-          .update({ ...(built.finish ?? NULL_FINISH), ...bioFill, sherdog_history_imported_at: importedAt })
+          .update({
+            ...(built.finish ?? NULL_FINISH),
+            ...bioFill,
+            ...birthDateWrite,
+            sherdog_history_imported_at: importedAt,
+          })
           .eq("id", fighter.id);
         if (updError) throw updError;
       } catch (writeErr) {
@@ -202,4 +221,22 @@ export async function importSherdogHistory(
   }
 
   return summary;
+}
+
+function recordBirthDate(summary: SherdogImportSummary, name: string, birth: BirthDateFill): void {
+  if (birth.kind === "fill") summary.birthDateFilled++;
+  else if (birth.kind === "missing") summary.birthDateMissing++;
+  else if (birth.kind === "mismatch") {
+    summary.birthDateMismatch++;
+    console.warn(
+      `Sherdog import: "${name}" birth date ${birth.birthDate} gives age ${birth.computedAge}, ` +
+        `but the page prints ${birth.printedAge} -- not written`,
+    );
+  }
+}
+
+function describeBirthDate(birth: BirthDateFill): string {
+  if (birth.kind === "fill") return ` | born ${birth.birthDate}`;
+  if (birth.kind === "mismatch") return ` | born ${birth.birthDate} MISMATCH`;
+  return "";
 }

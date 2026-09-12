@@ -651,6 +651,20 @@ Decided 2026-08-29, user-originated.
   project Phase 11 accidentally ran a migration against. It still exists.
   Always confirm the dashboard shows `ufc-scouting-app` /
   `vrwlfcywyfzfczajpdoh` (`ap-southeast-1`) before running anything.
+- **Squash-merging a PR with `gh pr merge --delete-branch` permanently,
+  irrecoverably auto-closes any OTHER open PR based on that branch — found
+  live 2026-09-12 merging PR #62 (K2) out from under PR #63 (L1–L4), which
+  was branched from #62's branch.** GitHub closes the dependent PR the
+  instant its base ref disappears, and `reopenPullRequest` refuses once a
+  PR's base branch no longer exists ("Could not open the pull request") —
+  there is no recovery path, only recreating a new PR from the same head
+  branch retargeted at `main` (#63 → #64 here, same commits, `main`'s
+  changes merged in, two trivial append-only `CHANGES.md`/`ROADMAP.md`
+  conflicts resolved by hand, no code conflicts). **Going forward, when
+  one open PR is based on another's branch: either merge the dependent PR
+  first, or retarget its base to `main` BEFORE merging/deleting the base
+  PR's branch** — never merge-with-delete a base branch while another PR
+  still points at it.
 
 - **The user has multiple Supabase projects.** Confirm the dashboard shows
   `ufc-scouting-app` (`vrwlfcywyfzfczajpdoh.supabase.co`) before running any
@@ -1115,14 +1129,35 @@ Decided 2026-08-29, user-originated.
   directional stance bump on that basis alone; wait for G3 calibration
   or a stance-specific accuracy breakdown to show a real, own-data
   direction first.
-- **Age is not in this app anywhere** — no `birth_date`/`age` column,
-  and `fetchFighter.ts`'s own `ApiSportsFighter` type doesn't declare
-  the field even though API-Sports' payload includes it (Phase I's own
-  spike notes). Adding it is a real, separate feature (`ROADMAP.md`
-  L3-age): a migration, a `fetchFighter.ts` change, AND a backfill for
-  the ~150 fighters already enriched — the enrichment queue
-  (`enrichment_checked_at is not null`) is one-shot and will not pick up
-  a newly-added field on its own.
+- **Age is not in this app anywhere** — no `birth_date`/`age` column.
+  **Correction (2026-09-12, L3-age verification spike):** the prior note
+  here ("API-Sports' payload includes it, Phase I's own spike notes")
+  was checked live and found wrong as a usable claim — API-Sports'
+  `/fighters` response DOES have literal `birth_date`/`age` keys, but
+  both are `null` on every one of 18 real fighters checked (3 famous
+  champions by name-search, plus 15 real already-enriched roster
+  fighters sampled straight from production). Treat this field as
+  permanently dead on API-Sports' free tier; do not build against it.
+  **The real path is Sherdog instead**: `parseFighterPage.ts`'s
+  `parseBio()` already extracts a real `birthDate` string (e.g. "Oct 17,
+  1989") from `<span itemprop="birthDate">`, confirmed populated on all
+  4 real saved fixtures — it's just never wired into `bioFillPayload.ts`
+  (which today only fills `height_cm`/`weight_kg`). Since J6 already
+  Sherdog-links 128/146 upcoming-card fighters, this gives real,
+  non-zero coverage a dead API-Sports field never would. Building
+  L3-age for real means: a migration, wiring `birthDate` through
+  `bioFillPayload.ts`, and a backfill that re-fetches each of the
+  already-Sherdog-linked fighters' pages (the one-shot enrichment queue
+  won't pick up a newly-added field on its own — same reasoning as the
+  original note, just against the right source now). **Checked live
+  the same day against real pages, not just the fixtures:** 6/6
+  production Sherdog-linked fighters' live pages carried a birth date —
+  including two (Jessie Rosas, Gable Steveson) that API-Sports had just
+  returned `null` for. Days are NOT zero-padded ("Dec 4, 2002" alongside
+  "Oct 27, 1991"), so any parser must accept both. Sherdog also prints
+  the fighter's current age beside the date (`<b>23</b> <em>/</em>`),
+  a free cross-check for tests. Population at the time: 816 fighters,
+  132 Sherdog-linked — the only ones age can come from.
 - **Every additive probability adjustment now has a shared ceiling,
   not just its own per-signal cap.** `decideInternPick.ts`'s
   `MAX_TOTAL_ADJUSTMENT = 0.25` clamps `rumours + Elo + size` together,
@@ -1130,3 +1165,14 @@ Decided 2026-08-29, user-originated.
   genuine stack of agreeing signals does. Any FUTURE signal added to
   this sum (age, once it exists) needs no code change here, but its own
   cap should be sized with this ceiling in mind, not in isolation.
+  Age (L3-age, ±0.04) was sized that way: all four agreeing signals
+  now reach ~0.37 unclamped, still clamped to 0.25.
+- **A Supabase/PostgREST error is a plain object, not an `Error`**
+  (found live 2026-09-13). `if (error) throw error;` throws
+  `{ code, details, hint, message }`, so any
+  `err instanceof Error ? err.message : String(err)` check sees
+  `"[object Object]"` and misses the real message.
+  `generateInternPicks.ts`'s `isLockedError` has exactly this bug
+  (`ROADMAP.md` L4-fix): the first run ever inside the intern's lock
+  window reported "13 failed, 0 already locked". Read `message` off any
+  object that has one, not only `Error` instances.
