@@ -30,12 +30,21 @@ export async function runScheduleSync() {
   // last ~30 days of finished cards here so their wikipedia_* result
   // columns get written -- sync.yml runs settlement immediately after
   // this, so a freshly-pulled result settles the same run.
-  const refresh = await refreshRecentEventResults(supabase);
-  if (refresh.candidateTitles.length > 0) {
-    console.log(
-      `Recent-results refresh: ${refresh.eventsRefreshed}/${refresh.candidateTitles.length} cards refreshed, ` +
-        `${refresh.fightsTouched} fight rows touched, ${refresh.failed} failed.`,
-    );
+  //
+  // Caught, not let propagate: a per-card Wikipedia error is already
+  // handled inside refreshRecentEventResults itself, but a failure in its
+  // own initial reads (events/fights) must not skip the duplicate-event
+  // merge below, which is otherwise unrelated (reviewer finding, L2b).
+  try {
+    const refresh = await refreshRecentEventResults(supabase);
+    if (refresh.candidateTitles.length > 0) {
+      console.log(
+        `Recent-results refresh: ${refresh.eventsRefreshed}/${refresh.candidateTitles.length} cards refreshed, ` +
+          `${refresh.fightsTouched} fight rows touched, ${refresh.failed} failed.`,
+      );
+    }
+  } catch (err) {
+    console.error("Recent-results refresh failed -- continuing sync without it:", err);
   }
 
   // A source renaming a card (or the two sources naming it differently)

@@ -79,13 +79,20 @@ export async function upsertFighter(
   );
   if (foldedMatches.length > 0) {
     // When several rows fold to the same name (a duplicate that predates
-    // this check), update the one carrying an external_id -- that is the
-    // identity row API-Sports' results sync and Sherdog both key on, and
-    // picking it deterministically stops the two rows ping-ponging which
-    // one each source writes to.
+    // this check, or two API-Sports rows that only started folding
+    // together once namesLikelySamePerson widened), update the one
+    // carrying an external_id -- that is the identity row API-Sports'
+    // results sync and Sherdog both key on. Fully deterministic, not
+    // just "prefer external_id": ties within either group break on `id`,
+    // since PostgREST makes no row-order guarantee on a plain select and
+    // picking arbitrarily would let two rows keep ping-ponging which one
+    // gets each write (reviewer finding, L2b).
+    const withExternalId = foldedMatches
+      .filter((f) => f.external_id !== null && f.external_id !== undefined)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const target =
-      foldedMatches.find((f) => f.external_id !== null && f.external_id !== undefined) ??
-      foldedMatches[0];
+      withExternalId[0] ??
+      [...foldedMatches].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
     const { error: updateError } = await supabase
       .from("fighters")
       .update(updatePayload)

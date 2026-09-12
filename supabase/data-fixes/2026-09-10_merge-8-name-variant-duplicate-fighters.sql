@@ -32,15 +32,30 @@
 --   fighter_elo_history ................. 3,2,2,0,1,2,0,1
 --   picks / rumour_flags / sherdog_bouts / fighter_scouting_reports .. 0 for all 8
 --   SAME-EVENT fight collisions between KEEP and DROP ............... 0 for all 8
+--   fighters.sherdog_id on every DROP row ............................ null for all 8
 -- So every DROP is referenced only by `fights` and `fighter_elo_history`,
--- and no merge produces a duplicate or self-referential fight row.
+-- and no merge produces a duplicate or self-referential fight row. (Note
+-- for any FUTURE fighter merge: check sherdog_id specifically and copy it
+-- across before deleting -- it's a separate unique identity link, `0036`,
+-- not covered by the FK checks above.)
 --
 -- FIX: repoint the DROP rows' fights onto the KEEP row, clear the DROP
 -- rows' Elo history (recompute rebuilds), adopt the well-formed Wikipedia
--- display name on the KEEP row (so a plain ilike match catches it next
--- sync -- needed for the two nickname pairs, which namesLikelySamePerson
--- deliberately does not auto-fold), delete the DROP rows, and resolve the
--- 8 now-moot disputed_opponent conflicts.
+-- display name on the KEEP row so a plain ilike match catches it on THIS
+-- sync's re-run, delete the DROP rows, and resolve the 8 now-moot
+-- disputed_opponent conflicts.
+--
+-- NOT durable for the two nickname pairs (reviewer finding, L2b): the
+-- next time API-Sports' own sync reaches Wes Schultz or Stan Dorsainvil,
+-- upsertFighter's external_id branch overwrites the KEEP row's name back
+-- to the short form (it updates with whatever name API-Sports sent,
+-- unconditionally). Wikipedia then fails to match it again on that
+-- fighter's NEXT bout, and namesLikelySamePerson deliberately never
+-- auto-folds a nickname -- so this exact conflict can recur. That is the
+-- intended fallback (route to /conflicts, a human call), not silent
+-- corruption -- and the six structural pairs (space/diacritic/order) are
+-- fixed for good by namesLikelySamePerson. Only worth a real fix if it
+-- actually recurs.
 --
 -- AFTER: run `npm run sync:refresh-recent-results -- --commit` then
 -- `npm run settlement:run-jobs` -- the 8 unblocked bouts get their

@@ -25,8 +25,12 @@ describe("namesLikelySamePerson", () => {
     expect(namesLikelySamePerson("Xiong Jingnan", "Jingnan Xiong")).toBe(true);
   });
 
-  it("matches a name-order swap combined with a diacritic", () => {
+  it("matches a diacritic difference on its own (namesMatchExactly's case, not a swap)", () => {
     expect(namesLikelySamePerson("Marcio Barbosa", "Márcio Barbosa")).toBe(true);
+  });
+
+  it("matches a name-order swap combined with a diacritic", () => {
+    expect(namesLikelySamePerson("Marcio Barbosa", "Barbosa Márcio")).toBe(true);
   });
 
   it("does NOT match a nickname / short form", () => {

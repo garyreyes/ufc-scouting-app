@@ -3319,3 +3319,29 @@ written). Records recompute changed 6 fighters (the merges).
 
 **Status:** `npm run lint` / `npm run test` (635, +20) / `npm run build`
 all green, route table unchanged.
+
+**`reviewer` pass, fixes applied same-day:**
+
+- `upsertFighter`'s fold-match tie-break wasn't fully deterministic when
+  zero or 2+ folded rows carried an `external_id` (only the "exactly one"
+  case was). Now sorts by `id` within each group before picking, so a
+  repeat sync can't rewrite a different row's name each time.
+- `refreshRecentEventResults`'s call in `syncSchedule.ts` is now wrapped
+  in try/catch — a failure in its own reads must not skip the unrelated
+  duplicate-event merge that runs after it.
+- The data-fix's claim that renaming the KEEP row "prevents recurrence"
+  was only true for 6 of the 8 pairs — corrected in the file: the two
+  nickname pairs (Wes/Wesley, Stan/Stanley) can still recur, since
+  `upsertFighter`'s external_id branch overwrites `name` unconditionally
+  on every API-Sports write. That's the intended safe fallback (routes
+  back to `/conflicts`), not a bug, but the comment overclaimed.
+  `PROJECT_FACTS.md` updated with this and two informational notes (the
+  name-order-swap rule's accepted latent risk; check `sherdog_id`
+  specifically on any future fighter merge).
+- Added the one missing test branch (`selectEventsNeedingResultRefresh`'s
+  title dedup) and fixed a mislabeled test in `namesLikelySamePerson.test.ts`.
+- Not changed: the name-order-swap heuristic itself (accepted risk, no
+  observed collision, narrowing it is only worth doing if one occurs).
+
+`npm run lint` / `npm run test` (637, +2) / `npm run build` re-verified
+green after the fixes.

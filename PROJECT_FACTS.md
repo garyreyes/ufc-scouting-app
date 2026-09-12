@@ -173,6 +173,41 @@ Decided 2026-08-29, user-originated.
   Expected to be rare going forward — a genuinely recent card's names are
   already current (Hooker vs. Parnasse, 5 days old, refreshed with zero
   conflicts).
+- **That merge is durable for 6 of the 8 pairs, not all 8** (`reviewer`
+  finding, confirmed correct). The 6 structural ones (missing space,
+  name-order swap, diacritic) are fixed for good — `namesLikelySamePerson`
+  now folds them automatically. The 2 nickname ones (Wes/Wesley Schultz,
+  Stan/Stanley Dorsainvil) can recur: `upsertFighter`'s external_id
+  branch overwrites a fighter's `name` unconditionally on every write, so
+  the next time API-Sports syncs either fighter it silently reverts the
+  KEEP row's name back to the short form, and the next Wikipedia mention
+  of the long form mints a fresh placeholder + a new
+  `disputed_opponent`. That's the intended, safe fallback (human call via
+  `/conflicts`), not corruption — nicknames are deliberately never
+  auto-folded — but don't expect the rename alone to have permanently
+  closed those two.
+- **`upsertFighter`'s fold-match must pick a fully deterministic row when
+  several fighters fold to one name, not just "prefer external_id".**
+  `foldedMatches.find(...)` on an unordered PostgREST result is itself
+  nondeterministic when zero or 2+ candidates carry an `external_id` —
+  each sync could then rewrite a different row's name, recreating the
+  exact ping-pong the external_id preference was meant to stop. Fixed by
+  sorting by `id` within each group before picking (L2b, reviewer
+  finding).
+- **`namesLikelySamePerson`'s name-order-swap rule is a known, accepted
+  latent risk, not a proven-safe one.** It's sound for every real case
+  seen so far (CJK family-name-first romanizations), but nothing stops it
+  matching two genuinely different Latin-named fighters whose tokens
+  happen to reorder into each other (e.g. two unrelated people "P Q" /
+  "Q P") — there's no contextual guard (shared event, shared opponent)
+  behind it, only the structural token-set check. No such collision has
+  been observed in production. If one ever is, that's the rule to narrow
+  first, not `upsertFighter`'s overall design.
+- **Merging a fighter: check `fighters.sherdog_id` specifically, not just
+  the FK tables.** It's a separate unique identity link (`0036`), not
+  referenced by anything else, so a generic FK sweep won't surface a lost
+  Sherdog link on the row being deleted. None of the 8 L2b merges had one
+  set, but a future merge might.
 - **One conflict is open on purpose and should stay open until someone
   identifies the fighter**: Louie Sutherland's opponent at UFC Fight
   Night: Gamrot vs. Salkilld. Wikipedia currently says "José Montanha

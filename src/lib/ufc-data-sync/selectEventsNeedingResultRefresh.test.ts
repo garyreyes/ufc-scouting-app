@@ -108,4 +108,19 @@ describe("selectEventsNeedingResultRefresh", () => {
   it("returns nothing for an empty event list", () => {
     expect(selectEventsNeedingResultRefresh([], new Set(), WINDOW)).toEqual([]);
   });
+
+  it("de-duplicates a title shared by two distinct event ids", () => {
+    // Not expected in practice (K1/K2 fold same-title duplicates), but the
+    // selector must not return the same Wikipedia page twice in one run.
+    expect(
+      selectEventsNeedingResultRefresh(
+        [
+          ev({ id: "e1", externalId: "UFC Fight Night: Dupe" }),
+          ev({ id: "e2", externalId: "UFC Fight Night: Dupe" }),
+        ],
+        new Set(["e1", "e2"]),
+        WINDOW,
+      ),
+    ).toEqual(["UFC Fight Night: Dupe"]);
+  });
 });
