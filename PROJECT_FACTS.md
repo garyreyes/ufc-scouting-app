@@ -651,6 +651,20 @@ Decided 2026-08-29, user-originated.
   project Phase 11 accidentally ran a migration against. It still exists.
   Always confirm the dashboard shows `ufc-scouting-app` /
   `vrwlfcywyfzfczajpdoh` (`ap-southeast-1`) before running anything.
+- **Squash-merging a PR with `gh pr merge --delete-branch` permanently,
+  irrecoverably auto-closes any OTHER open PR based on that branch — found
+  live 2026-09-12 merging PR #62 (K2) out from under PR #63 (L1–L4), which
+  was branched from #62's branch.** GitHub closes the dependent PR the
+  instant its base ref disappears, and `reopenPullRequest` refuses once a
+  PR's base branch no longer exists ("Could not open the pull request") —
+  there is no recovery path, only recreating a new PR from the same head
+  branch retargeted at `main` (#63 → #64 here, same commits, `main`'s
+  changes merged in, two trivial append-only `CHANGES.md`/`ROADMAP.md`
+  conflicts resolved by hand, no code conflicts). **Going forward, when
+  one open PR is based on another's branch: either merge the dependent PR
+  first, or retarget its base to `main` BEFORE merging/deleting the base
+  PR's branch** — never merge-with-delete a base branch while another PR
+  still points at it.
 
 - **The user has multiple Supabase projects.** Confirm the dashboard shows
   `ufc-scouting-app` (`vrwlfcywyfzfczajpdoh.supabase.co`) before running any
