@@ -3345,3 +3345,47 @@ all green, route table unchanged.
 
 `npm run lint` / `npm run test` (637, +2) / `npm run build` re-verified
 green after the fixes.
+
+## Phase 73 (L3) — a size (reach/height) signal for the intern (2026-09-12)
+
+**Why:** user direction — the intern's picks were Elo + rumours off a
+mostly-unpriced market; reach/height are real, already-synced fighter
+data the intern never read. Narrowed from an original four-signal ask
+(age, reach, height, stance) after four forks: reach and height combine
+into ONE signal (avoids double-counting a correlated advantage); stance
+deferred (no app-measured directional effect exists yet -- folklore, not
+data); age split into its own follow-up (needs a new column +
+`fetchFighter.ts` change + a backfill for ~150 already-enriched
+fighters -- real scope beyond a pure function); and a combined cap added
+across every signal (previously unbounded when they agree).
+
+**Changed:**
+
+- **`src/lib/intern/sizeAdjustment.ts`** (pure, +8 tests, test-first) —
+  reach gap when both fighters have it; falls back to height only when
+  both have that instead; `0` for any other missing-data combination
+  (never mixes one fighter's reach with the other's height). Capped at
+  `MAX_SIZE_ADJUSTMENT = 0.06` (smaller than rumours' 0.12 and Elo's
+  0.15 — the weakest-evidence signal here, first dial to turn), reached
+  at a 15cm gap.
+- **`decideInternPick.ts`** — adds the size delta into the existing sum,
+  then clamps the WHOLE combined delta (`MAX_TOTAL_ADJUSTMENT = 0.25`)
+  before it reaches the market anchor, so rumours + Elo + size all
+  agreeing on one fight still can't overwhelm the market's own read.
+  Reasoning string gains a size line. +9 tests, including an exact-value
+  test that a fight where all three signals agree (unclamped sum 0.33)
+  lands at exactly 0.75 (anchor 0.5 + the 0.25 cap), not 0.83.
+- **`InternFighter`** gains `reachCm`/`heightCm`; `generateInternPicks.ts`'s
+  existing embedded fighter select gains the two columns (no new query).
+
+**Ran live:** the scheduled intern job re-ran against the real next card
+(Silva vs. Delgado, 14 fights) — 10/14 had usable size data (correctly
+small nudges, 0.8%–2.0%), 4/14 correctly showed "No usable size data."
+No errors.
+
+**Not in scope:** `predictInternMethod.ts` (method-of-victory, unchanged);
+`describeStanceMatchup.ts` (stays scoreboard-only); age (own follow-up,
+`ROADMAP.md` L3-age).
+
+**Status:** `npm run lint` / `npm run test` (652, +15) / `npm run build`
+all green, route table unchanged.

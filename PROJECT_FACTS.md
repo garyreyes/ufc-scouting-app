@@ -1067,3 +1067,37 @@ Decided 2026-08-29, user-originated.
   (pick = who wins, bet = where the price is wrong). If these underdog
   bets systematically lose once settled, the −12pt max flag penalty
   (`flagPenalty.ts` `MAX_PENALTY_PER_FIGHTER`) is the thing to dial back.
+- **L3 (2026-09-12): reach/height ship as ONE combined "size" signal, not
+  two.** They measure a correlated advantage (a taller fighter usually
+  has longer reach too); adding both independently would count the same
+  real edge twice. Reach is preferred whenever both fighters have it;
+  height is the fallback only when that's not the case. Coverage is
+  real but partial today — Sherdog (128/146 upcoming-card fighters) has
+  neither field, so the signal is a documented no-op until API-Sports
+  enrichment reaches a given fighter — checked live on a real card
+  (2026-09-12): both fighters had a known reach on only 5 of 14 fights,
+  both had a known height on 12 of 14.
+- **Stance-matchup is deliberately NOT an intern signal.**
+  `describeStanceMatchup.ts` stays scoreboard-display-only
+  (E2/tale-of-the-tape). Unlike reach/height (an objective physical
+  fact) or Elo (derived from this app's own real results), "southpaw
+  beats orthodox more often" has never been measured against this app's
+  data — it's MMA folklore, contested in real research. Do not add a
+  directional stance bump on that basis alone; wait for G3 calibration
+  or a stance-specific accuracy breakdown to show a real, own-data
+  direction first.
+- **Age is not in this app anywhere** — no `birth_date`/`age` column,
+  and `fetchFighter.ts`'s own `ApiSportsFighter` type doesn't declare
+  the field even though API-Sports' payload includes it (Phase I's own
+  spike notes). Adding it is a real, separate feature (`ROADMAP.md`
+  L3-age): a migration, a `fetchFighter.ts` change, AND a backfill for
+  the ~150 fighters already enriched — the enrichment queue
+  (`enrichment_checked_at is not null`) is one-shot and will not pick up
+  a newly-added field on its own.
+- **Every additive probability adjustment now has a shared ceiling,
+  not just its own per-signal cap.** `decideInternPick.ts`'s
+  `MAX_TOTAL_ADJUSTMENT = 0.25` clamps `rumours + Elo + size` together,
+  set above Elo's own cap (0.15) so Elo alone never fights it — only a
+  genuine stack of agreeing signals does. Any FUTURE signal added to
+  this sum (age, once it exists) needs no code change here, but its own
+  cap should be sized with this ceiling in mind, not in isolation.

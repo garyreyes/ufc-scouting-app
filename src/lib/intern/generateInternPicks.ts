@@ -21,11 +21,18 @@ export interface InternPicksSummary {
   failed: number;
 }
 
+interface EmbeddedFighter {
+  id: string;
+  name: string;
+  reach_cm: number | null;
+  height_cm: number | null;
+}
+
 interface EmbeddedFight {
   id: string;
   weight_class: string | null;
-  fighter1: { id: string; name: string };
-  fighter2: { id: string; name: string };
+  fighter1: EmbeddedFighter;
+  fighter2: EmbeddedFighter;
 }
 
 interface ExistingPick {
@@ -89,7 +96,9 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
 
   const { data: rawFights, error: fightsError } = await supabase
     .from("fights")
-    .select("id, weight_class, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)")
+    .select(
+      "id, weight_class, fighter1:fighter1_id(id, name, reach_cm, height_cm), fighter2:fighter2_id(id, name, reach_cm, height_cm)",
+    )
     .eq("event_id", eventId);
   if (fightsError) throw fightsError;
 
@@ -126,8 +135,22 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     const odds = oddsByFightId.get(fight.id) ?? null;
 
     const decision = decideInternPick({
-      fighter1: { ...fight.fighter1, eloRating: elo1.rating, ratedFightCount: elo1.ratedFightCount },
-      fighter2: { ...fight.fighter2, eloRating: elo2.rating, ratedFightCount: elo2.ratedFightCount },
+      fighter1: {
+        id: fight.fighter1.id,
+        name: fight.fighter1.name,
+        eloRating: elo1.rating,
+        ratedFightCount: elo1.ratedFightCount,
+        reachCm: fight.fighter1.reach_cm,
+        heightCm: fight.fighter1.height_cm,
+      },
+      fighter2: {
+        id: fight.fighter2.id,
+        name: fight.fighter2.name,
+        eloRating: elo2.rating,
+        ratedFightCount: elo2.ratedFightCount,
+        reachCm: fight.fighter2.reach_cm,
+        heightCm: fight.fighter2.height_cm,
+      },
       odds,
       flags: flagsByFightId.get(fight.id) ?? [],
     });

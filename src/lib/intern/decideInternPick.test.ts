@@ -7,8 +7,22 @@ import type { InternFlag, InternPickInput } from "./types";
 // so the default fixture is chosen to keep Elo's own adjustment at
 // exactly zero (equal ratings) and confidence unaffected by the new
 // thin-sample cap (both well past the 6-fight threshold).
-const fighter1 = { id: "f1", name: "Alexandre Pantoja", eloRating: 1500, ratedFightCount: 10 };
-const fighter2 = { id: "f2", name: "Joshua Van", eloRating: 1500, ratedFightCount: 10 };
+const fighter1 = {
+  id: "f1",
+  name: "Alexandre Pantoja",
+  eloRating: 1500,
+  ratedFightCount: 10,
+  reachCm: null,
+  heightCm: null,
+};
+const fighter2 = {
+  id: "f2",
+  name: "Joshua Van",
+  eloRating: 1500,
+  ratedFightCount: 10,
+  reachCm: null,
+  heightCm: null,
+};
 
 function input(overrides: Partial<InternPickInput> = {}): InternPickInput {
   return {
@@ -205,6 +219,77 @@ describe("decideInternPick", () => {
         }),
       );
       expect(decision.confidence).toBeLessThanOrEqual(2);
+    });
+  });
+
+  describe("size (reach/height) integration", () => {
+    it("shades toward the fighter with a reach edge", () => {
+      const clean = decideInternPick(input());
+      const f1Longer = decideInternPick(input({ fighter1: { ...fighter1, reachCm: 190 }, fighter2: { ...fighter2, reachCm: 175 } }));
+      expect(f1Longer.estimatedProbability).toBeGreaterThan(clean.estimatedProbability);
+    });
+
+    it("shades away from the fighter with the shorter reach", () => {
+      const clean = decideInternPick(input());
+      const f1Shorter = decideInternPick(input({ fighter1: { ...fighter1, reachCm: 175 }, fighter2: { ...fighter2, reachCm: 190 } }));
+      expect(f1Shorter.estimatedProbability).toBeLessThan(clean.estimatedProbability);
+    });
+
+    it("has no effect when neither fighter has a reach or height on file", () => {
+      const decision = decideInternPick(input());
+      expect(decision.reasoning).toContain("No usable size data");
+    });
+
+    it("names the size edge in the reasoning when it applies", () => {
+      const decision = decideInternPick(
+        input({ fighter1: { ...fighter1, reachCm: 190 }, fighter2: { ...fighter2, reachCm: 175 } }),
+      );
+      expect(decision.reasoning).toContain("Size edge");
+      expect(decision.reasoning).toContain(fighter1.name);
+    });
+
+    // sizeAdjustment.ts's own cap (0.06) is small enough that this is
+    // never actually in doubt, but the shape must hold: one weak signal
+    // never overrides what the market strongly says.
+    it("does not let a huge reach gap alone flip a pick the market strongly favours the other way", () => {
+      const decision = decideInternPick(
+        input({
+          odds: { fighter1Price: 1.05, fighter2Price: 15 },
+          fighter1: { ...fighter1, reachCm: 170 },
+          fighter2: { ...fighter2, reachCm: 210 },
+        }),
+      );
+      expect(decision.predictedFighterId).toBe("f1");
+    });
+  });
+
+  describe("combined adjustment cap", () => {
+    // Rumours (+0.12 toward f1, two max-corroboration flags on f2),
+    // Elo (+0.15 toward f1, capped by a 500-point gap), and size (+0.06
+    // toward f1, a 30cm reach gap) all agree here -- 0.33 unclamped, but
+    // MAX_TOTAL_ADJUSTMENT (0.25) is what the final probability must
+    // actually reflect. With no market price (anchor 0.5), the result is
+    // an EXACT value: 0.5 + 0.25 = 0.75, not 0.5 + 0.33.
+    it("clamps the combined delta even when every signal agrees", () => {
+      const decision = decideInternPick(
+        input({
+          odds: null,
+          flags: [flag("f2", 3), flag("f2", 3)],
+          fighter1: { ...fighter1, eloRating: 2000, reachCm: 200 },
+          fighter2: { ...fighter2, eloRating: 1500, reachCm: 170 },
+        }),
+      );
+      expect(decision.predictedFighterId).toBe("f1");
+      expect(decision.estimatedProbability).toBeCloseTo(0.75, 10);
+    });
+
+    it("leaves a single signal's own result unchanged when nothing else fires", () => {
+      // Elo alone (+0.15) is already below MAX_TOTAL_ADJUSTMENT (0.25),
+      // so the combined clamp must be a no-op here -- a regression that
+      // clamped every result to 0.25 flat would still pass the test
+      // above but fail this one.
+      const decision = decideInternPick(input({ odds: null, fighter1: { ...fighter1, eloRating: 2000 } }));
+      expect(decision.estimatedProbability).toBeCloseTo(0.65, 10);
     });
   });
 });

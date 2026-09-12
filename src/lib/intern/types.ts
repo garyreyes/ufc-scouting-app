@@ -13,6 +13,13 @@ export interface InternFighter {
   // confidently as a deep one at the same probability), never to change
   // the probability itself.
   ratedFightCount: number;
+  // L3: reach/height, straight off `fighters` -- null whenever that
+  // fighter hasn't been enriched (or was Sherdog-only; Sherdog carries
+  // neither). sizeAdjustment.ts is the only reader and already handles
+  // every missing-data combination, so nothing else needs to branch on
+  // these being null.
+  reachCm: number | null;
+  heightCm: number | null;
 }
 
 // One flag as the intern consumes it -- only what the adjustment rule
