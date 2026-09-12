@@ -74,10 +74,12 @@ function isLockedError(err: unknown): boolean {
  * updated_at is the only record of when the intern last changed its mind
  * -- worth keeping honest now that revision is allowed.
  *
- * A fight whose card has already started is rejected by the pick-lock
- * trigger (0027 closed the service_role bypass that would previously have
- * let this job write straight past it) -- caught per fight and counted,
- * never allowed to abort the rest of the card.
+ * A fight whose card is within the intern's own lock window (T-6h before
+ * starts_at, narrower than the owner's T-1h -- Phase L4,
+ * lib/picks/pickLockOffsets.ts) is rejected by the pick-lock trigger (0027
+ * closed the service_role bypass that would previously have let this job
+ * write straight past it) -- caught per fight and counted, never allowed
+ * to abort the rest of the card.
  */
 export async function generateInternPicks(supabase: SupabaseClient): Promise<InternPicksSummary> {
   const summary: InternPicksSummary = {

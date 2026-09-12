@@ -3389,3 +3389,68 @@ No errors.
 
 **Status:** `npm run lint` / `npm run test` (652, +15) / `npm run build`
 all green, route table unchanged.
+
+## Phase 74 (L4) — author-aware pick lock (2026-09-12)
+
+Owner direction (2026-09-10): the intern should be able to react to a late
+rumour (a Friday pick flipping after bad news breaks) but lock well ahead
+of the card, while the owner's own picks stay open almost to the last
+minute. Confirmed after a real conflict was found and resolved in
+planning: the intern's first-requested T-12h lock would collide with
+`odds_snapshots`' own write-once T-12h price window, meaning the intern's
+final pick could never see a real price — **intern locks T-6h, owner
+locks T-1h**, both before `events.starts_at`.
+
+**Changed:**
+
+- **`supabase/migrations/0041_author_aware_pick_lock.sql`** —
+  `check_pick_constraints()`'s lock predicate keyed off `new.author`
+  instead of one shared `now() >= starts_at` for everyone. Every other
+  check in the trigger (fighter membership, disputed-opponent block,
+  settlement-field guard, the 0027 settlement bypass) untouched.
+- **`src/lib/picks/pickLockOffsets.ts`** (pure, +7 tests, test-first) —
+  the TS mirror of the SQL trigger's two offsets (`INTERN_LOCK_OFFSET_HOURS
+  = 6`, `USER_LOCK_OFFSET_HOURS = 1`) and `isPickLocked(startsAt, author,
+  now)`. A trigger can't import a TS module, so the two files carry the
+  numbers by hand — comments in both point at the other.
+- **`supabase/tests/rls.sql`** — checks 26/27: a card 3h from start
+  rejects an INTERN insert (inside its 6h window) but accepts a USER
+  insert at the same instant (outside its 1h window) — the one pair of
+  checks that actually proves the two authors get different thresholds,
+  not just "still enforced" (checks 17–25 predate this and never tested
+  that).
+- **`events/[id]/page.tsx`** — the owner-facing `locked` boolean (gates
+  `QuickPick`/`BetRow`) switched from raw `starts_at` to
+  `isPickLocked(..., "USER", ...)`, so the UI can't offer a pick the DB
+  would then reject.
+- **`InternLockStatus.tsx`** (new) — owner-only caption on the event page:
+  "Intern picks lock in Xh." / "Intern picks: locked." Confirmed with the
+  user rather than assumed, since otherwise there was no on-page way to
+  tell whether the intern could still react to a late rumour on the card
+  being viewed.
+- **`QuickPick.tsx`** — locked copy corrected from "the card has started"
+  to "locks 1 hour before the card starts" (no longer the same instant).
+
+**Reviewer pass:** caught one real bug same-day — `InternLockStatus`'s
+"Xh until lock" caption computed hours until *card start*, not until the
+intern's actual T-6h lock instant, overstating the remaining window by
+exactly 6 hours every time (`locked` itself was correct; only the
+not-yet-locked caption text was wrong). Fixed: `formatTimeUntil` now takes
+the real lock instant (`startsAt - INTERN_LOCK_OFFSET_HOURS`), not raw
+`startsAt`. Re-verified clean (lint/build) after the fix. No other
+findings — the SQL diff against 0027, the SQL/TS boundary agreement, and
+every other reader of `events.starts_at` in `src/` were all checked and
+came back clean.
+
+**Ran live:** migration pushed to the linked project
+(`vrwlfcywyfzfczajpdoh`); full `supabase/tests/rls.sql` suite (27 checks)
+run via a scratch copy with real user ids substituted (never committed) —
+"All RLS checks passed." Real scheduled intern job re-run against the
+actual next card (Silva vs. Delgado, ~16h out at the time): 14/14
+unchanged, 0 failed, 0 locked — correct, since the card was outside both
+authors' windows.
+
+**Not in scope:** L3-age, L3-stance (both already logged, unstarted).
+
+**Status:** `npm run lint` / `npm run test` (659, +7) / `npm run build`
+all green, route table unchanged.

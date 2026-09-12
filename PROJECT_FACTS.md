@@ -866,11 +866,40 @@ Decided 2026-08-29, user-originated.
   indistinguishable from a bad day. If a future session is tempted to
   route this through Gemini for "smarter" picks, that trade-off needs
   re-confirming with the user, not assumed to be a strict upgrade.
-- **The intern revises its pick until the card locks, not once — this
-  only became safe once the pick-lock gap above was closed, and the two
+- **The intern revises its pick until it locks, not once — this only
+  became safe once the pick-lock gap above was closed, and the two
   decisions are linked, not independent.** Don't consider disabling the
   lock-narrowing fix without also reconsidering whether revision is still
   safe.
+- **L4 (2026-09-10): author-aware pick lock, confirmed intern T-6h /
+  owner T-1h before `events.starts_at` — not the T-12h first requested.**
+  Owner direction: the intern should be able to react to a late rumour
+  (a Friday pick flipping on bad news) but lock well ahead of the card;
+  the owner's own picks should stay open almost to the last minute.
+  T-12h was rejected because it collides with `odds_snapshots`' own
+  write-once T-12h price window (`SNAPSHOT_LEAD_HOURS`,
+  `lib/odds/snapshotWindow.ts`) — a lock exactly there would mean the
+  intern's last allowed write always happens strictly before the market
+  ever prices the fight, permanently defeating the market-anchor design
+  (Fork 10). T-6h leaves ~3 of the intern cron's scheduled runs (every
+  2h, `30 */2 * * *`) to react to the real price before its own window
+  closes. Implemented `0041_author_aware_pick_lock.sql` +
+  `src/lib/picks/pickLockOffsets.ts`; both files carry the same two
+  numbers by hand and must be kept in sync (a trigger can't import TS).
+- **L4 also added a visible "Intern picks lock in Xh" / "locked" line on
+  `/events/[id]`** (`InternLockStatus`), confirmed with the user rather
+  than assumed — without it there was no on-page way to tell whether the
+  intern could still react to a late rumour on the card being viewed.
+  **Reviewer caught a real bug in it same-day:** the caption's hour count
+  was computed against raw `startsAt` instead of the intern's actual lock
+  instant (`startsAt - INTERN_LOCK_OFFSET_HOURS`), so it overstated the
+  remaining window by exactly 6 hours every time, even though the
+  `locked`/`not-locked` boolean itself (driven by `isPickLocked`) was
+  correct throughout. This is the specific risk of arithmetic living
+  inside a presentation component that this project's own "no tests for
+  UI" convention doesn't catch — worth a second look any time a
+  component does its own date/interval math rather than calling a tested
+  pure function for the exact value it displays, not just the boolean.
 - **Nothing yet shows the intern's pick on the card view's bout row
   (G1), even though Flow 1's own diagram includes it — a real, open gap,
   not an oversight buried in G3's scope.** `ROADMAP.md`'s G3 line

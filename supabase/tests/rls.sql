@@ -583,6 +583,49 @@ begin
 end $$;
 reset role;
 
+-- ---- L4: author-aware pick lock ----
+-- Phase L4 narrows check_pick_constraints() from one shared card-lock
+-- instant to an author-specific offset -- INTERN locks 6h before start,
+-- USER locks 1h before (src/lib/picks/pickLockOffsets.ts). A card 3h from
+-- start sits inside INTERN's window but outside USER's: this is the one
+-- pair of checks that actually proves the two authors get DIFFERENT
+-- thresholds, not just "still enforced" (check 24 above already covers
+-- the shared "long since started" case, which is threshold-independent).
+
+insert into events (id, name, event_date, starts_at) values
+  ('bbbbbbbb-0000-0000-0000-000000000003', 'Test Event (3h out)', current_date + 1, now() + interval '3 hours');
+insert into fights (id, event_id, fighter1_id, fighter2_id) values
+  ('cccccccc-0000-0000-0000-000000000004',
+   'bbbbbbbb-0000-0000-0000-000000000003',
+   'aaaaaaaa-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002');
+
+-- 26. INTERN is locked 3h before start -- inside its 6h window.
+set local role service_role;
+do $$
+begin
+  begin
+    insert into picks (fight_id, author, predicted_fighter_id, estimated_probability, confidence)
+      values ('cccccccc-0000-0000-0000-000000000004', 'INTERN', 'aaaaaaaa-0000-0000-0000-000000000001', 0.6, 3);
+    raise exception 'FAIL (26): an INTERN pick inside its 6h lock window should be rejected';
+  exception
+    when others then
+      if sqlerrm like 'FAIL%' then raise; end if;
+      if sqlerrm not like '%locked%' then
+        raise exception 'FAIL (26): rejected, but not by the pick-lock check -- got: %', sqlerrm;
+      end if;
+  end;
+end $$;
+reset role;
+
+-- 27. USER is NOT locked on the same card at the same instant -- outside
+--     its 1h window. Plain top-level statement -- success proves itself.
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object('sub', (select id from test_users where label = 'a'), 'role', 'authenticated')::text, true);
+insert into picks (fight_id, author, user_id, predicted_fighter_id, estimated_probability, confidence)
+  values ('cccccccc-0000-0000-0000-000000000004', 'USER', (select id from test_users where label = 'a'), 'aaaaaaaa-0000-0000-0000-000000000001', 0.6, 3);
+reset role;
+
 rollback;
 
 select 'All RLS checks passed.' as result;
