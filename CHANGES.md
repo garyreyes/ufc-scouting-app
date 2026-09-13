@@ -3585,6 +3585,18 @@ committed) returned exactly 1,017.
 answers/fighter merge, settlement cadence, Sherdog auto-disambiguation) —
 each is its own sub-phase, `ROADMAP.md` Phase M.
 
-**Status:** `npx vitest run` (721, +24) / `npx tsc --noEmit` (via
+**Reviewer pass:** one real finding, fixed before shipping — `getFighters`
+silently lost its `.order("name")` sort. `selectAllPages` orders by `id` (a
+random uuid) for its keyset pagination and has no way to layer a caller's
+own `.order()` on top, so the `/fighters` grid would have rendered in
+effectively random order instead of alphabetically. Fixed with a client-side
+`localeCompare` sort once every page is in hand; confirmed the regression
+test actually catches the bug (failed with the sort removed, passed with it
+restored) before counting it as done. Everything else in the diff — the
+`selectAllPagesByIds` chunk+page composition, `upsertFighter`'s non-collision
+case, `settlePicks`'s exact-match preservation, the Sherdog jobs' refactor,
+the dummy test env vars — checked out with no changes needed.
+
+**Status:** `npx vitest run` (722, +25) / `npx tsc --noEmit` (via
 `npm run build`) / `eslint` / `npm run build` all green, route table
 unchanged.

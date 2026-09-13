@@ -109,6 +109,23 @@ describe("getFighters", () => {
     expect(result).toHaveLength(1050);
   });
 
+  it("returns fighters sorted alphabetically by name, not by id", async () => {
+    // selectAllPages orders by `id` (a random uuid) for its keyset
+    // pagination -- these ids are deliberately in the OPPOSITE order from
+    // their names, so a test that forgot to re-sort by name would still
+    // pass if it only checked set membership rather than order.
+    const fighters: Fighter[] = [
+      { ...makeFighter(1), id: "id-3", name: "Zach Zealot" },
+      { ...makeFighter(2), id: "id-2", name: "Amy Alpha" },
+      { ...makeFighter(3), id: "id-1", name: "Mike Middle" },
+    ];
+    const { client } = fakeSupabase(fighters);
+
+    const result = await getFighters("", [], client);
+
+    expect(result.map((f) => f.name)).toEqual(["Amy Alpha", "Mike Middle", "Zach Zealot"]);
+  });
+
   it("chunks the weight-class-fill lookup instead of one oversized .or() list", async () => {
     // 250 fighters with no weight_class -- enough to force multiple
     // chunks at the shared DEFAULT_CHUNK_SIZE (100).

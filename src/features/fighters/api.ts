@@ -14,6 +14,12 @@ const FIGHTER_COLUMNS =
  * one growth cycle from crossing it. `supabaseClient` defaults to the
  * shared singleton so both call sites (app/fighters/page.tsx) are
  * unchanged; tests inject a fake instead.
+ *
+ * selectAllPages orders by `id` (a random uuid) for its keyset pagination
+ * and has no way to layer a different `.order()` on top -- reviewer
+ * finding, M1: this silently dropped the previous `.order("name")` and
+ * would have rendered the fighters grid in effectively random order.
+ * Sorted here, client-side, once every page is in hand.
  */
 export async function getFighters(
   query: string,
@@ -27,6 +33,7 @@ export async function getFighters(
     FIGHTER_COLUMNS,
     trimmed ? (q) => q.ilike("name", `%${trimmed}%`) : undefined,
   );
+  data.sort((a, b) => a.name.localeCompare(b.name));
 
   const resolved = await fillMissingWeightClasses(data, supabaseClient);
 
