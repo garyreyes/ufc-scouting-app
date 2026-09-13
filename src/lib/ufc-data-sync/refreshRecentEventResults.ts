@@ -35,6 +35,7 @@ interface FightResultRow {
   id: string;
   event_id: string;
   wikipedia_reported_at: string | null;
+  settled_at: string | null;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -96,11 +97,18 @@ export async function refreshRecentEventResults(
   const fightRows = await selectAllPages<FightResultRow>(
     supabase,
     "fights",
-    "id, event_id, wikipedia_reported_at",
+    "id, event_id, wikipedia_reported_at, settled_at",
     (q) => q.in("event_id", windowEventIds),
   );
+  // M2: `settled_at === null` alongside the existing wikipedia check --
+  // a fight already settled by ANY means (a single-source timeout,
+  // Sherdog, or a cancellation) needs no Wikipedia report anymore.
+  // Without this, a cancelled bout (which will forever have
+  // wikipedia_reported_at null, since nothing ever "reports" for a
+  // cancellation) would keep its whole card queued for the full 30-day
+  // window for no reason.
   const eventIdsWithUnreportedFight = new Set(
-    fightRows.filter((f) => f.wikipedia_reported_at === null).map((f) => f.event_id),
+    fightRows.filter((f) => f.wikipedia_reported_at === null && f.settled_at === null).map((f) => f.event_id),
   );
 
   const candidates: RefreshCandidateEvent[] = eventRows.map((e) => ({

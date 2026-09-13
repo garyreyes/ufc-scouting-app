@@ -18,6 +18,7 @@ export function QuickPick({
   existingPick,
   locked,
   disputed,
+  cancelled,
 }: {
   fightId: string;
   fighter1: FighterOption;
@@ -25,6 +26,7 @@ export function QuickPick({
   existingPick: MyPick | null;
   locked: boolean;
   disputed: boolean;
+  cancelled: boolean;
 }) {
   // The fighter currently mid-tap, awaiting a probability band choice --
   // distinct from existingPick, which is the last SAVED pick. Tapping
@@ -33,6 +35,13 @@ export function QuickPick({
   const [pendingFighterId, setPendingFighterId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // M2: checked before `disputed`/`locked` -- a cancelled fight is a
+  // final, resolved state (not a hold), and the fight simply never
+  // happens regardless of what the sources ever agreed on.
+  if (cancelled) {
+    return <div className={styles.cancelled}>Cancelled — pick voided, stake returned.</div>;
+  }
 
   if (disputed) {
     return (

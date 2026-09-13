@@ -61,7 +61,7 @@ export async function getCardView(
   let fightsQuery = supabase
     .from("fights")
     .select(
-      "id, bout_order, weight_class, method, round, winner_id, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)",
+      "id, bout_order, weight_class, method, round, winner_id, settled_from, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)",
     )
     .eq("event_id", eventId);
   if (weightClasses.length > 0) {
@@ -89,9 +89,12 @@ export async function getCardView(
     ]),
   );
 
-  const bouts: CardBout[] = ((fights ?? []) as unknown as Omit<CardBout, "odds">[]).map((f) => ({
+  const bouts: CardBout[] = (
+    (fights ?? []) as unknown as (Omit<CardBout, "odds" | "cancelled"> & { settled_from: string | null })[]
+  ).map(({ settled_from, ...f }) => ({
     ...f,
     odds: oddsByFightId.get(f.id) ?? null,
+    cancelled: settled_from === "cancelled",
   }));
 
   return { ...event, fights: bouts };

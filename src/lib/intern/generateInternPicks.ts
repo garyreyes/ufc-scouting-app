@@ -109,12 +109,17 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   const cardDate = eventRow.event_date as string;
   const ageOnCard = (birthDate: string | null) => (birthDate === null ? null : ageOnDate(birthDate, cardDate));
 
+  // M2: `.is("settled_at", null)` excludes a cancelled bout -- without it,
+  // a fight pulled from the nearest upcoming card (still "upcoming" by
+  // date even after cancellation) would get a full pick written on a
+  // fight that will never happen.
   const { data: rawFights, error: fightsError } = await supabase
     .from("fights")
     .select(
       "id, weight_class, fighter1:fighter1_id(id, name, reach_cm, height_cm, birth_date), fighter2:fighter2_id(id, name, reach_cm, height_cm, birth_date)",
     )
-    .eq("event_id", eventId);
+    .eq("event_id", eventId)
+    .is("settled_at", null);
   if (fightsError) throw fightsError;
 
   const fights = (rawFights ?? []) as unknown as EmbeddedFight[];

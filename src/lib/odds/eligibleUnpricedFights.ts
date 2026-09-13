@@ -28,11 +28,21 @@ export async function fetchUnpricedFights(supabase: SupabaseClient): Promise<Unp
   const pricedIds = new Set((alreadyPriced ?? []).map((row) => row.fight_id as string));
 
   // Same PostgREST FK-embed pattern as features/fights/api.ts.
+  //
+  // M2: `.is("settled_at", null)` -- a cancelled fight (settled_at set,
+  // never priced) would otherwise look identically "unpriced" to a
+  // genuinely upcoming one, both to this candidate list and to
+  // features/conflicts/api.ts's low-confidence-match picker downstream.
+  // It was the actual root cause of 24 open low_confidence_odds_match
+  // conflicts live, 2026-09-13: Jimenez vs. Vera (cancelled, visa issue)
+  // stayed the sole unmatched candidate on its card, so every later odds
+  // event "matched" it at single-digit confidence.
   const { data: fights, error: fightsError } = await supabase
     .from("fights")
     .select(
       "id, fighter1:fighter1_id(name), fighter2:fighter2_id(name), event:event_id(event_date, starts_at)",
-    );
+    )
+    .is("settled_at", null);
   if (fightsError) throw fightsError;
 
   type EmbeddedFight = {

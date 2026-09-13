@@ -69,3 +69,55 @@ inside the existing `MAX_TOTAL_ADJUSTMENT = 0.25` shared ceiling, unchanged.
 
 **First dials to turn** if G3 calibration shows age-flagged picks
 miscalibrated: the cap (0.04), then the window edges, then the youth weight.
+
+---
+
+## 2026-09-14 — M2: cancelled-bout UX, and when to trust "it's gone"
+
+**Decision (confirmed with the owner).** A cancelled bout stays visible on
+the card, greyed, reading "Cancelled — pick voided, stake returned" — never
+silently removed. Same-card fighter name variants ("Jose Delgado" →
+"Jose Miguel Delgado") get auto-merged and logged, not just asked about
+forever (that's M3). The existing 24h single-source settlement wait is
+unchanged.
+
+**Why.** A removed row with no explanation is indistinguishable from a bug
+to the owner — "why did my pick vanish?" A visible, labelled cancellation
+answers that question on sight, at the cost of one more row on the card.
+
+**The harder fork, resolved without asking (a reasonable default, not a
+user decision): how long a bout must be missing before it's trusted as
+cancelled, and what makes a parse untrustworthy in the first place.**
+`upsertFight.ts`'s own header comment already documents a real incident
+where treating a single sync's snapshot as ground truth corrupted a card
+(a reordered Wikipedia page made one bout's identity collide with
+another's). Applying that same naivety to "this bout is missing" would
+risk cancelling a real, still-scheduled fight and voiding a real pick over
+a transient page edit or parse hiccup — a worse failure than the one this
+sub-phase fixes.
+
+Landed on: `wikipedia_missing_since` set on the FIRST miss, cancelled only
+once that has held **6 hours** (roughly the gap to `sync.yml`'s next run in
+practice) — never cancelled on a bout's very first absence. Reconciliation
+is skipped entirely (no writes, not even `markMissing`) when the fresh
+parse dropped any malformed `{{MMAevent bout}}` block, found zero bouts, or
+found fewer than half the card's existing bout count — each a sign the
+parse itself is unreliable, not evidence of a real cancellation.
+
+**Alternatives considered.**
+- Cancel on the first miss — rejected: indistinguishable from a transient
+  parse failure or a mid-edit Wikipedia page, and a wrongly-cancelled fight
+  voids a real pick with no easy undo path once picks have settled around
+  it.
+- A longer grace window (24h, matching the single-source settlement
+  timeout) — rejected as unnecessarily slow for a genuine cancellation,
+  which is a removal the source has already committed to, not a pending
+  result still resolving.
+- No skip guards at all, trusting `markMissing`/grace-window timing alone
+  — rejected: a parse that drops half a card's bouts (malformed markup, a
+  botched page edit) would otherwise look identical to a real wave of
+  cancellations and cancel real fights.
+
+**First dial to turn** if a real cancellation is ever caught later than
+expected, or a real fight is ever wrongly flagged missing: the 6-hour grace
+window (`DEFAULT_GRACE_HOURS`, `planCardReconciliation.ts`).
