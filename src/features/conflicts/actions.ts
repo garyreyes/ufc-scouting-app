@@ -6,6 +6,9 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isOwner } from "@/lib/auth";
 import { buildDisputedOpponentResolution } from "./resolveDisputedOpponent";
 import type { DisputedOpponentChoice } from "./resolveDisputedOpponent";
+import { identifyDifferingFighters } from "@/lib/ufc-data-sync/identifyDifferingFighters";
+import { checkMergeGuard, type MergeCandidateFighter } from "@/lib/ufc-data-sync/decideSameCardMerge";
+import { mergeFighters } from "@/lib/ufc-data-sync/mergeFighters";
 import { buildLowConfidenceResolution } from "./resolveLowConfidence";
 import { buildFighterMatchResolution } from "./resolveFighterMatch";
 import { buildSherdogMatchResolution } from "./resolveSherdogMatch";
@@ -74,6 +77,45 @@ export async function resolveDisputedOpponentAction(
     detectedAt: "", // unused by buildDisputedOpponentResolution
     details: row.details as DisputedOpponentConflict["details"],
   };
+
+  // M3: "merge" asserts the two candidates are the same real person --
+  // the actual identity fix happens here, via merge_fighters(), BEFORE
+  // the conflict row itself is resolved below. checkMergeGuard's one hard
+  // block (two different confirmed Sherdog identities) still applies to a
+  // manual, owner-triggered merge exactly as it does to the automatic
+  // sweep -- a human override doesn't get to corrupt Sherdog-sourced data.
+  if (choice === "merge") {
+    const { data: fight, error: fightError } = await admin
+      .from("fights")
+      .select("fighter1_id, fighter2_id")
+      .eq("id", conflict.fightId)
+      .maybeSingle();
+    if (fightError) throw fightError;
+    if (!fight) throw new Error("Fight not found");
+
+    const diff = identifyDifferingFighters(
+      { fighter1_id: fight.fighter1_id, fighter2_id: fight.fighter2_id },
+      { fighter1_id: conflict.details.candidate_fighter1_id, fighter2_id: conflict.details.candidate_fighter2_id },
+    );
+    if (!diff) throw new Error("These two pairings no longer share exactly one fighter -- refusing to guess");
+
+    const { data: fighterRows, error: fightersError } = await admin
+      .from("fighters")
+      .select("id, name, external_id, sherdog_id")
+      .in("id", [diff.a, diff.b]);
+    if (fightersError) throw fightersError;
+    if (!fighterRows || fighterRows.length !== 2) throw new Error("Could not load both fighters to merge");
+
+    const [fa, fb] = fighterRows as unknown as MergeCandidateFighter[];
+    const guard = checkMergeGuard(fa, fb);
+    if (!guard.allowed) {
+      throw new Error(
+        "These two fighters have different confirmed Sherdog identities and can't be merged automatically -- check /fighters for both before merging by hand.",
+      );
+    }
+
+    await mergeFighters(admin, guard.keepId, guard.dropId);
+  }
 
   const resolution = buildDisputedOpponentResolution(conflict, choice);
 

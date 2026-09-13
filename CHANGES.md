@@ -3519,3 +3519,123 @@ L4-fix and in `PROJECT_FACTS.md`; not fixed here.
 
 **Status:** `npx vitest run` (699, +40) / `npx tsc --noEmit` / `eslint` /
 `npm run build` all green, route table unchanged.
+
+## Phase 77 (M3) — Remembered dispute answers, aliases, fighter merge (2026-09-14)
+
+**What.** "Keep existing" on a `disputed_opponent` conflict recorded
+nothing, so a same-card name variant ("Jose Delgado" → "Jose Miguel
+Delgado", "Sean King" → "Sean King III") reopened the identical dispute on
+the very next sync -- found live, twice, 2026-09-13. There was also no
+real way to merge two duplicate fighter rows other than one-off, hand-run
+SQL under `supabase/data-fixes/`.
+
+- **`0044_fighter_aliases_and_merge.sql`** (**NOT YET APPLIED to
+  production** -- see "Ran live" below): new `fighter_aliases` table
+  (stores the raw dropped name, not pre-normalized -- see the migration's
+  own comment on why that departs from the plan's original
+  `alias_normalized unique` shape) and a real `merge_fighters(keep, drop)`
+  function, ported from `2026-09-10_merge-8-name-variant-duplicate-fighters.sql`.
+  **Two real gaps found and fixed while writing it, before it ever ran
+  anywhere:**
+  - `fighter_sherdog_bouts` and `fighter_scouting_reports` are both
+    `on delete cascade` on `fighter_id` -- deleting the dropped row
+    without repointing them first would silently DESTROY the dropped
+    fighter's real Sherdog bout history (and any scouting notes), not
+    just re-file it. Traced against the actual production shape this
+    feature exists for: Jose Delgado (Sherdog-linked) / Jose Miguel
+    Delgado (API-Sports-linked) -- `checkMergeGuard` prefers `external_id`
+    for the keeper, so the Sherdog-linked identity is exactly the one
+    likely to be DROPPED, taking its real bout history down with it.
+  - Copying `sherdog_id` onto the keeper without also copying
+    `sherdog_history_imported_at` and the six finish-breakdown columns
+    would leave the newly-repointed bout rows unrecognized --
+    `recomputeFighterRecords.ts` keys its Sherdog-record override on that
+    timestamp, not on the bout rows existing.
+  - The pick-lock trigger (`check_pick_constraints()`) gets one more
+    condition, same shape as 0027's settlement bypass: a transaction-local
+    `app.merging_fighters` setting (never a session-level one -- would
+    leak across a pooled connection) skips the pick-lock timing, the
+    open-disputed_opponent check, and the settlement-columns check for
+    exactly the one transaction `merge_fighters()` runs. The
+    fighter-membership check is deliberately NOT bypassed -- it passes on
+    its own because `fights` is always repointed before `picks`.
+  - `merge_fighters` is `security definer` (needs to write across five
+    tables regardless of the caller's own grants) but is explicitly
+    `revoke`d from `public` and only `grant`ed to `service_role` -- a
+    `security definer` function's EXECUTE privilege defaults to PUBLIC in
+    Postgres, which would otherwise expose it at
+    `/rest/v1/rpc/merge_fighters` to any authenticated (or anon) client.
+    Direct application of CLAUDE.md's own "GRANTs are independent of RLS"
+    rule to a function, not just a table.
+- **`isSameCardNameVariant.ts`** (pure, 7 tests): whether two names could
+  be the same fighter, given they're already known to be the two
+  candidates for one shared-opponent slot on one card. Deliberately MORE
+  permissive than the global `namesLikelySamePerson` (a bare suffix
+  difference like "Dan Hooker" / "Dan Hooker Jr" matches here, though
+  `namesLikelySamePerson`'s own pinned test correctly keeps that pair
+  apart globally) -- the same-card, same-opponent context is what makes
+  the looser rule safe. Never a bare nickname (only one token shared).
+- **`identifyDifferingFighters.ts`** (pure, 4 tests) +
+  **`decideSameCardMerge.ts`** (pure, 9 tests): given a disputed fight's
+  kept vs. candidate pairing, finds the two actually-in-question fighters
+  and decides keep/drop (prefers `external_id`, tie-break on `id` -- same
+  rule `upsertFighter.ts`'s own fold-match already uses) plus one hard,
+  non-overridable guard: two fighters with DIFFERENT confirmed Sherdog
+  ids are never merged, manual or automatic.
+- **`resolveSameCardNameVariants.ts`** (5 tests) + its runner
+  (`npm run fighters:resolve-same-card-variants -- --dry-run`): sweeps
+  every open `disputed_opponent` conflict, auto-merges the ones
+  `decideAutoMerge` clears, resolves the conflict as `auto_alias`. Wired
+  into `sync.yml` right after the schedule sync, while conflicts are
+  still fresh.
+- **`upsertFighter.ts`**: checks `fighter_aliases` after `external_id`
+  and before the plain name match (3 tests) -- a merged-away name now
+  resolves straight to the keeper instead of recreating the duplicate the
+  merge existed to fix.
+- **`upsertFight.ts`**: the disputed branch now also checks every
+  RESOLVED conflict on that fight for a `confirmed_existing` resolution
+  matching the exact incoming `candidate_external_id` (4 tests) -- the
+  owner's "keep current" answer is now actually remembered, not just
+  logged and forgotten. A different candidate, or a resolution that
+  actually changed the row (`used_candidate`), still opens normally.
+- **`/conflicts`**: `DisputedOpponentChoice` gains `"merge"` (2 tests for
+  the pure resolution shape). The Server Action runs the real merge
+  (`checkMergeGuard` + `mergeFighters()`) BEFORE resolving the conflict
+  row, and refuses with a clear message if the two fighters carry
+  different confirmed Sherdog identities -- the one guard that applies to
+  a manual owner override exactly as it does to the automatic sweep.
+  `DisputedOpponentCard.tsx` gets a third button, "Same fighter, different
+  name."
+
+**Why.** Third sub-phase of Phase M (`ROADMAP.md`), continuing from M1/M2's
+live pipeline investigation prompted by the user's Tapology question.
+
+**Tests:** written first throughout, 34 new (7 + 4 + 9 + 5 + 3 + 4 + 2).
+The two real migration gaps above (Sherdog-history cascade-delete,
+missing derived-column copy) were found by tracing the actual production
+Delgado/Delgado shape while writing the SQL, before it was ever applied
+anywhere -- not caught by a test, since a SQL function's own logic isn't
+vitest-testable in this project (no local Postgres); verified by reading
+the migration against the schema instead, the same way 0027/0041's own
+trigger changes were.
+
+**Reviewer pass:** pending -- see next entry once it runs.
+
+**Ran live:** **not yet -- migration 0044 has NOT been applied to
+production, and no job has executed this code against real data.**
+Merging two fighters is effectively irreversible (a deleted row, a
+recomputed Elo history) and repoints picks -- per the project's own
+bulk-mutation rule this needs a dry run
+(`npm run fighters:resolve-same-card-variants -- --dry-run`) and the
+owner's go-ahead before anything writes, same as M2's cancellation code.
+
+**Not in scope:** M4–M5 (settlement cadence, Sherdog auto-disambiguation)
+-- each its own sub-phase, `ROADMAP.md` Phase M. Also not done: copying
+physical measurements (height/reach/stance/birth_date) from the dropped
+fighter onto a keeper that lacks them -- the ported 2026-09-10 script
+didn't do this either, and it's a reasonable later enhancement, not a
+gap this phase needs to close.
+
+**Status:** `npx vitest run` (732, +34) / `npx tsc --noEmit` (via
+`npm run build`) / `eslint` / `npm run build` all green, route table
+unchanged.

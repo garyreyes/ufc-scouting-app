@@ -1176,3 +1176,29 @@ Decided 2026-08-29, user-originated.
   (`ROADMAP.md` L4-fix): the first run ever inside the intern's lock
   window reported "13 failed, 0 already locked". Read `message` off any
   object that has one, not only `Error` instances.
+- **`merge_fighters(keep, drop)` exists (M3, migration `0044` on the M3
+  branch -- not yet applied to production).** The only sanctioned way to
+  merge two duplicate fighter rows going forward; never hand-write a new
+  one-off SQL script under `supabase/data-fixes/` for this again. It
+  repoints `fights` (all six fighter columns), `picks`, `rumour_flags`,
+  `fighter_sherdog_bouts`, and `fighter_scouting_reports`, copies
+  `sherdog_id`/`external_id` and every Sherdog-derived column onto the
+  keeper if it lacks them, records the dropped name in `fighter_aliases`,
+  then deletes the dropped row. Restricted to `service_role` at the
+  database level (`revoke execute ... from public`) -- it is `security
+  definer` and would otherwise be callable by any authenticated/anon
+  client via PostgREST's `/rest/v1/rpc/merge_fighters`.
+- **The keeper-selection rule (prefer `external_id`, tie-break on `id`)
+  does NOT reliably keep the Sherdog-linked identity.** A merge can just
+  as easily drop the fighter carrying the real imported Sherdog bout
+  history. Any future code touching fighter merges must repoint
+  `fighter_sherdog_bouts`/`fighter_scouting_reports` (both `on delete
+  cascade`) before deleting the dropped row, and copy
+  `sherdog_history_imported_at` + the six finish-breakdown columns
+  alongside `sherdog_id` itself -- `recomputeFighterRecords.ts` keys its
+  Sherdog-record override on that timestamp, not on the bout rows
+  existing.
+- **`fighter_aliases.alias` is raw text, not normalized** -- the semantic
+  "is this the same name" comparison happens in JS (`normalizeName()`,
+  `upsertFighter.ts`), matching this codebase's standing rule that every
+  name-matching decision lives in TypeScript, never SQL.
