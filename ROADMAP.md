@@ -1924,6 +1924,27 @@ suffix-stripped (Sherdog's fightfinder silently drops a diacritic or a
 
 ---
 
+## Phase M — Data-quality: settlement speed, cancellations, conflicts
+
+Prompted by the user's three standing complaints (fights take too long to
+settle, cancelled bouts stay on the card, too many recurring conflicts) after
+evaluating and rejecting github.com/ehan03/Tapology-Scraper as a fix (no
+winner/method/stats fields, abandoned, evades Tapology's own anti-bot
+defences — see `DECISIONS.md`). All five root causes were measured live,
+2026-09-13, on UFC Fight Night: Silva vs. Delgado. Full plan in the session
+that opened this phase; sub-phases run through their own `feature-planner`
+pass each, in order below.
+
+| # | Sub-phase | Status |
+|---|---|---|
+| M1 | ⚠️ Unpaged reads already causing silent data loss. `fights` (1,044 rows) had crossed PostgREST's row cap; `fetchUnpricedFights` silently returned ~998 fights instead of 1,047. Switched to `selectAllPages`/new `selectAllPagesByIds` (pages + chunks `.in()` lists) in `eligibleUnpricedFights.ts`, `upsertFighter.ts`, `settlePicks.ts`, `features/fighters/api.ts`, `sweepLatentDisputedOpponents.ts`, and both Sherdog settlement-chain jobs. Also fixed a second live bug in the same area: `upsertFighter`'s exact-name lookup used `.maybeSingle()`, which throws on a case-insensitive collision instead of resolving it — extracted the existing tie-break into `pickCanonicalFighter.ts`, used by both branches. CLAUDE.md gained a db-read-safety section (the five rules, previously only in `RETROSPECTIVE.md`). **Reviewer caught a real regression:** `selectAllPages` orders by `id` (a random uuid) for its keyset pagination, silently dropping `getFighters`'s `.order("name")` — the fighters grid would have rendered in effectively random order. Fixed with a client-side sort once every page is in hand. | **done** (2026-09-13/14) — `CHANGES.md` Phase 77, PR #67. Ran live (read-only): `fetchUnpricedFights` now returns 1,017, matching SQL ground truth (1,044 fights − 27 priced). |
+| M2 | ⚠️ Cancelled-bout reconciliation. `processScheduleEvent.ts` only upserts bouts found on a Wikipedia card page — it never notices one that's been removed (Jimenez vs. Vera, cancelled for a visa issue, stayed on the card and got an intern pick; it was also the sole cause of all 24 open `low_confidence_odds_match` conflicts). New `0044` migration adds a `cancelled` `settled_from` value and a `wikipedia_missing_since` column; a pure, tested `planCardReconciliation` decides missing/cancel/clear per fight, skipped entirely on any sign of a partial page parse. A cancelled fight is never given a `method` (would leak into Elo/records as a draw) and is excluded from intern picks, odds candidates, the rumour scan, and the scoreboard. Card UI keeps the row, greyed, "Cancelled — pick voided, stake returned" (user's confirmed choice). | not started |
+| M3 | ⚠️ Remembered dispute answers + fighter aliases/merge. "Keep existing" on a `disputed_opponent` conflict currently records nothing, so a same-card name variant ("Jose Delgado" → "Jose Miguel Delgado", "Sean King" → "Sean King III") reopens on the very next sync — it did, twice, live. New `0045` migration adds `fighter_aliases` and a transactional `merge_fighters()` function (ported from the two one-off `supabase/data-fixes/2026-09-10_*.sql` scripts, which is the only place this logic existed before). A new pure `isSameCardNameVariant` auto-merges only same-event/same-opponent suffix or middle-name variants (never a bare nickname — the global `namesLikelySamePerson`'s "Dan Hooker Jr" test stays pinned) and logs an audit row. `/conflicts` gains a real "keep current" choice that's actually remembered. | not started |
+| M4 | Settlement cadence. `sync.yml`'s "00:00/12:00 UTC" cron actually starts ~3h late live, and a Wikipedia-only result's 24h wait becomes 24–37h in practice; the Sherdog reimport is capped at 12 fighters/run in arbitrary order. New `settle.yml` (hourly, Saturday–Monday UTC, no API-Sports calls) plus a `concurrency` guard shared with `sync.yml`/`sherdog.yml` (none exists today — two record recomputes can already overlap). `reimportSherdogForPendingFights` reordered newest-event-first, cap raised for the weekend job. The 24h single-source rule itself stays (user's confirmed choice). | not started |
+| M5 | Sherdog auto-disambiguation. 9 open `low_confidence_sherdog_match` conflicts are common names (David Martinez: 15 Sherdog exact matches) or nickname-only storage (Renato Moicano = Sherdog's "Renato Carneiro"; Patrício Pitbull = "Patricio Freire"). New `historyCorroborates`, built on the already-parsed `parseFightHistory` output, auto-links a candidate whose own fight history includes a bout against one of our fighter's known opponents within ±10 days of our `event_date`. Optional M5b spike: Wikidata P2818 ("Sherdog fighter ID"), verified live 2026-09-13 — 4,797 fighters, CC0, resolved Volkov/Khaos Williams/David Martínez by label — as a second signal. | not started |
+
+---
+
 ## Design cadence
 
 The visual world was decided in v1 and is already shipped (CSS Modules, custom
