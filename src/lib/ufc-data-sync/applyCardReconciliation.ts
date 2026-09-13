@@ -1,7 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { planCardReconciliation, type ReconciliationFight } from "./planCardReconciliation";
 
-export type ReconciliationSkipReason = "malformed_bouts" | "no_bouts" | "too_few_bouts";
+export type ReconciliationSkipReason =
+  | "malformed_bouts"
+  | "no_bouts"
+  | "too_few_bouts"
+  | "event_in_past";
 
 export interface ReconciliationSummary {
   skipped: boolean;
@@ -35,6 +39,22 @@ const SKIPPED: (reason: ReconciliationSkipReason) => ReconciliationSummary = (re
  * `parsedBoutCount`/`skippedBoutCount` come from fetchSchedule.ts's fresh
  * parse of THIS run's page. Reconciliation is skipped entirely -- no
  * writes, not even markMissing -- when:
+ *   - `eventDate` is strictly before today (reviewer finding, M2 PR #68):
+ *     this function is also reached from refreshRecentEventResults.ts (up
+ *     to 30 days after a card) and backfillWikipediaHistory.ts (any
+ *     historical card), NOT only syncSchedule.ts's still-upcoming loop.
+ *     The whole grace-window design below assumes "missing from the page"
+ *     means "pulled from the card" -- true for an upcoming event, false
+ *     for a past one, where editors routinely fold results into prose or
+ *     trim prelim bouts out of the `{{MMAevent bout}}` template long after
+ *     the card happened. A bout still unsettled on a past card for an
+ *     unrelated reason (an open disputed_opponent conflict, permanently
+ *     disagreeing sources) must never be mistaken for a cancellation just
+ *     because a later page edit removed its template block. `>= today`
+ *     matches the exact same boundary syncSchedule.ts's own upcoming loop
+ *     and selectEventsNeedingResultRefresh.ts's past-window already use --
+ *     an event dated today is still a real same-day cancellation
+ *     candidate, not "past" yet.
  *   - any bout on the page failed to parse (skippedBoutCount > 0): the
  *     parse itself is unreliable, so a missing bout might just be a
  *     parse failure, not a real absence;
@@ -50,11 +70,14 @@ export async function applyCardReconciliation(
   supabase: SupabaseClient,
   eventId: string,
   eventTitle: string,
+  eventDate: string,
   parsedBoutCount: number,
   skippedBoutCount: number,
   presentFightIds: ReadonlySet<string>,
   now: Date = new Date(),
 ): Promise<ReconciliationSummary> {
+  const today = now.toISOString().slice(0, 10);
+  if (eventDate < today) return SKIPPED("event_in_past");
   if (skippedBoutCount > 0) return SKIPPED("malformed_bouts");
   if (parsedBoutCount === 0) return SKIPPED("no_bouts");
 

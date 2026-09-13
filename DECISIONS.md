@@ -121,3 +121,14 @@ parse itself is unreliable, not evidence of a real cancellation.
 **First dial to turn** if a real cancellation is ever caught later than
 expected, or a real fight is ever wrongly flagged missing: the 6-hour grace
 window (`DEFAULT_GRACE_HOURS`, `planCardReconciliation.ts`).
+
+**Addendum (reviewer pass, PR #68):** all of the above reasoning silently
+assumed a still-upcoming card. `applyCardReconciliation` is also reached
+from `refreshRecentEventResults.ts` (past cards, up to 30 days) and
+`backfillWikipediaHistory.ts` (any historical card) -- neither of which
+this decision considered when it was written. On a past card, editors
+routinely trim or fold bout entries out of the live wikitext long after
+the event for reasons unrelated to cancellation, so the same "missing
+twice, 6h+ apart" signal would misfire. Fixed by skipping reconciliation
+outright for any event dated before today, checked first, ahead of every
+other guard -- see `applyCardReconciliation.ts`'s own comment.

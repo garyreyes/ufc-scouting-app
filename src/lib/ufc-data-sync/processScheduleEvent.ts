@@ -76,6 +76,7 @@ export async function processScheduleEvent(
     supabase,
     eventId,
     title,
+    event.date,
     event.bouts.length,
     event.skippedBoutCount,
     presentFightIds,

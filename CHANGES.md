@@ -3597,7 +3597,39 @@ wrapper had its test file created and confirmed failing (module missing,
 or the exact reported bug reproduced) before the implementation existed.
 34 new tests total.
 
-**Reviewer pass:** pending -- see next entry once it runs.
+**Reviewer pass:** one real design gap, fixed before shipping. This
+function is also reached from `refreshRecentEventResults.ts` (re-pulls
+results for cards up to 30 days finished) and
+`backfillWikipediaHistory.ts` (any historical card), not only
+`syncSchedule.ts`'s still-upcoming loop -- a path the whole grace-window
+design never considered. On a PAST card, a bout can drop out of the live
+`{{MMAevent bout}}` wikitext for reasons that have nothing to do with
+cancellation (editors folding results into prose, trimming prelims long
+after the event), while still being genuinely unsettled for an unrelated
+reason (an open `disputed_opponent` conflict, permanently disagreeing
+sources) -- exactly the "missing twice, 6h+ apart" shape reconciliation
+was built to catch, wrongly. **Fixed:** `applyCardReconciliation` now
+takes the event's date and skips entirely (`event_in_past`) for any
+`eventDate` strictly before today, before any other check -- the same
+`>= today` boundary `syncSchedule.ts`'s own upcoming loop and
+`selectEventsNeedingResultRefresh.ts`'s past-window already use. 2 new
+tests (an already-happened card with a bout missing well past grace is
+untouched; an event happening today still proceeds normally).
+
+Also noted, not fixed (Low severity, opposite direction from the PR's
+concern -- a false NEGATIVE, not money-affecting): if Wikipedia renames an
+event page between two syncs, a bout that was already missing before the
+rename keeps its old-titled `external_id` forever and can never be
+reconciled again, since the prefix filter uses the event's *current*
+title. Rare (mid-lifecycle page rename) and safe to leave for a later
+pass if it's ever actually observed.
+
+Everything else in the reviewer's checklist -- the boundary at exactly
+half-parsed, event-id scoping, `presentFightIds` correctness including
+the disputed-opponent case, partial-run-failure safety, the cancel
+write's CHECK-constraint compatibility, and exclusion completeness across
+every other fight-reading query in the codebase -- checked out with no
+changes needed.
 
 **Ran live:** **not yet -- migration 0044 has NOT been applied to
 production, and no sync run has executed this code against real data.**
@@ -3616,6 +3648,6 @@ the live-run step, since most of them should self-resolve once
 `eligibleUnpricedFights.ts`'s exclusion is live and a sync actually
 cancels Vera.
 
-**Status:** `npx vitest run` (729, +34) / `npx tsc --noEmit` (via
+**Status:** `npx vitest run` (731, +36) / `npx tsc --noEmit` (via
 `npm run build`) / `eslint` / `npm run build` all green, route table
 unchanged.

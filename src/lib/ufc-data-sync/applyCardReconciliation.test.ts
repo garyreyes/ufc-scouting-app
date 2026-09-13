@@ -15,6 +15,9 @@ interface FightRow {
 const TITLE = "UFC Fight Night: Silva vs. Delgado";
 const EVENT_ID = "event-1";
 const NOW = new Date("2026-09-14T12:00:00Z");
+// Today-or-future relative to NOW, for every test not specifically about
+// the past-event guard below.
+const EVENT_DATE = "2026-09-20";
 
 function fakeSupabase(fights: FightRow[]) {
   const updates: { id: string; payload: Record<string, unknown> }[] = [];
@@ -78,7 +81,7 @@ describe("applyCardReconciliation", () => {
     // a real card never legitimately drops to zero parsed bouts while one
     // of them is merely missing; that shape is covered by the "no_bouts"
     // skip test below instead.
-    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, 1, 0, new Set(), NOW);
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, EVENT_DATE, 1, 0, new Set(), NOW);
 
     expect(summary).toEqual({
       skipped: false,
@@ -98,7 +101,7 @@ describe("applyCardReconciliation", () => {
     });
     const { client, updates } = fakeSupabase([f]);
 
-    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, 1, 0, new Set(), NOW);
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, EVENT_DATE, 1, 0, new Set(), NOW);
 
     expect(summary.cancelled).toBe(1);
     expect(updates).toEqual([
@@ -123,6 +126,7 @@ describe("applyCardReconciliation", () => {
       client,
       EVENT_ID,
       TITLE,
+      EVENT_DATE,
       1,
       0,
       new Set(["reappeared"]),
@@ -137,7 +141,7 @@ describe("applyCardReconciliation", () => {
     const f = fight({ id: "vera", wikipedia_missing_since: new Date("2026-09-01T00:00:00Z").toISOString() });
     const { client, updates } = fakeSupabase([f]);
 
-    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, 1, 1, new Set(), NOW);
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, EVENT_DATE, 1, 1, new Set(), NOW);
 
     expect(summary).toEqual({
       skipped: true,
@@ -154,7 +158,7 @@ describe("applyCardReconciliation", () => {
     const f = fight({ id: "vera", wikipedia_missing_since: new Date("2026-09-01T00:00:00Z").toISOString() });
     const { client, updates } = fakeSupabase([f]);
 
-    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, 0, 0, new Set(), NOW);
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, EVENT_DATE, 0, 0, new Set(), NOW);
 
     expect(summary.skipped).toBe(true);
     expect(summary.skipReason).toBe("no_bouts");
@@ -172,7 +176,7 @@ describe("applyCardReconciliation", () => {
     ];
     const { client, updates } = fakeSupabase(fights);
 
-    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, 1, 0, new Set(["f1"]), NOW);
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, EVENT_DATE, 1, 0, new Set(["f1"]), NOW);
 
     expect(summary.skipped).toBe(true);
     expect(summary.skipReason).toBe("too_few_bouts");
@@ -187,10 +191,62 @@ describe("applyCardReconciliation", () => {
     const { client } = fakeSupabase(fights);
 
     // 1 of 2 parsed -- exactly half, should proceed normally.
-    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, 1, 0, new Set(["f1"]), NOW);
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, EVENT_DATE, 1, 0, new Set(["f1"]), NOW);
 
     expect(summary.skipped).toBe(false);
     expect(summary.markedMissing).toBe(1); // f2 marked missing, not cancelled or skipped
+  });
+
+  it("skips entirely for an already-happened event, even a bout missing well past grace", async () => {
+    // Reviewer finding (M2 PR #68): processScheduleEvent is also called
+    // from refreshRecentEventResults.ts (re-pulling results for cards up
+    // to 30 days finished) and backfillWikipediaHistory.ts (historical
+    // cards). The whole grace-window design assumes a still-upcoming
+    // card, where "missing from the page" means "pulled from the card."
+    // On a PAST card, a bout can go missing from the live wikitext for
+    // reasons that have nothing to do with cancellation -- editors
+    // folding results into prose, trimming prelims -- and that bout may
+    // still be genuinely unsettled for an unrelated reason (an open
+    // disputed_opponent conflict, permanently disagreeing sources).
+    // Reconciliation must never run at all for a past event date.
+    const f = fight({
+      id: "vera",
+      wikipedia_missing_since: new Date("2026-08-01T00:00:00Z").toISOString(),
+    });
+    const { client, updates } = fakeSupabase([f]);
+
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, "2026-09-10", 1, 0, new Set(), NOW);
+
+    expect(summary).toEqual({
+      skipped: true,
+      skipReason: "event_in_past",
+      markedMissing: 0,
+      cancelled: 0,
+      clearedMissing: 0,
+    });
+    expect(updates).toEqual([]);
+    expect(f.settled_at).toBeNull();
+  });
+
+  it("does not skip for an event happening today", async () => {
+    // The boundary: "today" (same UTC date as `now`) is NOT in the past --
+    // a same-day pulled bout is still a real cancellation candidate.
+    const f = fight({ id: "vera" });
+    const { client } = fakeSupabase([f]);
+
+    const summary = await applyCardReconciliation(
+      client,
+      EVENT_ID,
+      TITLE,
+      "2026-09-14", // same UTC date as NOW (2026-09-14T12:00:00Z)
+      1,
+      0,
+      new Set(),
+      NOW,
+    );
+
+    expect(summary.skipped).toBe(false);
+    expect(summary.markedMissing).toBe(1);
   });
 
   it("never touches a fight already settled by any other means", async () => {
@@ -201,7 +257,7 @@ describe("applyCardReconciliation", () => {
     });
     const { client, updates } = fakeSupabase([f]);
 
-    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, 1, 0, new Set(), NOW);
+    const summary = await applyCardReconciliation(client, EVENT_ID, TITLE, EVENT_DATE, 1, 0, new Set(), NOW);
 
     expect(summary).toEqual({
       skipped: false,
