@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripNullish } from "./stripNullish";
 import { namesLikelySamePerson } from "../text/namesLikelySamePerson";
+import { pickCanonicalFighter } from "./pickCanonicalFighter";
+import { selectAllPages } from "../supabase/selectAllPages";
 
 export interface FighterWrite {
   name: string;
@@ -45,19 +47,26 @@ export async function upsertFighter(
     }
   }
 
-  const { data: byName, error: nameError } = await supabase
+  // M1: was `.maybeSingle()`, which THROWS on more than one row instead of
+  // resolving it -- and a case-insensitive collision is a real, live shape
+  // ("Jose Delgado" / "Jose Miguel Delgado" both stored, differing only in
+  // case-insensitive prefix match never actually applies here, but two
+  // genuinely identical-modulo-case names has happened). A plain select +
+  // pickCanonicalFighter resolves it the same deterministic way the
+  // fold-match branch below always has.
+  const { data: byNameRows, error: nameError } = await supabase
     .from("fighters")
-    .select("id")
-    .ilike("name", fighter.name)
-    .maybeSingle();
+    .select("id, external_id")
+    .ilike("name", fighter.name);
   if (nameError) throw nameError;
-  if (byName) {
+  if (byNameRows && byNameRows.length > 0) {
+    const target = pickCanonicalFighter(byNameRows);
     const { error: updateError } = await supabase
       .from("fighters")
       .update(updatePayload)
-      .eq("id", byName.id);
+      .eq("id", target.id);
     if (updateError) throw updateError;
-    return byName.id;
+    return target.id;
   }
 
   // The plain exact match above missed real duplicates live in production:
@@ -70,29 +79,25 @@ export async function upsertFighter(
   // "fetch broadly, decide in tested code" pattern used elsewhere here,
   // cheap at this table's size, only paid when a plain exact match found
   // nothing.
-  const { data: allFighters, error: allError } = await supabase
-    .from("fighters")
-    .select("id, name, external_id");
-  if (allError) throw allError;
-  const foldedMatches = (allFighters ?? []).filter((f) =>
-    namesLikelySamePerson(f.name as string, fighter.name),
+  //
+  // M1: paged with selectAllPages -- a plain `.select()` silently
+  // truncates at PostgREST's row cap (1,000), and `fighters` (822 rows
+  // live, 2026-09-13) is one growth cycle from crossing it, at which point
+  // this scan would start missing rows past the cap and inserting
+  // duplicates instead of finding the real match.
+  const allFighters = await selectAllPages<{ id: string; name: string; external_id: string | null }>(
+    supabase,
+    "fighters",
+    "id, name, external_id",
   );
+  const foldedMatches = allFighters.filter((f) => namesLikelySamePerson(f.name, fighter.name));
   if (foldedMatches.length > 0) {
     // When several rows fold to the same name (a duplicate that predates
     // this check, or two API-Sports rows that only started folding
     // together once namesLikelySamePerson widened), update the one
-    // carrying an external_id -- that is the identity row API-Sports'
-    // results sync and Sherdog both key on. Fully deterministic, not
-    // just "prefer external_id": ties within either group break on `id`,
-    // since PostgREST makes no row-order guarantee on a plain select and
-    // picking arbitrarily would let two rows keep ping-ponging which one
-    // gets each write (reviewer finding, L2b).
-    const withExternalId = foldedMatches
-      .filter((f) => f.external_id !== null && f.external_id !== undefined)
-      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const target =
-      withExternalId[0] ??
-      [...foldedMatches].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
+    // carrying an external_id -- see pickCanonicalFighter's own comment
+    // for why, and for the id tie-break within either group.
+    const target = pickCanonicalFighter(foldedMatches);
     const { error: updateError } = await supabase
       .from("fighters")
       .update(updatePayload)

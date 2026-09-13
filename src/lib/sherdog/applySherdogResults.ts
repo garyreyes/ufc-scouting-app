@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { selectAllPages } from "../supabase/selectAllPages";
+import { selectAllPagesByIds } from "../supabase/selectAllPagesByIds";
 import {
   matchSherdogFightResult,
   type FightForSherdogMatch,
@@ -101,11 +102,12 @@ export async function applySherdogResults(
   if (inScope.length === 0) return summary;
 
   const fighterIds = [...new Set(inScope.flatMap((f) => [f.fighter1_id, f.fighter2_id]))];
-  const fighters = await selectAllPages<{ id: string; sherdog_id: number | null }>(
+  const fighters = await selectAllPagesByIds<{ id: string; sherdog_id: number | null }>(
     supabase,
     "fighters",
     "id, sherdog_id",
-    (q) => q.in("id", fighterIds),
+    "id",
+    fighterIds,
   );
   const sherdogIdByFighter = new Map(fighters.map((f) => [f.id, f.sherdog_id]));
 
@@ -117,7 +119,7 @@ export async function applySherdogResults(
   if (bothLinked.length === 0) return summary;
 
   const boutFighterIds = [...new Set(bothLinked.flatMap((f) => [f.fighter1_id, f.fighter2_id]))];
-  const allBouts = await selectAllPages<{
+  const allBouts = await selectAllPagesByIds<{
     id: string;
     fighter_id: string;
     opponent_sherdog_id: number | null;
@@ -129,7 +131,8 @@ export async function applySherdogResults(
     supabase,
     "fighter_sherdog_bouts",
     "id, fighter_id, opponent_sherdog_id, result, event_date, method, round",
-    (q) => q.in("fighter_id", boutFighterIds),
+    "fighter_id",
+    boutFighterIds,
   );
   const boutsByFighter = new Map<string, SherdogBoutForMatch[]>();
   for (const b of allBouts) {

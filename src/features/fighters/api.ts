@@ -1,24 +1,34 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/db";
 import { isInvalidIdError } from "@/lib/isInvalidIdError";
+import { selectAllPages } from "@/lib/supabase/selectAllPages";
+import { chunk, DEFAULT_CHUNK_SIZE } from "@/lib/supabase/chunk";
 import type { Fighter, FighterFightHistoryEntry, SherdogBout } from "./types";
 
+const FIGHTER_COLUMNS =
+  "id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec, sherdog_history_imported_at";
+
+/**
+ * M1: paged with selectAllPages -- a plain `.select()` silently truncates
+ * at PostgREST's row cap, and `fighters` (822 rows live, 2026-09-13) is
+ * one growth cycle from crossing it. `supabaseClient` defaults to the
+ * shared singleton so both call sites (app/fighters/page.tsx) are
+ * unchanged; tests inject a fake instead.
+ */
 export async function getFighters(
   query: string,
   weightClasses: string[] = [],
+  supabaseClient: SupabaseClient = supabase,
 ): Promise<Fighter[]> {
-  let request = supabase
-    .from("fighters")
-    .select("id, name, height_cm, reach_cm, weight_class, stance, wins, losses, draws, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec, sherdog_history_imported_at")
-    .order("name", { ascending: true });
+  const trimmed = query.trim();
+  const data = await selectAllPages<Fighter>(
+    supabaseClient,
+    "fighters",
+    FIGHTER_COLUMNS,
+    trimmed ? (q) => q.ilike("name", `%${trimmed}%`) : undefined,
+  );
 
-  if (query.trim()) {
-    request = request.ilike("name", `%${query.trim()}%`);
-  }
-
-  const { data, error } = await request;
-  if (error) throw error;
-
-  const resolved = await fillMissingWeightClasses(data);
+  const resolved = await fillMissingWeightClasses(data, supabaseClient);
 
   // Filtered against the *resolved* weight class, not the raw column --
   // most fighters (128 of ~144 at last count) only have one via the
@@ -34,29 +44,41 @@ export async function getFighters(
 // query for their most recent fight's weight class, instead of one query
 // per fighter, so the grid doesn't show "unknown" for every fight still
 // waiting on API-Sports to catch up.
-async function fillMissingWeightClasses(fighters: Fighter[]): Promise<Fighter[]> {
+//
+// M1: `missingIds` is chunked before building the `.or()` clause -- an
+// unchunked list is an unbounded request URL, the same failure class as
+// an unpaged `.select()` (a hard error instead of a silent one, but still
+// unbounded on the number of missing-weight-class fighters).
+async function fillMissingWeightClasses(
+  fighters: Fighter[],
+  supabaseClient: SupabaseClient,
+): Promise<Fighter[]> {
   const missingIds = fighters.filter((f) => !f.weight_class).map((f) => f.id);
   if (missingIds.length === 0) return fighters;
-
-  const idList = missingIds.join(",");
-  const { data: fights, error } = await supabase
-    .from("fights")
-    .select("weight_class, fighter1_id, fighter2_id, event:event_id(event_date)")
-    .or(`fighter1_id.in.(${idList}),fighter2_id.in.(${idList})`);
-  if (error) throw error;
+  const missingIdSet = new Set(missingIds);
 
   const latestByFighterId = new Map<string, { weight_class: string | null; date: string }>();
-  for (const fight of fights as unknown as {
-    weight_class: string | null;
-    fighter1_id: string;
-    fighter2_id: string;
-    event: { event_date: string };
-  }[]) {
-    for (const fighterId of [fight.fighter1_id, fight.fighter2_id]) {
-      if (!missingIds.includes(fighterId) || !fight.weight_class) continue;
-      const current = latestByFighterId.get(fighterId);
-      if (!current || fight.event.event_date > current.date) {
-        latestByFighterId.set(fighterId, { weight_class: fight.weight_class, date: fight.event.event_date });
+
+  for (const idChunk of chunk(missingIds, DEFAULT_CHUNK_SIZE)) {
+    const idList = idChunk.join(",");
+    const { data: fights, error } = await supabaseClient
+      .from("fights")
+      .select("weight_class, fighter1_id, fighter2_id, event:event_id(event_date)")
+      .or(`fighter1_id.in.(${idList}),fighter2_id.in.(${idList})`);
+    if (error) throw error;
+
+    for (const fight of fights as unknown as {
+      weight_class: string | null;
+      fighter1_id: string;
+      fighter2_id: string;
+      event: { event_date: string };
+    }[]) {
+      for (const fighterId of [fight.fighter1_id, fight.fighter2_id]) {
+        if (!missingIdSet.has(fighterId) || !fight.weight_class) continue;
+        const current = latestByFighterId.get(fighterId);
+        if (!current || fight.event.event_date > current.date) {
+          latestByFighterId.set(fighterId, { weight_class: fight.weight_class, date: fight.event.event_date });
+        }
       }
     }
   }
