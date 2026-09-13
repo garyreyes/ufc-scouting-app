@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripNullish } from "./stripNullish";
 import { namesLikelySamePerson } from "../text/namesLikelySamePerson";
+import { normalizeName } from "../text/normalizeName";
 
 export interface FighterWrite {
   name: string;
@@ -43,6 +44,30 @@ export async function upsertFighter(
       if (updateError) throw updateError;
       return byExternalId.id;
     }
+  }
+
+  // M3: a fighter name that was merged away lives on here (0044's
+  // merge_fighters() writes one row per drop, source 'merge'). Checked
+  // after external_id and before the plain name match so a since-renamed
+  // source ("Jose Delgado", now merged into "Jose Miguel Delgado")
+  // resolves straight to the keeper instead of recreating the duplicate
+  // it was merged to fix -- which is exactly what would reopen the
+  // disputed_opponent conflict this was built to stop recurring.
+  //
+  // Fetched broadly and matched in JS (normalizeName), same pattern as
+  // the fold-match branch below: this table is small, and every real
+  // "same name" rule in this codebase already lives in TypeScript, not
+  // SQL (see 0044's own migration comment on why).
+  const { data: aliases, error: aliasError } = await supabase.from("fighter_aliases").select("alias, fighter_id");
+  if (aliasError) throw aliasError;
+  const aliasMatch = (aliases ?? []).find((a) => normalizeName(a.alias as string) === normalizeName(fighter.name));
+  if (aliasMatch) {
+    const { error: updateError } = await supabase
+      .from("fighters")
+      .update(updatePayload)
+      .eq("id", aliasMatch.fighter_id);
+    if (updateError) throw updateError;
+    return aliasMatch.fighter_id as string;
   }
 
   const { data: byName, error: nameError } = await supabase

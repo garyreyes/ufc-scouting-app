@@ -15,7 +15,7 @@ export function DisputedOpponentCard({ conflict }: { conflict: DisputedOpponentD
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  function resolve(choice: "existing" | "candidate") {
+  function resolve(choice: "existing" | "candidate" | "merge") {
     setError(null);
     startTransition(async () => {
       try {
@@ -50,6 +50,20 @@ export function DisputedOpponentCard({ conflict }: { conflict: DisputedOpponentD
         >
           {conflict.candidateFighter1Name} vs {conflict.candidateFighter2Name}
           <span className={styles.optionHint}>Candidate replacement</span>
+        </button>
+        {/* M3: the two pairings above differ by exactly one fighter --
+            this is that fighter saying "these are the same person," not
+            a third pairing. The automatic sweep already catches the
+            common case (a suffix or dropped middle name); this covers
+            whatever it didn't. */}
+        <button
+          type="button"
+          className={styles.optionButton}
+          onClick={() => resolve("merge")}
+          disabled={isPending}
+        >
+          Same fighter, different name
+          <span className={styles.optionHint}>Merge identities</span>
         </button>
       </div>
       {error && <p className={styles.error}>{error}</p>}

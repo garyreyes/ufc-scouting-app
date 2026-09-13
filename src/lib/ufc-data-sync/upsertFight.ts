@@ -126,6 +126,45 @@ export async function upsertFight(
 
   const disputed = candidates?.find((c) => sharesExactlyOneFighter(c, { fighter1_id, fighter2_id }));
   if (disputed) {
+    // M3: the owner may have already told us, permanently, "no -- keep
+    // the existing fighter, ignore this source's candidate" for this
+    // EXACT candidate (resolveDisputedOpponent.ts's "existing" choice,
+    // resolution "confirmed_existing"). Without this check, that answer
+    // was never actually remembered: the next sync sees the identical
+    // candidate pairing again and reopens the same dispute from scratch,
+    // forever -- found live, twice, 2026-09-13 (Delgado and King/Rosas).
+    // Checked against every RESOLVED conflict on this fight, not just the
+    // open one below, and matched in JS against the stored
+    // candidate_external_id -- same "fetch broadly, decide in tested
+    // code" pattern the rest of this codebase already uses for name
+    // matching. A DIFFERENT candidate, or a past resolution that actually
+    // changed the row (used_candidate), must still open normally.
+    const { data: resolvedConflicts, error: resolvedError } = await supabase
+      .from("data_conflicts")
+      .select("resolution, details")
+      .eq("kind", "disputed_opponent")
+      .eq("fight_id", disputed.id)
+      .not("resolved_at", "is", null);
+    if (resolvedError) throw resolvedError;
+    const keptCurrent = (resolvedConflicts ?? []).some(
+      (c) =>
+        c.resolution === "confirmed_existing" &&
+        (c.details as { candidate_external_id?: string } | null)?.candidate_external_id === external_id,
+    );
+    if (keptCurrent) {
+      const updatePayload = {
+        ...directPayload,
+        ...sourceReport(
+          fight,
+          { wikipediaReportedAt: disputed.wikipedia_reported_at, apiSportsReportedAt: disputed.api_sports_reported_at },
+          now,
+        ),
+      };
+      const { error } = await supabase.from("fights").update(updatePayload).eq("id", disputed.id);
+      if (error) throw error;
+      return { status: "upserted", fightId: disputed.id };
+    }
+
     // The sync runs twice daily and a genuine dispute can persist across
     // several runs before it self-resolves (convergence or a confirmed
     // result -- Fork 5). Without this check, every run would open a new
