@@ -6,7 +6,7 @@ import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
 import { decideInternBet } from "./decideInternBet";
 import type { InternBetDecision } from "./decideInternBet";
 import { decideInternPick } from "./decideInternPick";
-import { predictInternMethod } from "./predictInternMethod";
+import { finishSplitFrom, predictInternMethod } from "./predictInternMethod";
 import type { InternMethodDecision } from "./predictInternMethod";
 import type { InternFlag, InternPickDecision } from "./types";
 import { ageOnDate } from "../../shared/utils/ageOnDate";
@@ -28,6 +28,12 @@ interface EmbeddedFighter {
   reach_cm: number | null;
   height_cm: number | null;
   birth_date: string | null;
+  sherdog_wins_by_ko: number | null;
+  sherdog_wins_by_sub: number | null;
+  sherdog_wins_by_dec: number | null;
+  sherdog_losses_by_ko: number | null;
+  sherdog_losses_by_sub: number | null;
+  sherdog_losses_by_dec: number | null;
 }
 
 interface EmbeddedFight {
@@ -112,7 +118,9 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   const { data: rawFights, error: fightsError } = await supabase
     .from("fights")
     .select(
-      "id, weight_class, fighter1:fighter1_id(id, name, reach_cm, height_cm, birth_date), fighter2:fighter2_id(id, name, reach_cm, height_cm, birth_date)",
+      "id, weight_class, " +
+        "fighter1:fighter1_id(id, name, reach_cm, height_cm, birth_date, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec), " +
+        "fighter2:fighter2_id(id, name, reach_cm, height_cm, birth_date, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec)",
     )
     .eq("event_id", eventId);
   if (fightsError) throw fightsError;
@@ -189,9 +197,19 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     if (bet.betFighterId !== null) summary.betsPlaced++;
 
     // A third judgment alongside the pick and the bet -- how the fight
-    // ends. Deterministic, base-rate + lopsidedness + weight class, since
-    // no finish-rate data exists (predictInternMethod.ts).
-    const method = predictInternMethod(decision.estimatedProbability, fight.weight_class);
+    // ends. Deterministic: the picked fighter's own Sherdog win split vs
+    // the opponent's own loss split when both exist (L5), falling back to
+    // base-rate + lopsidedness + weight class when either side has no
+    // Sherdog history (predictInternMethod.ts).
+    const pickedIsFighter1 = decision.predictedFighterId === fight.fighter1.id;
+    const pickedFighter = pickedIsFighter1 ? fight.fighter1 : fight.fighter2;
+    const opponentFighter = pickedIsFighter1 ? fight.fighter2 : fight.fighter1;
+    const method = predictInternMethod(
+      decision.estimatedProbability,
+      fight.weight_class,
+      finishSplitFrom(pickedFighter),
+      finishSplitFrom(opponentFighter),
+    );
 
     const reasoning = `${decision.reasoning} ${bet.note} ${method.note}`;
 

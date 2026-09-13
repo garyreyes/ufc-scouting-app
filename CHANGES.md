@@ -3517,5 +3517,69 @@ L4-fix and in `PROJECT_FACTS.md`; not fixed here.
 **Not in scope:** showing age on the fighter page / tale-of-the-tape
 (later); L3-stance (still deferred).
 
+## Phase 76 (L5) — method-of-victory from real Sherdog finish records, plus a FINISH outcome (2026-09-13)
+
+**What.** `predictInternMethod.ts` now uses the picked fighter's own
+Sherdog win split and the opponent's own loss split — when BOTH sides
+have one — instead of weight class alone. A new `FINISH` outcome
+("ends early, KO or submission, unclear which") joins DECISION / KO_TKO /
+SUBMISSION, shared with the human pick form, not intern-only. When either
+side lacks a Sherdog record, the original weight-class-only rule applies
+unchanged and never produces FINISH.
+
+**Why.** Live finding (previous checkpoint): the old rule called Fiorot
+vs Grasso a Fiorot submission (women's flyweight → assumed 60% of
+finishes are subs) despite Fiorot's real record being 7 KO / 0 SUB /
+6 DEC. Separately, UFC 331's real intern probabilities (0.53–0.65) made
+the old rule call DECISION for 12 of 13 fights, regardless of who was
+fighting.
+
+- `0043_predicted_method_finish.sql` — widens `picks_predicted_method_check`
+  to allow `FINISH`.
+- `lib/scoring/fightMethod.ts` — `FIGHT_METHODS` gains `FINISH`; `BetRow.tsx`
+  needed no change, since it already maps the list dynamically.
+- `predictInternMethod.ts` — the two sides' finish rates are combined with
+  a **geometric mean** (going the distance needs only one side to resist
+  a finish), applied as a **capped** nudge (`MAX_RECORD_FINISH_SHIFT`) on
+  the same finish-pool-vs-decision test the old rule already used, and
+  the KO-vs-submission share is a **weighted blend**
+  (`WEIGHT_CLASS_VOTE = 0.35`) of the weight-class prior and the two
+  records, not fully record-driven.
+- `methodBacktest.ts` / `runMethodBacktest.ts` (`npm run
+  intern:method-backtest`, read-only) — replays every Sherdog-linked
+  fighter's own decidable wins with a leakage-free pre-fight record.
+- `generateInternPicks.ts` reads the six finish columns for both fighters
+  and passes picked/opponent splits keyed off which fighter was picked.
+
+**Tests:** written first, exact-value fixtures hand-computed from real
+Sherdog records (Despaigne/Tuivasa, Jourdain/Vera, Fiorot/Grasso) before
+the implementation existed.
+
+**Reviewer pass, first round — one high finding, fixed.** A straight
+50/50 blend of the weight-class KO share with the fighters' own record
+made `SUBMISSION` mathematically **unreachable** in the heavy bucket
+(`KO_SHARE.heavy = 0.85` floors the blend above the FINISH threshold
+regardless of input) — the same class of dead-branch bug
+`RETROSPECTIVE.md` already recorded once (Phase 62). Fixed by weighting
+the blend 35/65 toward the records instead of 50/50 (`WEIGHT_CLASS_VOTE`);
+a new brute-force test now checks both KO_TKO and SUBMISSION reachability
+in every bucket, not just a few hand-picked cases. Two documentation gaps
+also found and fixed: `PROJECT_FACTS.md` still described a 3-value enum
+after this diff widened it to 4, and `DECISIONS.md` was cited by comments
+that pointed nowhere.
+
+**Ran live:** 0043 pushed (ref checked: `vrwlfcywyfzfczajpdoh`) and read
+back — `picks_predicted_method_check` confirmed to allow `FINISH`.
+`npm run intern:method-backtest` against 68 real fights where both sides
+had a Sherdog record: 74.1% exact-call accuracy vs the old rule's 69.1%
+on the same population; FINISH called 20.6% of the time, right 64.3% of
+those (vs a 29.4% real base rate for "was it a finish at all"). A
+read-only preview of the next card (UFC 331, 13 intern picks): 4 fights
+changed from the old rule's call, all to a named finish or FINISH backed
+by a real record edge, no unexpected FINISH pile-up (1 of 13).
+
+**Not in scope:** method scoring (PRD Could-have); L4-fix; round
+prediction.
+
 **Status:** `npx vitest run` (699, +40) / `npx tsc --noEmit` / `eslint` /
 `npm run build` all green, route table unchanged.
