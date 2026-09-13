@@ -3519,3 +3519,135 @@ L4-fix and in `PROJECT_FACTS.md`; not fixed here.
 
 **Status:** `npx vitest run` (699, +40) / `npx tsc --noEmit` / `eslint` /
 `npm run build` all green, route table unchanged.
+
+## Phase 77 (M2) — Cancelled-bout reconciliation (2026-09-14)
+
+**What.** A bout removed from its Wikipedia card page had no way to be
+marked cancelled: `processScheduleEvent.ts` only ever upserted bouts it
+found on the page, never noticed one that disappeared. Found live on UFC
+Fight Night: Silva vs. Delgado -- Jimenez vs. Vera (pulled for a visa
+issue) stayed on the card, the intern picked it, and it was the sole cause
+of all 24 open `low_confidence_odds_match` conflicts (the only unpriced
+fight left on the card, so every later odds event "matched" it).
+
+- **`0044_cancelled_fights.sql`**: adds `fights.wikipedia_missing_since`
+  and widens `fights_settled_from_check` with `'cancelled'`. **Not yet
+  applied to production** -- see "Ran live" below.
+- **`planCardReconciliation.ts`** (new, pure, 12 tests): given an event's
+  existing unsettled Wikipedia bouts and which fight ids the current sync
+  actually found present, decides markMissing / cancel (after a 6h grace
+  window past the first miss) / clearMissing per fight. Ignores anything
+  already settled or belonging to a different event/source.
+- **`applyCardReconciliation.ts`** (new, 8 tests): the I/O wrapper --
+  reads the event's existing wiki fights, decides whether this run's
+  parse is trustworthy enough to act on at all (skips entirely, no writes,
+  when the parse dropped a malformed bout, found zero bouts, or found
+  under half the card's existing wiki bout count -- a partial page render,
+  not a real cancellation wave), then applies each action. A cancel never
+  writes `method`/`round` -- a fake method string would leak into Elo
+  (`isResolvedForElo.ts`) and records (`isNoContestOrAmbiguous.ts`) as a
+  rated draw, since both key off method text rather than `settled_from`.
+- **`upsertFight.ts`**: the `"conflict"` result now also carries the
+  disputed fight's own `fightId`, not just the conflict row's id (4 new
+  tests) -- reconciliation must always count a disputed bout as "present"
+  (the sources merely disagree about the opponent; it plainly still
+  exists), never mistake it for one that vanished from the card.
+- **`fetchSchedule.ts`**: reports `skippedBoutCount` (2 new tests) -- a
+  malformed `{{MMAevent bout}}` block used to be silently dropped,
+  indistinguishable from a page with genuinely fewer bouts.
+- **`processScheduleEvent.ts`**: collects every fight id actually found
+  present this run (upserted or disputed) and calls
+  `applyCardReconciliation` after the upsert loop.
+- **Cancelled fights excluded from**: intern picks
+  (`generateInternPicks.ts`), odds candidates (`eligibleUnpricedFights.ts`,
+  2 new tests -- this was the direct cause of the 24 odds conflicts), the
+  rumour scan (`runRumourScanJob.ts`), the scoreboard chalk line
+  (`features/scoreboard/api.ts` -- a cancelled fight has no real favourite
+  to bet chalk on), and the 30-day result-refresh queue
+  (`refreshRecentEventResults.ts` -- generalized to "already settled by
+  any means," not cancellation-specific, so a cancelled bout's card
+  doesn't stay queued for the full window).
+- **Card UI**: a cancelled bout stays on the card (owner's confirmed
+  choice -- a pick shouldn't just silently vanish), greyed
+  (`BoutRow.module.css`'s new `.cancelledRow`), reading "Cancelled — pick
+  voided, stake returned" in place of the result line and in place of the
+  quick-pick controls (`QuickPick.tsx`'s new `cancelled` branch, checked
+  before `disputed`/`locked` since cancellation is a final state, not a
+  hold). `CardBout.cancelled` is derived from `settled_from` in
+  `getCardView`, matching how `disputed` is already passed down as a
+  derived flag rather than a raw row.
+- **Odds noise**: `matchAndSnapshot.ts`'s `low_confidence_odds_match`
+  dedup widened from open-only to open-or-resolved conflicts (2 new
+  tests) -- a resolved one already has an answer and re-queuing it just
+  re-asks a question someone answered. **Considered and rejected**: an
+  absolute confidence floor below which a match is `no_candidates` instead
+  of `low_confidence` -- the pinned `matchFights.test.ts` collision test
+  (Gaethje/Topuria vs. the real Gaethje/Tsarukyan fight) scores at 0.54,
+  and that is exactly the kind of genuine one-shared-fighter ambiguity the
+  conflict queue exists to surface, not noise to suppress. The actual root
+  cause (a cancelled fight becoming the sole remaining "candidate") is
+  already fixed by the `eligibleUnpricedFights.ts` exclusion above.
+
+**Why.** Second sub-phase of Phase M (`ROADMAP.md`), continuing directly
+from M1's live pipeline investigation prompted by the user's Tapology
+question.
+
+**Tests:** written first throughout -- every new pure function and I/O
+wrapper had its test file created and confirmed failing (module missing,
+or the exact reported bug reproduced) before the implementation existed.
+34 new tests total.
+
+**Reviewer pass:** one real design gap, fixed before shipping. This
+function is also reached from `refreshRecentEventResults.ts` (re-pulls
+results for cards up to 30 days finished) and
+`backfillWikipediaHistory.ts` (any historical card), not only
+`syncSchedule.ts`'s still-upcoming loop -- a path the whole grace-window
+design never considered. On a PAST card, a bout can drop out of the live
+`{{MMAevent bout}}` wikitext for reasons that have nothing to do with
+cancellation (editors folding results into prose, trimming prelims long
+after the event), while still being genuinely unsettled for an unrelated
+reason (an open `disputed_opponent` conflict, permanently disagreeing
+sources) -- exactly the "missing twice, 6h+ apart" shape reconciliation
+was built to catch, wrongly. **Fixed:** `applyCardReconciliation` now
+takes the event's date and skips entirely (`event_in_past`) for any
+`eventDate` strictly before today, before any other check -- the same
+`>= today` boundary `syncSchedule.ts`'s own upcoming loop and
+`selectEventsNeedingResultRefresh.ts`'s past-window already use. 2 new
+tests (an already-happened card with a bout missing well past grace is
+untouched; an event happening today still proceeds normally).
+
+Also noted, not fixed (Low severity, opposite direction from the PR's
+concern -- a false NEGATIVE, not money-affecting): if Wikipedia renames an
+event page between two syncs, a bout that was already missing before the
+rename keeps its old-titled `external_id` forever and can never be
+reconciled again, since the prefix filter uses the event's *current*
+title. Rare (mid-lifecycle page rename) and safe to leave for a later
+pass if it's ever actually observed.
+
+Everything else in the reviewer's checklist -- the boundary at exactly
+half-parsed, event-id scoping, `presentFightIds` correctness including
+the disputed-opponent case, partial-run-failure safety, the cancel
+write's CHECK-constraint compatibility, and exclusion completeness across
+every other fight-reading query in the codebase -- checked out with no
+changes needed.
+
+**Ran live:** **not yet -- migration 0044 has NOT been applied to
+production, and no sync run has executed this code against real data.**
+Cancelling a fight voids real picks; per the project's own bulk-mutation
+rule this needs an explicit dry-run and the owner's go-ahead before
+anything writes, not just before code review. The Silva vs. Delgado card
+was checked read-only (SQL, 2026-09-13/14) to confirm Jimenez vs. Vera is
+still the only stuck unsettled bout on that card, matching the scenario
+every test above is built from.
+
+**Not in scope:** M3–M5 (remembered dispute answers/fighter merge,
+settlement cadence, Sherdog auto-disambiguation) -- each its own
+sub-phase, `ROADMAP.md` Phase M. The one-time cleanup of the 24 already-
+open odds conflicts (a data-fix, not a code change) is also deferred to
+the live-run step, since most of them should self-resolve once
+`eligibleUnpricedFights.ts`'s exclusion is live and a sync actually
+cancels Vera.
+
+**Status:** `npx vitest run` (731, +36) / `npx tsc --noEmit` (via
+`npm run build`) / `eslint` / `npm run build` all green, route table
+unchanged.

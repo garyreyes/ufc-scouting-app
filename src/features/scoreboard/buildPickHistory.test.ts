@@ -29,6 +29,7 @@ const FIGHT: SettledFightRow = {
   winner_id: "fa",
   weight_class: "Lightweight",
   settled_at: "2026-01-02T00:00:00Z",
+  settled_from: "wikipedia_only_24h",
 };
 
 const supabase = fakeSupabase({

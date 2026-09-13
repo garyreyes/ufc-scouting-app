@@ -49,7 +49,7 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
   const allFights = await selectAllPages<SettledFightRow>(
     supabase,
     "fights",
-    "id, event_id, fighter1_id, fighter2_id, winner_id, weight_class, settled_at",
+    "id, event_id, fighter1_id, fighter2_id, winner_id, weight_class, settled_at, settled_from",
   );
   const settledFights = allFights.filter((f) => f.settled_at !== null);
 
@@ -96,6 +96,11 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
   const chalkBets: BetResult[] = [];
 
   for (const fight of settledFights) {
+    // M2: a cancelled fight never had a real favourite to bet chalk on --
+    // without this, an already-priced-then-cancelled fight would enter
+    // chalk as a fabricated 1-unit void bet on whoever the market favoured
+    // for a fight that never happened.
+    if (fight.settled_from === "cancelled") continue;
     const odds = oddsByFightId.get(fight.id);
     if (!odds) continue;
 
@@ -184,6 +189,8 @@ export interface SettledFightRow {
   // selectAllPages has no server-side filter. Read but not otherwise
   // surfaced.
   settled_at: string | null;
+  // M2: excludes a cancelled fight from chalk (see the loop below).
+  settled_from: string | null;
 }
 
 export interface SettledPickRow {

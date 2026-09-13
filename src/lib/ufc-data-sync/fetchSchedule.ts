@@ -20,6 +20,13 @@ export interface ScheduledEvent {
   title: string;
   date: string | null;
   bouts: ScheduledBout[];
+  // M2: a {{MMAevent bout}} block this parse couldn't read (missing either
+  // fighter field) used to be silently dropped -- indistinguishable from a
+  // clean page with fewer bouts. Cancellation reconciliation needs to tell
+  // "the page genuinely has fewer bouts" apart from "this parse is
+  // unreliable," so any nonzero count here must make the caller skip
+  // reconciliation entirely rather than treat the shortfall as real.
+  skippedBoutCount: number;
 }
 
 async function wikipediaQuery<T>(params: Record<string, string>): Promise<T> {
@@ -117,6 +124,7 @@ export async function fetchEventSchedule(title: string): Promise<ScheduledEvent>
     : null;
 
   const bouts: ScheduledBout[] = [];
+  let skippedBoutCount = 0;
   for (const block of wikitext.matchAll(/\{\{MMAevent bout([\s\S]*?)\}\}/g)) {
     const fields = block[1]
       .split(/\r?\n/)
@@ -125,7 +133,10 @@ export async function fetchEventSchedule(title: string): Promise<ScheduledEvent>
       .map((line) => line.replace(/^\|/, "").trim());
 
     const [weightClass, rawFighter1, separator, rawFighter2, method, round, time] = fields;
-    if (!rawFighter1 || !rawFighter2) continue;
+    if (!rawFighter1 || !rawFighter2) {
+      skippedBoutCount++;
+      continue;
+    }
 
     const fighter1Name = stripWikiMarkup(rawFighter1);
     const isFinished = separator?.trim().toLowerCase() === "def.";
@@ -141,5 +152,5 @@ export async function fetchEventSchedule(title: string): Promise<ScheduledEvent>
     });
   }
 
-  return { title, date, bouts };
+  return { title, date, bouts, skippedBoutCount };
 }

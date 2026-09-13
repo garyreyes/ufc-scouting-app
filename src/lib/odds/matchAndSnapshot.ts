@@ -49,15 +49,20 @@ export async function matchAndSnapshot(
   // disputed_opponent: the odds job runs every 2h, and a genuinely
   // unmatched recurring odds event would otherwise file a fresh conflict
   // every run (37 such rows accreted from one 2026-09-05 feed anomaly
-  // before this guard). One open row per odds event is enough.
-  const { data: openOddsConflicts, error: openError } = await supabase
+  // before this guard). One row per odds event is enough -- OPEN OR
+  // RESOLVED (M2, widened from open-only). A resolved one already has an
+  // answer (either its fight got matched and priced directly by the
+  // resolution action, which drops it out of `candidates` regardless, or
+  // the owner decided it isn't a real tracked bout at all) -- re-queuing
+  // it on the next run would just re-ask a question someone already
+  // answered.
+  const { data: oddsConflicts, error: conflictsError } = await supabase
     .from("data_conflicts")
     .select("details")
-    .eq("kind", "low_confidence_odds_match")
-    .is("resolved_at", null);
-  if (openError) throw openError;
+    .eq("kind", "low_confidence_odds_match");
+  if (conflictsError) throw conflictsError;
   const alreadyQueuedEventIds = new Set(
-    (openOddsConflicts ?? [])
+    (oddsConflicts ?? [])
       .map((row) => (row.details as { oddsEvent?: { id?: string } } | null)?.oddsEvent?.id)
       .filter((id): id is string => Boolean(id)),
   );

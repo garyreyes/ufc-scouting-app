@@ -58,6 +58,14 @@
   color: var(--muted);
 }
 
+/* M2: a cancelled bout stays on the card (never removed -- the owner
+   needs to see why a pick vanished) but reads as settled and inert, the
+   same "quiet, not urgent" register as a finished fight rather than the
+   one-accent "needs attention" treatment held/locked/disputed use. */
+.cancelledRow {
+  opacity: 0.6;
+}
+
 .reportsLink {
   font-size: 0.8rem;
   color: var(--accent);
