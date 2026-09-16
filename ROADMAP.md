@@ -1924,6 +1924,30 @@ suffix-stripped (Sherdog's fightfinder silently drops a diacritic or a
 
 ---
 
+## Phase M — Data-quality: settlement speed, cancellations, conflicts
+
+Prompted by the user's three standing complaints (fights take too long to
+settle, cancelled bouts stay on the card, too many recurring conflicts) after
+evaluating and rejecting github.com/ehan03/Tapology-Scraper as a fix (no
+winner/method/stats fields, abandoned, evades Tapology's own anti-bot
+defences — see `DECISIONS.md`). All five root causes were measured live,
+2026-09-13, on UFC Fight Night: Silva vs. Delgado. Sub-phases run through
+their own `feature-planner` pass each, in order below, and ship as
+independent PRs off `main` — none depends on another's merge order, so
+migration numbers (and this section's own text) collide across branches and
+get reconciled at merge time (an accepted, known tradeoff of parallel
+sub-phases).
+
+| # | Sub-phase | Status |
+|---|---|---|
+| M1 | ⚠️ Unpaged reads already causing silent data loss. `fights` (1,044 rows) had crossed PostgREST's row cap; `fetchUnpricedFights` silently returned ~998 fights instead of 1,047. Switched to `selectAllPages`/new `selectAllPagesByIds` in the odds/settlement/fighter-identity paths. Also fixed `upsertFighter`'s `.maybeSingle()` collision crash. Reviewer caught a real regression (lost `.order("name")`), fixed before shipping. | **PR open** (2026-09-13/14) — `CHANGES.md` Phase 77 (branch `m1-unpaged-reads`), PR #67, not yet merged. |
+| M2 | ⚠️ Cancelled-bout reconciliation. `processScheduleEvent.ts` only upserted bouts found on a Wikipedia card page — it never noticed one removed (Jimenez vs. Vera, cancelled for a visa issue). New `planCardReconciliation` + `applyCardReconciliation` decide missing/cancel/clear, skipped on any sign of a partial parse OR a past event date. Excluded from intern picks, odds candidates, the rumour scan, the scoreboard chalk line, the 30-day refresh queue. Card UI keeps the row, greyed. | **built, tested, reviewed, PR open — NOT applied to production.** `CHANGES.md` Phase 77 (branch `m2-cancelled-bout-reconciliation`), PR #68, not yet merged. |
+| M3 | ⚠️ Remembered dispute answers + fighter aliases/merge. "Keep existing" recorded nothing, so a same-card name variant reopened the identical dispute every sync. New `fighter_aliases` table + a real `merge_fighters()` DB function, with a narrow, transaction-local pick-lock-trigger bypass for exactly that one call. `isSameCardNameVariant` + `decideSameCardMerge` (pure) gate an automatic sweep, wired into `sync.yml`; `/conflicts` gains a manual "same fighter" merge choice with the same hard guard. | **built, tested, reviewed, PR open — NOT applied to production.** `CHANGES.md` Phase 77 (branch `m3-remembered-disputes-fighter-merge`), PR #69, not yet merged. Migration not yet run, dry-run + owner go-ahead required first. |
+| M4 | Settlement cadence. `sync.yml`'s "00:00/12:00 UTC" cron actually starts 3–5.5h late live (verified against real recent run timestamps), and a Wikipedia-only result's 24h wait becomes well over 24h in practice; the Sherdog reimport was capped at 12 fighters/run in an effectively arbitrary order. New `settle.yml` (hourly, Saturday–Monday UTC, no API-Sports/Wikipedia calls — no quota cost) plus a shared `concurrency` guard across `sync.yml`/`sherdog.yml`/`settle.yml` (queues rather than cancels an overlapping run). `reimportSherdogForPendingFights.ts`'s ordering extracted into a new pure, test-first `orderSherdogIdsForReimport.ts` (newest-event-first, mutation-verified); cap raised to 30 for the weekend job via a new `--sherdog-reimport-cap=<n>` flag on `runSettlementJobs.ts`. The 24h single-source rule itself stays (owner's confirmed choice). | **built, tested, PR open — NOT applied to production.** `CHANGES.md` Phase 76 (branch `m4-settlement-cadence`), reviewer pass pending. |
+| M5 | Sherdog auto-disambiguation. 9 open `low_confidence_sherdog_match` conflicts are common names (David Martinez: 15 Sherdog exact matches) or nickname-only storage (Renato Moicano = Sherdog's "Renato Carneiro"; Patrício Pitbull = "Patricio Freire"). New `historyCorroborates`, built on the already-parsed `parseFightHistory` output, auto-links a candidate whose own fight history includes a bout against one of our fighter's known opponents within ±10 days of our `event_date`. Optional M5b spike: Wikidata P2818 ("Sherdog fighter ID"), verified live 2026-09-13 — 4,797 fighters, CC0, resolved Volkov/Khaos Williams/David Martínez by label. | not started |
+
+---
+
 ## Design cadence
 
 The visual world was decided in v1 and is already shipped (CSS Modules, custom
