@@ -62,9 +62,15 @@ export async function upsertFighter(
   if (aliasError) throw aliasError;
   const aliasMatch = (aliases ?? []).find((a) => normalizeName(a.alias as string) === normalizeName(fighter.name));
   if (aliasMatch) {
+    // Never write `name` here -- the incoming name is, by definition, the
+    // dropped alias, not the keeper's canonical one. Writing it would
+    // flip-flop the keeper's display name between the two every time the
+    // still-reporting source syncs (reviewer finding).
+    const aliasUpdatePayload = { ...updatePayload };
+    delete aliasUpdatePayload.name;
     const { error: updateError } = await supabase
       .from("fighters")
-      .update(updatePayload)
+      .update(aliasUpdatePayload)
       .eq("id", aliasMatch.fighter_id);
     if (updateError) throw updateError;
     return aliasMatch.fighter_id as string;

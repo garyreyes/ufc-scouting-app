@@ -172,6 +172,18 @@ begin
   where k.id = p_keep_id and d.id = p_drop_id
     and k.external_id is null and d.external_id is not null;
 
+  -- 5a. Repoint any EARLIER aliases that already point at the drop
+  --     fighter -- a fighter can be merged more than once (a further
+  --     rename, a further correction), and fighter_aliases.fighter_id is
+  --     `on delete cascade`. Without this, step 7's delete below would
+  --     cascade-destroy an earlier alias row instead of repointing it,
+  --     and the next time that older name arrives from any source,
+  --     upsertFighter.ts's alias lookup would find nothing and recreate
+  --     the exact duplicate this feature exists to stop (reviewer
+  --     finding: chained merges, e.g. A merged into B, then B later
+  --     merged into C).
+  update fighter_aliases set fighter_id = p_keep_id where fighter_id = p_drop_id;
+
   -- 6. Record the dropped name as an alias before the row disappears --
   --    upsertFighter.ts's alias check means the NEXT time this exact name
   --    comes in from any source, it resolves straight to the keeper

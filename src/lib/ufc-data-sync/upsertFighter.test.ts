@@ -89,11 +89,13 @@ function fakeSupabase(fighters: FighterRow[], aliases: AliasRow[] = []) {
 }
 
 describe("upsertFighter -- alias resolution (M3)", () => {
-  it("resolves an incoming name through fighter_aliases before ever reaching the name match", () => {
+  it("resolves an incoming name through fighter_aliases before ever reaching the name match, without reverting the keeper's canonical name", () => {
     // "Jose Delgado" was merged away; its name lives on as an alias
     // pointing at the keeper, "Jose Miguel Delgado". A later sync
     // reporting the OLD name must resolve straight to the keeper, not
-    // recreate a duplicate or reopen a dispute.
+    // recreate a duplicate or reopen a dispute -- and must NOT write the
+    // dropped name back onto the keeper's own `name` column, or the
+    // keeper's display name would flip-flop every time this source syncs.
     const { client, updates } = fakeSupabase(
       [{ id: "keeper", name: "Jose Miguel Delgado", external_id: "2759" }],
       [{ alias: "Jose Delgado", fighter_id: "keeper" }],
@@ -101,7 +103,18 @@ describe("upsertFighter -- alias resolution (M3)", () => {
 
     return upsertFighter(client, { name: "Jose Delgado" }).then((id) => {
       expect(id).toBe("keeper");
-      expect(updates).toEqual([{ id: "keeper", payload: { name: "Jose Delgado" } }]);
+      expect(updates).toEqual([{ id: "keeper", payload: {} }]);
+    });
+  });
+
+  it("still writes other fields from an alias match, just never `name`", () => {
+    const { client, updates } = fakeSupabase(
+      [{ id: "keeper", name: "Jose Miguel Delgado", external_id: "2759" }],
+      [{ alias: "Jose Delgado", fighter_id: "keeper" }],
+    );
+
+    return upsertFighter(client, { name: "Jose Delgado", height_cm: 180 }).then(() => {
+      expect(updates).toEqual([{ id: "keeper", payload: { height_cm: 180 } }]);
     });
   });
 
