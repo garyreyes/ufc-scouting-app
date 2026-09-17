@@ -569,6 +569,69 @@ Decided 2026-08-29, user-originated.
     "Flash" model at 20 RPD and the two newest "Flash Lite" models at
     500 RPD — a 25x difference no amount of reading documentation would
     have surfaced.
+  - **Gemini, re-measured live 2026-09-18 (N1 spike).** All of the below
+    was observed by real API calls, not read from docs:
+    - **RPD quotas reset at midnight Pacific time** — now stated
+      explicitly on Google's rate-limits page. That, not UTC, is the
+      correct key for any per-day call-budget table.
+    - **No dated, non-alias model id exists for any Flash model.** All 30
+      flash/pro `generateContent` ids from `GET /v1beta/models` are
+      aliases; the underlying build is visible only in the response's
+      `version` field (`gemini-3.5-flash-lite` → `3.5-flash-lite-07-2026`).
+      **A model id therefore cannot be pinned.** The closest available
+      substitute is recording `version` alongside every stored decision
+      and alerting when it changes.
+    - **`temperature: 0` + `topK: 1` + `responseMimeType` coexist fine**,
+      return unfenced directly-parseable JSON, and gave **byte-identical
+      output across repeated calls**. Note `lib/llm.ts` currently sets
+      none of these — every call to date has run at the default
+      temperature of 1.0.
+    - **No `ratelimit-*` response headers are exposed** (Bluesky does
+      expose them; Gemini does not). Remaining quota is not observable at
+      runtime, so a budget guard must count calls in our own table rather
+      than read them off a header.
+    - **Full-Flash availability on the free tier is poor: 4 of 6
+      strong-tier calls returned `503 UNAVAILABLE` ("high demand").**
+      `gemini-3.8-flash` and `gemini-3.7-flash` failed every attempt;
+      `gemini-flash-latest` succeeded once in three. Latency when it does
+      answer is **9.7–19.3s vs ~0.9s for Flash Lite**. Every Flash Lite
+      call in the same session succeeded. **Treat the strong tier as
+      best-effort, never as a dependency.**
+    - **`gemini-2.5-flash` is dead** — `404`, "no longer available to new
+      users." Third model to die this way, after `gemini-2.5-flash-lite`.
+    - **No reproducible quality gap between tiers was found.** On two
+      hand-built card-level consolidation tasks with traps for recency,
+      attribution and relevance: Flash Lite scored 6/7 graded items
+      (4/4 stable across 3 repeats on the harder task); the strong tier
+      completed only the 3-item task, scoring 3/3, and 503'd out of the
+      harder one entirely. **One item of difference is not evidence of a
+      quality gap** — re-test with the real prompt before assuming any
+      task needs the strong tier.
+    - **Quota numbers re-confirmed from the AI Studio dashboard
+      (2026-09-18), unchanged since F1**: Flash Lite **15 RPM / 250K TPM
+      / 500 RPD**; every full Flash model (3.5, 3.7, 3.8) **5 RPM / 250K
+      TPM / 20 RPD**. Google still publishes none of this — it is
+      per-account and dashboard-only:
+      <https://aistudio.google.com/rate-limit>
+    - **RPM, not RPD, is the binding constraint — and production is
+      already at 93% of it.** The dashboard's 28-day peak for
+      `gemini-3.5-flash-lite` reads **14/15 RPM**, with AI Studio showing
+      a "nearing a rate limit" warning, while RPD sat at 56/500 (11%) and
+      TPM at 88K/250K (35%). The cause is structural, not incidental:
+      `runRumourScanJob.ts` issues **one call per fight, serially, ~1s
+      each** across a ~14-fight card — roughly 14 requests inside one
+      minute, which matches the observed peak exactly.
+      **Consequences for any new LLM-backed job:**
+      - A job that fans out one call per unit over a full card **will**
+        hit 15 RPM. Pace calls (>= 4s apart) rather than issuing them as
+        fast as they return. A 28-unit pass takes ~2 minutes paced,
+        which is free in a cron job and fatal without.
+      - Daily-budget accounting does **not** protect against this. 500
+        RPD is ~5x headroom; the minute-scale limit is what actually
+        breaks, and it breaks as a 429 mid-run.
+      - Two jobs overlapping (GitHub Actions scheduling drift is real
+        and documented in `settle.yml`) share the same per-model RPM
+        bucket, so per-process pacing is necessary but not sufficient.
   - **The Odds API**: covered earlier, B1/B5.
 - **API-Sports free tier also refuses any season before 2022 for
   fighter-scoped `/fights` queries — found live, G1b (2026-09-02),
