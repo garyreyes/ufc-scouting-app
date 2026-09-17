@@ -4,10 +4,28 @@ import { runSettlementJobsOnce } from "./runSettlementJobsOnce";
 // D1 + D2's scheduled entry point -- .github/workflows/sync.yml runs this
 // after both sync jobs, on the same twice-daily cadence, since it needs
 // their freshly-written per-source reports to have anything to evaluate.
+// M4: .github/workflows/settle.yml also runs this, hourly on weekends,
+// standalone (no sync step first) -- it only re-evaluates whatever the
+// two syncs already wrote, so a 24h single-source timeout doesn't have
+// to wait for sync.yml's next twice-daily run to actually fire.
+//
+//   --sherdog-reimport-cap=<n>   raise reimportSherdogForPendingFights.ts's
+//                                per-run cap (default 12) -- settle.yml
+//                                passes a higher number since it has no
+//                                sync step competing for its time budget.
+function numericArg(prefix: string): number | undefined {
+  const arg = process.argv.find((a) => a.startsWith(prefix));
+  if (!arg) return undefined;
+  const n = Number(arg.slice(prefix.length));
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 async function main() {
+  const sherdogReimportMaxFighters = numericArg("--sherdog-reimport-cap=");
   const supabase = getSupabaseAdmin();
-  const { sherdogReimport, sherdogResults, fights, picks, elo, records } =
-    await runSettlementJobsOnce(supabase);
+  const { sherdogReimport, sherdogResults, fights, picks, elo, records } = await runSettlementJobsOnce(supabase, {
+    sherdogReimportMaxFighters,
+  });
 
   console.log(
     `Sherdog re-import: ${sherdogReimport.pendingFights} pending fights, ` +

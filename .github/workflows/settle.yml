@@ -1,0 +1,47 @@
+name: Settle pending results (weekend)
+
+on:
+  schedule:
+    # Hourly, Saturday through Monday UTC. Fight cards land Fri/Sat/Sun
+    # evening PHT (UTC Sat-Mon), and sync.yml's own 00:00/12:00 UTC cadence
+    # means D1's 24h single-source settlement timeout can sit stale for
+    # well over 24h in practice: verified live 2026-09-17 that sync.yml's
+    # scheduled runs themselves land 3-5.5h after their own cron time
+    # (GitHub Actions' own schedule-queuing delay), stacked on top of the
+    # up-to-12h gap between runs. This job does NOT call API-Sports or
+    # Wikipedia -- it only re-evaluates whatever those two syncs already
+    # wrote (runSettlementJobs.ts), so it carries no API quota cost and can
+    # run every hour without limit. The 24h single-source rule itself is
+    # unchanged (owner's confirmed choice, M-phase kickoff) -- this only
+    # shrinks how long a fight can sit past that mark before anything
+    # notices.
+    - cron: "0 * * * 6,0,1"
+  workflow_dispatch: {}
+
+# Shared with sync.yml and sherdog.yml: all three write overlapping tables
+# (fights, picks, fighters, fighter_elo_history) and must never run
+# concurrently. Queues rather than cancels -- a settlement run cancelled
+# mid-write is a worse outcome than one running a few minutes late.
+concurrency:
+  group: ufc-data-write
+  cancel-in-progress: false
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Settlement (fights, then picks)
+        run: npx tsx src/lib/settlement/runSettlementJobs.ts --sherdog-reimport-cap=30
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

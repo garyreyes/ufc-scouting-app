@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { selectAllPages } from "../supabase/selectAllPages";
 import { clusterFightsBySharedFighter } from "./clusterFightsBySharedFighter";
 // lib/ufc-data-sync/ importing from lib/elo/ is new, but the reason is
 // narrow and specific: deleting a candidate fight row here can orphan a
@@ -69,11 +70,15 @@ export async function sweepLatentDisputedOpponents(supabase: SupabaseClient): Pr
     multiWayClustersSkipped: [],
   };
 
-  const { data: fights, error } = await supabase
-    .from("fights")
-    .select("id, external_id, event_id, fighter1_id, fighter2_id, winner_id, method, round, weight_class, bout_order");
-  if (error) throw error;
-  const allFights = (fights ?? []) as FightRow[];
+  // M1: paged with selectAllPages -- a plain `.select()` silently
+  // truncates at PostgREST's row cap, and `fights` (1,044 rows live,
+  // 2026-09-13) had already crossed it, so a re-run of this sweep would
+  // have missed every disputed pair past row 1,000.
+  const allFights = await selectAllPages<FightRow>(
+    supabase,
+    "fights",
+    "id, external_id, event_id, fighter1_id, fighter2_id, winner_id, method, round, weight_class, bout_order",
+  );
   summary.fightsChecked = allFights.length;
 
   const byEvent = new Map<string, FightRow[]>();
