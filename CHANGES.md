@@ -3979,3 +3979,61 @@ gap this phase needs to close.
 `npm run build`) / `eslint` / `npm run build` all green, route table
 unchanged.
 
+
+## Phase 82 (M3-fix) — merge_fighters() could never move an identity link (2026-09-18)
+
+**What.** New migration `0046_merge_fighters_unique_collision.sql`,
+replacing `merge_fighters()` (0045). Step 5 previously copied the dropped
+fighter's `sherdog_id` and `external_id` onto the keeper while the drop
+row still held those same values — the drop row is not deleted until step
+7, several statements later. Both columns are `unique` (0001/0036), and
+Postgres enforces a non-deferrable unique constraint as each row version
+is written into the index, not at commit, so the keeper's new index entry
+collided with the drop row's still-live one and the entire merge aborted.
+Fixed by clearing the drop row's column first, then writing the keeper —
+a move, not a copy. Everything else in the function is unchanged.
+
+**Found live, not by review.** The first real run of
+`npm run fighters:resolve-same-card-variants` (2026-09-18, immediately
+after 0044/0045 were applied) failed on its very first merge:
+
+```
+23505 duplicate key value violates unique constraint "fighters_sherdog_id_key"
+Key (sherdog_id)=(307733) already exists.
+```
+
+That is the Jose Delgado / Jose Miguel Delgado pair — the exact
+production shape 0045's own step-3a comment cites as the motivating
+example for this whole feature, and the most common merge shape there is
+(the Sherdog-linked row is usually *not* the keeper, since
+`checkMergeGuard` prefers `external_id`). So this path had never once
+worked. The dry run did not catch it because `--dry-run` stops before the
+RPC call; nothing between it and a real write exercised the SQL.
+
+**No data was written.** Postgres aborts the whole transaction on error,
+so the failed merge rolled back cleanly — verified after the fact that
+both pairs were still separate rows and `fighter_aliases` was still
+empty. M2 and M5 ran in the same batch and both succeeded (M5: 10/10
+conflicts auto-resolved; M2: 8 events / 62 fights, one unrelated
+pre-existing duplicate-event pair correctly skipped for manual review).
+
+**Deliberately not fixed by making the constraints `deferrable initially
+deferred`** — the other obvious option. That would relax uniqueness
+enforcement for every other writer of those columns (the API-Sports sync,
+the Sherdog resolver) to catch violations only at commit, in order to fix
+one function's statement ordering. Also worth stating because it's the
+intuitive wrong answer: folding both writes into a single `update`
+touching both rows does **not** help either, for the same reason
+`update t set id = id + 1` fails on a unique `id` — a single statement
+gets no reprieve. Ordering is the only thing that fixes it.
+
+**Tests:** none added — a SQL function's own logic still isn't
+vitest-testable in this project (no local Postgres), the same constraint
+0045's own entry recorded. Verified by reading the migration against the
+real schema, and `%type` declarations are used throughout the new
+variable block so the finish columns being `smallint` (0038) rather than
+`integer` (0036's `sherdog_id`) can't silently drift. The real test is
+the live re-run of M3.
+
+**Ran live:** migration not yet applied at time of writing — needs the
+owner's go-ahead per `CLAUDE.md`, same as every other migration.

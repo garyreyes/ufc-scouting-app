@@ -1270,3 +1270,28 @@ Decided 2026-08-29, user-originated.
   undocumented change before ever touching `migration repair` -- reverting
   the tracker is for a migration that was truly rolled back, not one
   that's just missing from the branch you happen to be on.
+- **Moving a `unique` column's value between two rows in one transaction
+  requires clearing the old row FIRST -- Postgres checks non-deferrable
+  unique constraints as each row version is written to the index, not at
+  commit.** `merge_fighters()` (0045) set the keeper's `sherdog_id` from
+  the dropped row while the dropped row still held it (the delete comes
+  several statements later), and failed with `23505 ... Key
+  (sherdog_id)=(307733) already exists` on its first ever real run
+  (2026-09-18). Fixed in `0046` by nulling the drop row's column in its
+  own earlier statement -- a move, not a copy. **Two intuitive
+  non-fixes:** folding both writes into a single `update` touching both
+  rows does *not* help (same reason `update t set id = id + 1` fails on a
+  unique `id`), and making the constraint `deferrable initially deferred`
+  fixes it only by relaxing enforcement for every other writer of that
+  column. Applies to `fighters.sherdog_id` and `fighters.external_id`,
+  both `unique`, and to any future merge-style function.
+- **A `--dry-run` that stops before the write proves nothing about the
+  write.** M3's `fighters:resolve-same-card-variants --dry-run` reported a
+  clean, correct 2-of-5 merge plan, and the live run then failed
+  immediately on the SQL the dry run never reached. The dry run validated
+  the *decision* logic (`decideSameCardMerge.ts`) and nothing past it.
+  When a feature's risk lives in a DB function rather than in the
+  TypeScript that calls it, a green dry run is not evidence the feature
+  works -- and in this project SQL functions have no local test path
+  either (no local Postgres), so the first live run IS the first test.
+  Expect that and sequence it accordingly: one merge first, not a sweep.
