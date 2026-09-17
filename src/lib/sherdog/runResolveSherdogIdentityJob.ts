@@ -28,7 +28,8 @@ async function main() {
 
   console.log(
     `Sherdog identity${dryRun ? " (DRY RUN — nothing written)" : ""}: ` +
-      `${summary.attempted} attempted, ${summary.matched} auto-matched, ` +
+      `${summary.attempted} attempted, ${summary.matched} auto-matched ` +
+      `(${summary.historyMatched} via history corroboration), ` +
       `${summary.queued} queued for review (${summary.guardRejected} of them after a page-name mismatch), ` +
       `${summary.noCandidates} not in Sherdog, ${summary.failed} failed.`,
   );

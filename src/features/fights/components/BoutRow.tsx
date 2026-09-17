@@ -41,10 +41,14 @@ export function BoutRow({
   // hints betting is coming, and only once a pick already exists --
   // an unpriced fight three weeks out doesn't need every row cluttered
   // with a state that isn't relevant yet.
-  const canShowBetRow = !locked && !disputed && myPick !== null;
+  //
+  // M2: a cancelled fight never shows a bet row -- the fight never
+  // happened, so there is nothing left to bet on regardless of whether
+  // it was priced beforehand.
+  const canShowBetRow = !locked && !disputed && !fight.cancelled && myPick !== null;
 
   return (
-    <div className={styles.row}>
+    <div className={`${styles.row} ${fight.cancelled ? styles.cancelledRow : ""}`}>
       <span className={styles.weightClass}>{fight.weight_class ?? "—"}</span>
       <div className={styles.matchup}>
         <FighterName
@@ -64,15 +68,17 @@ export function BoutRow({
         />
       </div>
       <span className={styles.result}>
-        {fight.method
-          ? `${fight.method}${fight.round ? ` · R${fight.round}` : ""}`
-          : // A fight can settle on api_sports alone after the 24h single-
-            // source timeout (lib/settlement/), which never carries method/
-            // round -- winner_id is set with no method in that case, distinct
-            // from a genuinely upcoming fight (neither is set).
-            fight.winner_id !== null
-            ? "Final"
-            : "Upcoming"}
+        {fight.cancelled
+          ? "Cancelled — pick voided, stake returned"
+          : fight.method
+            ? `${fight.method}${fight.round ? ` · R${fight.round}` : ""}`
+            : // A fight can settle on api_sports alone after the 24h single-
+              // source timeout (lib/settlement/), which never carries method/
+              // round -- winner_id is set with no method in that case,
+              // distinct from a genuinely upcoming fight (neither is set).
+              fight.winner_id !== null
+              ? "Final"
+              : "Upcoming"}
       </span>
       <Link href={`/fights/${fight.id}`} className={styles.reportsLink}>
         Scouting reports →
@@ -132,6 +138,7 @@ export function BoutRow({
             existingPick={myPick}
             locked={locked}
             disputed={disputed}
+            cancelled={fight.cancelled}
           />
           {canShowBetRow &&
             (fight.odds !== null ? (

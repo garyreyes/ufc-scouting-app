@@ -31,9 +31,17 @@ export interface FightWrite {
 // branch below -- so callers can no longer assume a fight id always comes
 // back. Neither current caller (syncJob.ts, syncSchedule.ts) uses the
 // return value, so this is a safe shape change.
+//
+// M2: the conflict branch now also carries `fightId` -- the DISPUTED
+// fight's own id, i.e. the existing row the incoming bout collided with --
+// alongside the conflict row's id. processScheduleEvent's cancellation
+// reconciliation needs this: a fight under an open dispute must always
+// count as "present" on the page (it plainly is -- the sources merely
+// disagree about who it's against), never be mistaken for a bout that
+// vanished from the card.
 export type UpsertFightResult =
   | { status: "upserted"; fightId: string }
-  | { status: "conflict"; conflictId: string };
+  | { status: "conflict"; conflictId: string; fightId: string };
 
 function sourceReport(fight: FightWrite, existing: ExistingSourceReports, now: string) {
   return buildSourceReportUpdate(
@@ -126,6 +134,45 @@ export async function upsertFight(
 
   const disputed = candidates?.find((c) => sharesExactlyOneFighter(c, { fighter1_id, fighter2_id }));
   if (disputed) {
+    // M3: the owner may have already told us, permanently, "no -- keep
+    // the existing fighter, ignore this source's candidate" for this
+    // EXACT candidate (resolveDisputedOpponent.ts's "existing" choice,
+    // resolution "confirmed_existing"). Without this check, that answer
+    // was never actually remembered: the next sync sees the identical
+    // candidate pairing again and reopens the same dispute from scratch,
+    // forever -- found live, twice, 2026-09-13 (Delgado and King/Rosas).
+    // Checked against every RESOLVED conflict on this fight, not just the
+    // open one below, and matched in JS against the stored
+    // candidate_external_id -- same "fetch broadly, decide in tested
+    // code" pattern the rest of this codebase already uses for name
+    // matching. A DIFFERENT candidate, or a past resolution that actually
+    // changed the row (used_candidate), must still open normally.
+    const { data: resolvedConflicts, error: resolvedError } = await supabase
+      .from("data_conflicts")
+      .select("resolution, details")
+      .eq("kind", "disputed_opponent")
+      .eq("fight_id", disputed.id)
+      .not("resolved_at", "is", null);
+    if (resolvedError) throw resolvedError;
+    const keptCurrent = (resolvedConflicts ?? []).some(
+      (c) =>
+        c.resolution === "confirmed_existing" &&
+        (c.details as { candidate_external_id?: string } | null)?.candidate_external_id === external_id,
+    );
+    if (keptCurrent) {
+      const updatePayload = {
+        ...directPayload,
+        ...sourceReport(
+          fight,
+          { wikipediaReportedAt: disputed.wikipedia_reported_at, apiSportsReportedAt: disputed.api_sports_reported_at },
+          now,
+        ),
+      };
+      const { error } = await supabase.from("fights").update(updatePayload).eq("id", disputed.id);
+      if (error) throw error;
+      return { status: "upserted", fightId: disputed.id };
+    }
+
     // The sync runs twice daily and a genuine dispute can persist across
     // several runs before it self-resolves (convergence or a confirmed
     // result -- Fork 5). Without this check, every run would open a new
@@ -139,7 +186,7 @@ export async function upsertFight(
       .maybeSingle();
     if (existingError) throw existingError;
     if (existingConflict) {
-      return { status: "conflict", conflictId: existingConflict.id };
+      return { status: "conflict", conflictId: existingConflict.id, fightId: disputed.id };
     }
 
     const { data: conflict, error: conflictError } = await supabase
@@ -161,7 +208,7 @@ export async function upsertFight(
       .select("id")
       .single();
     if (conflictError) throw conflictError;
-    return { status: "conflict", conflictId: conflict.id };
+    return { status: "conflict", conflictId: conflict.id, fightId: disputed.id };
   }
 
   const insertPayload = {

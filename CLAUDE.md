@@ -97,6 +97,33 @@ explanations. Phase 10 burned real time on a JWT-signing theory before SQL
 testing revealed a genuine policy-logic bug. Phase 11 hit the same class of
 bug and caught it fast with this technique.
 
+## db-read-safety — a passing build cannot see these
+
+A different failure class from RLS/GRANTs above: whether what got read or
+written is actually *correct*, not who's allowed to touch it. Each of these
+produces output that looks identical whether it's right or wrong, so lint,
+typecheck and a green test suite all miss it — found live, M1 (2026-09-13):
+`fights` had already crossed PostgREST's row cap (1,044 rows > 1,000) and
+`fetchUnpricedFights` was silently returning ~998 fights instead of 1,047,
+with no error anywhere in the chain.
+
+- **Never `.select()` a whole table unpaged.** PostgREST caps a response
+  (`db-max-rows`) and returns a **short list with no error**. Use
+  `lib/supabase/selectAllPages.ts` for any query meant to return a whole
+  table or an unbounded filtered slice of one.
+- **Never build an unbounded `.in()` / `.or()` list.** A list built from
+  every row of a growing table eventually produces a request URL too long
+  for the server to accept. Use `lib/supabase/selectAllPagesByIds.ts`
+  (pages *and* chunks the id list) or `lib/supabase/chunk.ts` directly.
+- **Coerce `numeric` columns with `Number()`.** They arrive as strings over
+  PostgREST; unguarded arithmetic silently string-concatenates instead of
+  adding.
+- **Verify column names against the actual migration**, not memory or a
+  type file that may be stale. A typo'd column name returns an error
+  object, not an empty result — but only if the error is checked.
+- **Never `?? []` on a query result without checking `error` first.** That
+  pattern turns a failed query into a confident, silently wrong empty list.
+
 ## Layer boundaries — enforced as file layout, not discipline
 
 - **UI components** render and handle interaction. No business logic, no

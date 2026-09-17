@@ -1194,3 +1194,122 @@ Decided 2026-08-29, user-originated.
   (`ROADMAP.md` L4-fix): the first run ever inside the intern's lock
   window reported "13 failed, 0 already locked". Read `message` off any
   object that has one, not only `Error` instances.
+- **`fights` crossed PostgREST's row cap live (M1, 2026-09-13): 1,044
+  rows > 1,000.** `fetchUnpricedFights` (`lib/odds/eligibleUnpricedFights.ts`)
+  was reading it with a plain `.select()` and silently returning ~998
+  fights instead of 1,047 unpriced ones (SQL ground truth), with no
+  error anywhere in the chain — exactly the class of bug `CLAUDE.md`'s
+  new db-read-safety section exists to catch. Fixed by switching to
+  `selectAllPages`; the fix was verified live (read-only) against
+  production: `fetchUnpricedFights` now returns 1,017, matching
+  `count(fights) - count(odds_snapshots) = 1044 - 27`. `upsertFighter.ts`'s
+  fold-match scan (822 fighters, one growth cycle from the same cap) and
+  `sweepLatentDisputedOpponents.ts` (a one-time backfill script, kept
+  correct in case it's ever re-run) got the same fix pre-emptively, before
+  either actually failed. **A second, separate bug found in the same
+  fold-match scan:** `upsertFighter`'s exact-name lookup used
+  `.maybeSingle()`, which *throws* on two case-insensitively matching rows
+  instead of resolving them — the tie-break logic already existed a few
+  lines below for the fold-match branch (prefer the row with an
+  `external_id`, else lowest `id`) but the plain-name-match branch didn't
+  use it. Extracted into `pickCanonicalFighter.ts` and reused by both
+  branches. `RETROSPECTIVE.md`'s five db-read-safety rules are now also in
+  `CLAUDE.md` (previously only in `RETROSPECTIVE.md`, where a project's
+  actual working rules shouldn't have to live).
+- **Testing a `features/*/api.ts` file that imports the `lib/db.ts`
+  singleton throws at import time, not at call time** (found live, M1):
+  `createClient()` runs at module scope and `requireEnv` throws
+  immediately if the real Supabase env vars aren't set, so a test can't
+  even import the file to inject a fake client. Fixed generally —
+  `vitest.config.mts` now sets dummy `NEXT_PUBLIC_SUPABASE_*` values for
+  the whole test run (safe: `createClient` never makes a network call at
+  construction, and every test still injects and asserts against its own
+  fake) — and specifically for `features/fighters/api.ts`'s `getFighters`,
+  which now takes an optional injected client (default: the singleton),
+  the same DI pattern every other tested I/O function in this codebase
+  already uses.
+- **A bout removed from its Wikipedia card page was never reconciled**
+  (M2, found live 2026-09-13): `processScheduleEvent.ts` only ever
+  upserted bouts present on the page. Jimenez vs. Vera (UFC Fight Night:
+  Silva vs. Delgado, cancelled for a visa issue) stayed on the card,
+  the intern picked it, and it caused all 24 open `low_confidence_odds_match`
+  conflicts live at the time (the only unpriced fight left on that card).
+  Fixed in `ROADMAP.md` Phase M2 (`planCardReconciliation.ts` +
+  `applyCardReconciliation.ts`, migration `0044`) — **not yet applied to
+  production** as of this note; see `CHANGES.md` Phase 80 (M2)'s "Ran
+  live" section before assuming Vera has actually been cancelled.
+- **`fights.settled_from = 'cancelled'` is a real, valid settled state**
+  from migration `0044` onward (M2) — any future code reading
+  `settled_from` or filtering "is this fight settled" must not assume the
+  only values are the five result-settlement ones from `0021`/`0040`. A
+  cancelled fight always has `winner_id = null` and never has `method`/
+  `round` set (deliberately — see `applyCardReconciliation.ts`'s own
+  comment on why a fake method string would corrupt Elo/records).
+- **`merge_fighters(keep, drop)` exists (M3, migration `0045` on the M3
+  branch -- renumbered from a colliding `0044`, not yet applied to
+  production).** The only sanctioned way to
+  merge two duplicate fighter rows going forward; never hand-write a new
+  one-off SQL script under `supabase/data-fixes/` for this again. It
+  repoints `fights` (all six fighter columns), `picks`, `rumour_flags`,
+  `fighter_sherdog_bouts`, and `fighter_scouting_reports`, copies
+  `sherdog_id`/`external_id` and every Sherdog-derived column onto the
+  keeper if it lacks them, records the dropped name in `fighter_aliases`,
+  then deletes the dropped row. Restricted to `service_role` at the
+  database level (`revoke execute ... from public`) -- it is `security
+  definer` and would otherwise be callable by any authenticated/anon
+  client via PostgREST's `/rest/v1/rpc/merge_fighters`.
+- **The keeper-selection rule (prefer `external_id`, tie-break on `id`)
+  does NOT reliably keep the Sherdog-linked identity.** A merge can just
+  as easily drop the fighter carrying the real imported Sherdog bout
+  history. Any future code touching fighter merges must repoint
+  `fighter_sherdog_bouts`/`fighter_scouting_reports` (both `on delete
+  cascade`) before deleting the dropped row, and copy
+  `sherdog_history_imported_at` + the six finish-breakdown columns
+  alongside `sherdog_id` itself -- `recomputeFighterRecords.ts` keys its
+  Sherdog-record override on that timestamp, not on the bout rows
+  existing.
+- **`fighter_aliases.alias` is raw text, not normalized** -- the semantic
+  "is this the same name" comparison happens in JS (`normalizeName()`,
+  `upsertFighter.ts`), matching this codebase's standing rule that every
+  name-matching decision lives in TypeScript, never SQL.
+- **Migration `0043_predicted_method_finish.sql` was applied to production
+  before Phase M started, but belonged to a still-open, unmerged PR (#66,
+  L5) -- `main`'s own migration folder never had the file, even though the
+  live database genuinely had the schema change.** Found by `supabase db
+  push --dry-run` before running M2/M3's `0044`/`0045`: it refused with
+  "Remote migration versions not found in local migrations directory,"
+  correctly catching real drift rather than a false alarm. Fixed by
+  pulling just that one file from the L5 branch into `main` (a tiny,
+  separate PR, no other L5 code) -- not by `migration repair --status
+  reverted`, which would have told the tracker something false (0043 is
+  genuinely applied) and risked a later push trying to re-run DDL that
+  already succeeded. **Lesson:** when `db push --dry-run` reports a
+  remote-only migration, check whether it's real drift from a merged-but-
+  undocumented change before ever touching `migration repair` -- reverting
+  the tracker is for a migration that was truly rolled back, not one
+  that's just missing from the branch you happen to be on.
+- **Moving a `unique` column's value between two rows in one transaction
+  requires clearing the old row FIRST -- Postgres checks non-deferrable
+  unique constraints as each row version is written to the index, not at
+  commit.** `merge_fighters()` (0045) set the keeper's `sherdog_id` from
+  the dropped row while the dropped row still held it (the delete comes
+  several statements later), and failed with `23505 ... Key
+  (sherdog_id)=(307733) already exists` on its first ever real run
+  (2026-09-18). Fixed in `0046` by nulling the drop row's column in its
+  own earlier statement -- a move, not a copy. **Two intuitive
+  non-fixes:** folding both writes into a single `update` touching both
+  rows does *not* help (same reason `update t set id = id + 1` fails on a
+  unique `id`), and making the constraint `deferrable initially deferred`
+  fixes it only by relaxing enforcement for every other writer of that
+  column. Applies to `fighters.sherdog_id` and `fighters.external_id`,
+  both `unique`, and to any future merge-style function.
+- **A `--dry-run` that stops before the write proves nothing about the
+  write.** M3's `fighters:resolve-same-card-variants --dry-run` reported a
+  clean, correct 2-of-5 merge plan, and the live run then failed
+  immediately on the SQL the dry run never reached. The dry run validated
+  the *decision* logic (`decideSameCardMerge.ts`) and nothing past it.
+  When a feature's risk lives in a DB function rather than in the
+  TypeScript that calls it, a green dry run is not evidence the feature
+  works -- and in this project SQL functions have no local test path
+  either (no local Postgres), so the first live run IS the first test.
+  Expect that and sequence it accordingly: one merge first, not a sweep.

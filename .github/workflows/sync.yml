@@ -10,6 +10,13 @@ on:
     - cron: "0 0,12 * * *"
   workflow_dispatch: {}
 
+# M4: shared with settle.yml (and sherdog.yml) -- all three write
+# overlapping tables (fights, picks, fighters, fighter_elo_history) and
+# must never run concurrently. Queues rather than cancels.
+concurrency:
+  group: ufc-data-write
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -33,6 +40,17 @@ jobs:
 
       - name: Sync upcoming schedule (Wikipedia)
         run: npx tsx src/lib/ufc-data-sync/syncSchedule.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # M3: right after the schedule sync, while any disputed_opponent
+      # conflicts it just opened are still fresh -- auto-merges a genuine
+      # same-card name variant (e.g. Wikipedia renaming "Jose Delgado" to
+      # "Jose Miguel Delgado" mid-card) instead of leaving "keep existing"
+      # to record nothing and the identical dispute to reopen next run.
+      - name: Resolve same-card fighter name variants
+        run: npx tsx src/lib/ufc-data-sync/runResolveSameCardNameVariantsJob.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -26,6 +26,11 @@ export interface FightWithFighters {
 export interface CardBout extends FightWithFighters {
   bout_order: number | null;
   odds: { fighter1_price: number; fighter2_price: number } | null;
+  // M2: derived from settled_from === "cancelled" -- kept as a plain
+  // boolean rather than exposing settled_from itself, matching how
+  // `disputed` is passed down as a derived flag rather than a raw
+  // conflicts row.
+  cancelled: boolean;
 }
 
 // The card view needs starts_at (the pick lock) alongside the enriched

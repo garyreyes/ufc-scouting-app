@@ -1925,6 +1925,30 @@ suffix-stripped (Sherdog's fightfinder silently drops a diacritic or a
 
 ---
 
+## Phase M — Data-quality: settlement speed, cancellations, conflicts
+
+Prompted by the user's three standing complaints (fights take too long to
+settle, cancelled bouts stay on the card, too many recurring conflicts) after
+evaluating and rejecting github.com/ehan03/Tapology-Scraper as a fix (no
+winner/method/stats fields, abandoned, evades Tapology's own anti-bot
+defences — see `DECISIONS.md`). All five root causes were measured live,
+2026-09-13, on UFC Fight Night: Silva vs. Delgado. Sub-phases run through
+their own `feature-planner` pass each, in order below, and ship as
+independent PRs off `main` — none depends on another's merge order, so
+migration numbers (and this section's own text) collide across branches and
+get reconciled at merge time (an accepted, known tradeoff of parallel
+sub-phases).
+
+| # | Sub-phase | Status |
+|---|---|---|
+| M1 | ⚠️ Unpaged reads already causing silent data loss. `fights` (1,044 rows) had crossed PostgREST's row cap; `fetchUnpricedFights` silently returned ~998 fights instead of 1,047. Switched to `selectAllPages`/new `selectAllPagesByIds` in the odds/settlement/fighter-identity paths. Also fixed `upsertFighter`'s `.maybeSingle()` collision crash. Reviewer caught a real regression (lost `.order("name")`), fixed before shipping. | **done, merged to `main`** (2026-09-17) — `CHANGES.md` Phase 77, PR #67. |
+| M2 | ⚠️ Cancelled-bout reconciliation. `processScheduleEvent.ts` only upserted bouts found on a Wikipedia card page — it never noticed one removed (Jimenez vs. Vera, cancelled for a visa issue). New `planCardReconciliation` + `applyCardReconciliation` decide missing/cancel/clear, skipped on any sign of a partial parse OR a past event date. Excluded from intern picks, odds candidates, the rumour scan, the scoreboard chalk line, the 30-day refresh queue. Card UI keeps the row, greyed. | **done, merged to `main`** (2026-09-17) — `CHANGES.md` Phase 80, PR #68. Migration `0044_cancelled_fights.sql` not yet run; cancelling Jimenez vs. Vera for real needs an explicit dry-run + owner go-ahead first. |
+| M3 | ⚠️ Remembered dispute answers + fighter aliases/merge. "Keep existing" recorded nothing, so a same-card name variant ("Jose Delgado" → "Jose Miguel Delgado") reopened the identical dispute every sync — it did, twice, live. New `fighter_aliases` table + a real `merge_fighters()` DB function (ported from a one-off data-fix script), with a narrow, transaction-local pick-lock-trigger bypass for exactly that one call. Two real gaps found and fixed while writing the migration, before it ever ran: `fighter_sherdog_bouts`/`fighter_scouting_reports` are `on delete cascade` and would have silently destroyed the dropped fighter's real Sherdog history; the derived Sherdog columns needed copying alongside `sherdog_id`, not just the id itself. `isSameCardNameVariant` + `decideSameCardMerge` (pure) gate an automatic sweep (`resolveSameCardNameVariants`, wired into `sync.yml`); `/conflicts` gains a manual "same fighter" merge choice with the same hard guard (never merge two different confirmed Sherdog identities). `upsertFighter`/`upsertFight` both check the new alias table / remembered resolution before ever reopening. | **built, tested, reviewed, PR open — NOT applied to production.** `CHANGES.md` Phase 77 (branch `m3-remembered-disputes-fighter-merge`), PR #69. Reviewer pass (2026-09-17, after an earlier attempt hit a rate limit and returned nothing) found and fixed two real bugs before merge: `upsertFighter.ts`'s alias branch was overwriting the keeper's canonical name with the dropped name on every sync; `merge_fighters()` never repointed pre-existing aliases on a second-hop merge (A→B, then B→C), so the cascade delete would have silently destroyed the earlier alias. Both fixed, 733 tests/lint/typecheck/build clean. Migration renumbered `0044` → `0045` at merge time (M2's `0044_cancelled_fights.sql` merged first). Not yet run — dry-run + owner go-ahead required first (`npm run fighters:resolve-same-card-variants -- --dry-run`). |
+| M4 | Settlement cadence. `sync.yml`'s "00:00/12:00 UTC" cron actually starts 3–5.5h late live (verified against real recent run timestamps), and a Wikipedia-only result's 24h wait becomes well over 24h in practice; the Sherdog reimport was capped at 12 fighters/run in an effectively arbitrary order. New `settle.yml` (hourly, Saturday–Monday UTC, no API-Sports/Wikipedia calls — no quota cost) plus a shared `concurrency` guard across `sync.yml`/`sherdog.yml`/`settle.yml` (queues rather than cancels an overlapping run). `reimportSherdogForPendingFights.ts`'s ordering extracted into a new pure, test-first `orderSherdogIdsForReimport.ts` (newest-event-first, mutation-verified); cap raised to 30 for the weekend job via a new `--sherdog-reimport-cap=<n>` flag on `runSettlementJobs.ts`. The 24h single-source rule itself stays (owner's confirmed choice). | **done, merged to `main`** (2026-09-17) — `CHANGES.md` Phase 78, PR #70. |
+| M5 | Sherdog auto-disambiguation via history corroboration. 10 open `low_confidence_sherdog_match` conflicts are common names (David Martínez: 20 tied candidates) or nickname-only storage (Renato Moicano = Sherdog's "Renato Carneiro"; Patrício Pitbull = "Patricio Freire"). New `historyCorroborates` (pure, mutation-verified) auto-links a candidate whose own fight history includes a bout against one of our fighter's known opponents within ±10 days of our `event_date` — verified live against the real "Patricio Freire" page. Wired into `resolveSherdogIdentityJob.ts` (new fighters) and a new `resolveOpenSherdogConflictsJob.ts` sweep (existing open conflicts). | **done, merged to `main`** (2026-09-17) — `CHANGES.md` Phase 79, PR #71. |
+
+---
+
 ## Design cadence
 
 The visual world was decided in v1 and is already shipped (CSS Modules, custom
