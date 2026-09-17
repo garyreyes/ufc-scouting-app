@@ -10,6 +10,13 @@ on:
     - cron: "0 0,12 * * *"
   workflow_dispatch: {}
 
+# M4: shared with settle.yml (and sherdog.yml) -- all three write
+# overlapping tables (fights, picks, fighters, fighter_elo_history) and
+# must never run concurrently. Queues rather than cancels.
+concurrency:
+  group: ufc-data-write
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest

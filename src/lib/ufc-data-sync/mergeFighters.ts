@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * M3: thin wrapper around the `merge_fighters` DB function
- * (0044_fighter_aliases_and_merge.sql) -- all the actual judgment
+ * (0045_fighter_aliases_and_merge.sql) -- all the actual judgment
  * (which side survives, whether the merge is even allowed) lives in
  * decideSameCardMerge.ts; this just calls the RPC with its decision.
  * Restricted to service_role at the database level (see that migration's

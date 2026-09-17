@@ -4,10 +4,14 @@ import { buildWikiFightExternalId } from "./buildWikiFightExternalId";
 import { upsertEvent } from "./upsertEvent";
 import { upsertFighter } from "./upsertFighter";
 import { upsertFight } from "./upsertFight";
+import { applyCardReconciliation, type ReconciliationSummary } from "./applyCardReconciliation";
 
 export interface ProcessScheduleEventResult {
   eventId: string;
   fightCount: number;
+  // M2: whatever this run decided about bouts that used to be on this
+  // card and no longer are -- see applyCardReconciliation.ts.
+  reconciliation: ReconciliationSummary;
 }
 
 /**
@@ -41,12 +45,18 @@ export async function processScheduleEvent(
   });
 
   let fightCount = 0;
+  // M2: every fight id this run actually found on the page -- upserted
+  // AND disputed both count as "present" (a disputed bout's sources merely
+  // disagree about the opponent; it plainly still exists). Never built
+  // from event.bouts.length alone, which says nothing about which
+  // EXISTING rows those bouts correspond to.
+  const presentFightIds = new Set<string>();
   for (const [index, bout] of event.bouts.entries()) {
     const fighter1Id = await upsertFighter(supabase, { name: bout.fighter1Name });
     const fighter2Id = await upsertFighter(supabase, { name: bout.fighter2Name });
     const winnerId = bout.winnerName ? fighter1Id : null;
 
-    await upsertFight(supabase, {
+    const result = await upsertFight(supabase, {
       external_id: buildWikiFightExternalId(title, fighter1Id, fighter2Id),
       event_id: eventId,
       fighter1_id: fighter1Id,
@@ -58,8 +68,19 @@ export async function processScheduleEvent(
       weight_class: bout.weightClass,
       bout_order: index,
     });
+    presentFightIds.add(result.fightId);
     fightCount++;
   }
 
-  return { eventId, fightCount };
+  const reconciliation = await applyCardReconciliation(
+    supabase,
+    eventId,
+    title,
+    event.date,
+    event.bouts.length,
+    event.skippedBoutCount,
+    presentFightIds,
+  );
+
+  return { eventId, fightCount, reconciliation };
 }

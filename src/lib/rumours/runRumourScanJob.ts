@@ -30,10 +30,13 @@ async function fetchNearestUpcomingEventFights(
   const eventId = await fetchNearestUpcomingEventId(supabase);
   if (eventId === null) return { eventId: null, fights: [] };
 
+  // M2: `.is("settled_at", null)` -- a cancelled bout has no upcoming
+  // fight to scan rumours about.
   const { data: fights, error: fightsError } = await supabase
     .from("fights")
     .select("id, fighter1:fighter1_id(id, name), fighter2:fighter2_id(id, name)")
-    .eq("event_id", eventId);
+    .eq("event_id", eventId)
+    .is("settled_at", null);
   if (fightsError) throw fightsError;
 
   return {

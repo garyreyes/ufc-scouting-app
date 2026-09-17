@@ -21,6 +21,15 @@ interface ConflictRow {
   details: Record<string, unknown>;
 }
 
+/**
+ * Covers every branch upsertFight can take: found by external_id, found
+ * by fighter pair, disputed (shares exactly one fighter, opened fresh or
+ * already-open), and M3's remembered "confirmed_existing" suppression.
+ * Real assertion here (M2): the "conflict" result must carry the
+ * DISPUTED FIGHT's own id, not just the conflict row's id --
+ * processScheduleEvent's reconciliation needs it to know the disputed
+ * bout is still "present."
+ */
 function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
   const fights = [...seed.fights];
   const conflicts = [...seed.conflicts];
@@ -136,6 +145,119 @@ function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
 
   return { client: client as unknown as SupabaseClient, fights, conflicts, updates };
 }
+
+describe("upsertFight", () => {
+  it("returns fightId when found and updated by external_id", async () => {
+    const { client } = fakeSupabase({
+      fights: [
+        {
+          id: "f1",
+          external_id: "wiki:Card:a:b",
+          event_id: "e1",
+          fighter1_id: "a",
+          fighter2_id: "b",
+          wikipedia_reported_at: null,
+          api_sports_reported_at: null,
+        },
+      ],
+      conflicts: [],
+    });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:b",
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "b",
+      source: "wikipedia",
+    });
+
+    expect(result).toEqual({ status: "upserted", fightId: "f1" });
+  });
+
+  it("inserts and returns the new fightId when nothing matches", async () => {
+    const { client, fights } = fakeSupabase({ fights: [], conflicts: [] });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:b",
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "b",
+      source: "wikipedia",
+    });
+
+    expect(result.status).toBe("upserted");
+    expect(fights).toHaveLength(1);
+  });
+
+  it("returns BOTH conflictId and the disputed fight's own fightId on a new conflict", async () => {
+    // "a" fights "x" today; the incoming bout has "a" against "c" -- a
+    // genuine opponent dispute, not a new bout.
+    const { client } = fakeSupabase({
+      fights: [
+        {
+          id: "disputed-fight",
+          external_id: "wiki:Card:a:x",
+          event_id: "e1",
+          fighter1_id: "a",
+          fighter2_id: "x",
+          wikipedia_reported_at: null,
+          api_sports_reported_at: null,
+        },
+      ],
+      conflicts: [],
+    });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:c",
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "c",
+      source: "wikipedia",
+    });
+
+    expect(result.status).toBe("conflict");
+    if (result.status === "conflict") {
+      expect(result.fightId).toBe("disputed-fight");
+      expect(result.conflictId).toBeTruthy();
+    }
+  });
+
+  it("returns the disputed fight's fightId again on a REPEAT conflict (already open)", async () => {
+    const { client } = fakeSupabase({
+      fights: [
+        {
+          id: "disputed-fight",
+          external_id: "wiki:Card:a:x",
+          event_id: "e1",
+          fighter1_id: "a",
+          fighter2_id: "x",
+          wikipedia_reported_at: null,
+          api_sports_reported_at: null,
+        },
+      ],
+      conflicts: [
+        {
+          id: "existing-conflict",
+          kind: "disputed_opponent",
+          fight_id: "disputed-fight",
+          resolved_at: null,
+          resolution: null,
+          details: {},
+        },
+      ],
+    });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:c",
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "c",
+      source: "wikipedia",
+    });
+
+    expect(result).toEqual({ status: "conflict", conflictId: "existing-conflict", fightId: "disputed-fight" });
+  });
+});
 
 describe("upsertFight -- resolved 'keep current' suppression (M3)", () => {
   it("opens a fresh disputed_opponent conflict on a genuinely new dispute (regression)", async () => {

@@ -3520,7 +3520,346 @@ L4-fix and in `PROJECT_FACTS.md`; not fixed here.
 **Status:** `npx vitest run` (699, +40) / `npx tsc --noEmit` / `eslint` /
 `npm run build` all green, route table unchanged.
 
-## Phase 77 (M3) — Remembered dispute answers, aliases, fighter merge (2026-09-14)
+## Phase 77 (M1) — Fix unpaged reads before they cause silent data loss (2026-09-14)
+
+**What.** `fights` had crossed PostgREST's row cap live (1,044 rows > 1,000):
+`fetchUnpricedFights` (`lib/odds/eligibleUnpricedFights.ts`) was silently
+returning ~998 fights instead of the true 1,047 unpriced ones, with no error
+anywhere in the chain. Switched every whole-table or unbounded-filter read in
+the odds/settlement/fighters-identity paths to page through
+`lib/supabase/selectAllPages.ts`, and added `lib/supabase/selectAllPagesByIds.ts`
+(pages *and* chunks an `.in()` id list) so neither failure mode — a truncated
+response or an oversized request URL — can recur through one shared path.
+
+- `lib/odds/eligibleUnpricedFights.ts` — the live bug; both reads paged.
+- `lib/ufc-data-sync/upsertFighter.ts` — fold-match scan paged (822 rows,
+  growing). Also fixed a second, independent bug found in the same function:
+  the exact-name lookup used `.maybeSingle()`, which throws on a
+  case-insensitive collision instead of resolving it. Extracted the existing
+  tie-break (prefer the row with an `external_id`, else lowest `id`) into
+  `lib/ufc-data-sync/pickCanonicalFighter.ts`, used by both branches.
+- `lib/settlement/settlePicks.ts` — unsettled-picks read paged; fights/odds
+  lookups chunked via `selectAllPagesByIds`.
+- `features/fighters/api.ts` — `getFighters` paged; the weight-class-fill
+  `.or()` list chunked. `getFighters` now takes an optional injected
+  Supabase client (default: the singleton) so it's actually testable — it
+  previously threw at import time in any test, singleton env vars or not.
+- `lib/ufc-data-sync/sweepLatentDisputedOpponents.ts` — paged pre-emptively
+  (a one-time backfill script, kept correct in case it's ever re-run).
+- `lib/sherdog/resolveSherdogIdentityJob.ts` — its local `chunk()`/`ID_CHUNK`
+  extracted to shared `lib/supabase/chunk.ts`; `lib/sherdog/applySherdogResults.ts`
+  and `lib/sherdog/reimportSherdogForPendingFights.ts`'s fighter `.in()`
+  lookups switched to `selectAllPagesByIds`.
+- `CLAUDE.md` gained a db-read-safety section (the five rules, previously
+  only in `RETROSPECTIVE.md`).
+- `vitest.config.mts` sets dummy `NEXT_PUBLIC_SUPABASE_*` env vars for the
+  whole test run — `lib/db.ts`'s singleton throws at *import* time otherwise,
+  which blocked testing `features/fighters/api.ts` at all.
+
+**Why.** First sub-phase of Phase M, prompted by the user asking about
+github.com/ehan03/Tapology-Scraper as a possible fix for slow settlement,
+lingering cancelled bouts, and recurring conflicts. That repo was rejected
+(no result/method/stats fields, abandoned, evades anti-bot defenses — see
+`DECISIONS.md`); investigating the real pipeline surfaced this live,
+already-active data-loss bug before any of the other four sub-phases, so it
+went first.
+
+**Tests:** written first for every fix, failing for the right reason before
+any implementation existed — `eligibleUnpricedFights.test.ts` reproduces the
+exact production shape (1,050 fights, 3 priced, asserts exactly 1,047 back,
+including one specifically past row 1,000); `upsertFighter.test.ts` covers
+both the row-cap fold-match miss and the `.maybeSingle()` collision crash;
+`settlePicks.test.ts` covers the row-cap read and asserts the fights/odds
+`.in()` calls actually split into multiple chunks, none oversized;
+`features/fighters/api.test.ts` mirrors both; `chunk.test.ts` and
+`selectAllPagesByIds.test.ts` and `pickCanonicalFighter.test.ts` cover the
+new shared helpers directly (including their own edge cases: empty input,
+exact multiples, remainders, all-tie, no-external_id-anywhere).
+
+**Ran live:** read-only. SQL ground truth:
+`count(fights) - count(odds_snapshots) = 1044 - 27 = 1017`. A scratch run of
+the fixed `fetchUnpricedFights` against production (deleted after use, never
+committed) returned exactly 1,017.
+
+**Not in scope:** M2–M5 (cancellation reconciliation, remembered dispute
+answers/fighter merge, settlement cadence, Sherdog auto-disambiguation) —
+each is its own sub-phase, `ROADMAP.md` Phase M.
+
+**Reviewer pass:** one real finding, fixed before shipping — `getFighters`
+silently lost its `.order("name")` sort. `selectAllPages` orders by `id` (a
+random uuid) for its keyset pagination and has no way to layer a caller's
+own `.order()` on top, so the `/fighters` grid would have rendered in
+effectively random order instead of alphabetically. Fixed with a client-side
+`localeCompare` sort once every page is in hand; confirmed the regression
+test actually catches the bug (failed with the sort removed, passed with it
+restored) before counting it as done. Everything else in the diff — the
+`selectAllPagesByIds` chunk+page composition, `upsertFighter`'s non-collision
+case, `settlePicks`'s exact-match preservation, the Sherdog jobs' refactor,
+the dummy test env vars — checked out with no changes needed.
+
+**Status:** `npx vitest run` (722, +25) / `npx tsc --noEmit` (via
+`npm run build`) / `eslint` / `npm run build` all green, route table
+unchanged.
+
+## Phase 78 (M4) — settlement cadence (2026-09-17)
+
+**What.** New `.github/workflows/settle.yml`: hourly, Saturday through
+Monday UTC, running only `runSettlementJobs.ts` (no API-Sports or
+Wikipedia calls, so no quota cost) so a 24h single-source settlement
+timeout no longer has to wait for `sync.yml`'s next twice-daily run to
+actually fire. `runSettlementJobs.ts` gains a `--sherdog-reimport-cap=<n>`
+flag; `settle.yml` passes `30` (vs. the default 12) since it has no sync
+step competing for its time budget.
+
+**Verified live before building anything:** `gh run list --workflow=sync.yml`
+on real recent runs showed the 00:00/12:00 UTC cron actually landing
+02:55–03:11 and 15:32–17:34 UTC — 3–5.5h late, GitHub Actions' own
+schedule-queuing delay, not a hypothetical. Stacked on the up-to-12h gap
+between runs, a fight settling only on the 24h single-source timeout
+could previously sit stale for well over 24h before `sync.yml` next
+checked it. The 24h rule itself is unchanged.
+
+**Reordering fix.** `reimportSherdogForPendingFights.ts`'s per-run cap
+previously applied to a `Set` built from an unordered DB fetch — an
+effectively arbitrary subset, which could leave the newest card (the one
+most likely still waiting on a Sherdog answer) uncovered while
+re-fetching an older one instead. Extracted the ordering rule into a new
+pure function, `orderSherdogIdsForReimport.ts` (test-first, 5 tests,
+mutation-verified — reversing the sort direction failed 3 of the 5): sort
+pending fights newest-event-first, dedupe fighters in that order, map to
+sherdog ids, then cap. `reimportSherdogForPendingFights.ts` now calls it
+instead of building the Set inline — merged cleanly alongside M1's own
+`selectAllPagesByIds` change to the same function; both fixes now apply
+together.
+
+**Concurrency guard.** `sync.yml`, `sherdog.yml`, and the new `settle.yml`
+all write overlapping tables (`fighters`, `fights`, `picks`,
+`fighter_elo_history`) and previously had no protection against running
+at the same time — a real, not hypothetical, risk once an hourly job
+exists alongside two scheduled ones. Added a shared `concurrency: {group:
+ufc-data-write, cancel-in-progress: false}` block to all three — queues
+an overlapping run rather than cancelling one mid-write.
+
+**Status:** `npx vitest run` (704, +5) / `npx tsc --noEmit` / `eslint` /
+`npm run build` all green, route table unchanged. Branched fresh off
+`origin/main` per Phase M's own convention — independent PR, no
+merge-order dependency on M1/M2/M3.
+
+## Phase 79 (M5) — Sherdog auto-disambiguation via history corroboration (2026-09-17)
+
+**What.** New `historyCorroborates.ts` (pure, test-first, mutation-verified):
+does a Sherdog candidate's own pro fight history contain a bout against
+one of our fighter's KNOWN opponents (from our own `fights` table) within
+±10 days of the date we already have for that matchup? A strictly
+stronger identity signal than name similarity — it doesn't care what a
+candidate's name looks like, only whether the same career actually
+happened.
+
+Wired into two places:
+
+1. **`resolveSherdogIdentityJob.ts`** (new fighters): before either
+   existing fallback (queue, or the old pro-fight-count ambiguous
+   tie-break), tries history corroboration across every returned
+   candidate (capped at 20 — Sherdog's own search-results ceiling, and
+   the exact count on the real David Martínez conflict below). Auto-
+   matches only when exactly one candidate corroborates.
+2. **New `resolveOpenSherdogConflictsJob.ts`**: re-examines every OPEN
+   `low_confidence_sherdog_match` conflict already sitting in
+   `data_conflicts` against its own already-snapshotted candidate list —
+   no new Sherdog search needed. Wired into `sherdog.yml` right after
+   identity resolution. Skips `guard_mismatch` conflicts deliberately —
+   a different, riskier question ("is this one already-rejected candidate
+   secretly right") this feature doesn't try to answer.
+
+**Verified live before building anything, and again after:** inspected
+the real open conflicts via a throwaway read-only script (deleted before
+commit) — 10 open `low_confidence_sherdog_match` conflicts in production,
+matching the roadmap's own claim (common names: David Martínez, 20 tied
+candidates; nickname-only storage: "Renato Moicano" → Sherdog's "Renato
+Carneiro", "Patrício Pitbull" → Sherdog's "Patricio Freire"). Fetched the
+real Sherdog page for "Patricio Freire" (id 9960) and confirmed its real
+history lists bouts against Aaron Pico (2026-04-11), Dan Ige
+(2025-07-19), and Yair Rodríguez (2025-04-12) — all matching our own
+`fights` rows for "Patrício Pitbull" almost to the day, even though
+Freire's own name similarity to "Patrício Pitbull" (0.55) is LOWER than
+the wrong namesake candidate's (0.59, "Patricio Lima") — the concrete
+case that motivated building this rather than tightening the name
+threshold.
+
+After building both pieces, ran the new sweep job's `--dry-run` against
+production for real: **10 checked, 10 auto-resolved, 0 failed** — every
+open conflict, including the 20-candidate David Martínez case,
+corroborates to exactly one candidate. Not yet run for real; needs the
+user's explicit go-ahead first, same discipline as every other Phase M
+data-mutating job.
+
+**A real bug caught while writing this, not by the reviewer:** the sweep
+job's own dry-run initially printed "would auto-resolve" for all 10 while
+its summary line reported `0 auto-resolved` — the counter increment was
+placed after the dry-run `continue`, so dry-run mode never actually
+counted what it just logged. Fixed by counting before the dry-run
+short-circuit and only after a real write succeeds otherwise, matching
+`resolveSherdogIdentityJob.ts`'s own established shape for the same
+dry-run/live split.
+
+**Status:** `npx vitest run` (709, +10 across `historyCorroborates.test.ts`
+and `resolveOpenSherdogConflictsJob.test.ts`) / `npx tsc --noEmit` /
+`eslint` / `npm run build` all green, route table unchanged. Branched
+fresh off `origin/main` per Phase M's own convention.
+
+**Reviewer found no correctness bugs in the matching logic** (date
+parsing, name matching, corroboration threshold, control flow), but
+flagged two real operational issues, both fixed before merge:
+
+1. `sherdog.yml`'s sweep step (`resolveOpenSherdogConflictsJob.ts`) ran
+   right after identity resolution — guaranteed, not hypothetical, that
+   any fighter newly queued that same run had its full candidate set
+   fetched twice back-to-back (once by the identity job's own history-
+   corroboration attempt, once by the sweep re-examining the conflict it
+   just opened). Fixed by reordering: the sweep now runs FIRST, so it
+   only ever touches conflicts at least one run old.
+2. The sweep's final `data_conflicts` update had no `resolved_at IS NULL`
+   re-check, unlike the manual action it's patterned after — a real gap
+   given its loop does up to 20 rate-limited Sherdog fetches between the
+   initial select and that final write (the manual action's own window
+   is instant, no I/O in between). Fixed by adding the re-check: a
+   concurrent manual `/conflicts` resolution now wins instead of being
+   silently overwritten.
+
+## Phase 80 (M2) — Cancelled-bout reconciliation (2026-09-14)
+
+**What.** A bout removed from its Wikipedia card page had no way to be
+marked cancelled: `processScheduleEvent.ts` only ever upserted bouts it
+found on the page, never noticed one that disappeared. Found live on UFC
+Fight Night: Silva vs. Delgado -- Jimenez vs. Vera (pulled for a visa
+issue) stayed on the card, the intern picked it, and it was the sole cause
+of all 24 open `low_confidence_odds_match` conflicts (the only unpriced
+fight left on the card, so every later odds event "matched" it).
+
+- **`0044_cancelled_fights.sql`**: adds `fights.wikipedia_missing_since`
+  and widens `fights_settled_from_check` with `'cancelled'`. **Not yet
+  applied to production** -- see "Ran live" below.
+- **`planCardReconciliation.ts`** (new, pure, 12 tests): given an event's
+  existing unsettled Wikipedia bouts and which fight ids the current sync
+  actually found present, decides markMissing / cancel (after a 6h grace
+  window past the first miss) / clearMissing per fight. Ignores anything
+  already settled or belonging to a different event/source.
+- **`applyCardReconciliation.ts`** (new, 8 tests): the I/O wrapper --
+  reads the event's existing wiki fights, decides whether this run's
+  parse is trustworthy enough to act on at all (skips entirely, no writes,
+  when the parse dropped a malformed bout, found zero bouts, or found
+  under half the card's existing wiki bout count -- a partial page render,
+  not a real cancellation wave), then applies each action. A cancel never
+  writes `method`/`round` -- a fake method string would leak into Elo
+  (`isResolvedForElo.ts`) and records (`isNoContestOrAmbiguous.ts`) as a
+  rated draw, since both key off method text rather than `settled_from`.
+- **`upsertFight.ts`**: the `"conflict"` result now also carries the
+  disputed fight's own `fightId`, not just the conflict row's id (4 new
+  tests) -- reconciliation must always count a disputed bout as "present"
+  (the sources merely disagree about the opponent; it plainly still
+  exists), never mistake it for one that vanished from the card.
+- **`fetchSchedule.ts`**: reports `skippedBoutCount` (2 new tests) -- a
+  malformed `{{MMAevent bout}}` block used to be silently dropped,
+  indistinguishable from a page with genuinely fewer bouts.
+- **`processScheduleEvent.ts`**: collects every fight id actually found
+  present this run (upserted or disputed) and calls
+  `applyCardReconciliation` after the upsert loop.
+- **Cancelled fights excluded from**: intern picks
+  (`generateInternPicks.ts`), odds candidates (`eligibleUnpricedFights.ts`,
+  2 new tests -- this was the direct cause of the 24 odds conflicts), the
+  rumour scan (`runRumourScanJob.ts`), the scoreboard chalk line
+  (`features/scoreboard/api.ts` -- a cancelled fight has no real favourite
+  to bet chalk on), and the 30-day result-refresh queue
+  (`refreshRecentEventResults.ts` -- generalized to "already settled by
+  any means," not cancellation-specific, so a cancelled bout's card
+  doesn't stay queued for the full window).
+- **Card UI**: a cancelled bout stays on the card (owner's confirmed
+  choice -- a pick shouldn't just silently vanish), greyed
+  (`BoutRow.module.css`'s new `.cancelledRow`), reading "Cancelled — pick
+  voided, stake returned" in place of the result line and in place of the
+  quick-pick controls (`QuickPick.tsx`'s new `cancelled` branch, checked
+  before `disputed`/`locked` since cancellation is a final state, not a
+  hold). `CardBout.cancelled` is derived from `settled_from` in
+  `getCardView`, matching how `disputed` is already passed down as a
+  derived flag rather than a raw row.
+- **Odds noise**: `matchAndSnapshot.ts`'s `low_confidence_odds_match`
+  dedup widened from open-only to open-or-resolved conflicts (2 new
+  tests) -- a resolved one already has an answer and re-queuing it just
+  re-asks a question someone answered. **Considered and rejected**: an
+  absolute confidence floor below which a match is `no_candidates` instead
+  of `low_confidence` -- the pinned `matchFights.test.ts` collision test
+  (Gaethje/Topuria vs. the real Gaethje/Tsarukyan fight) scores at 0.54,
+  and that is exactly the kind of genuine one-shared-fighter ambiguity the
+  conflict queue exists to surface, not noise to suppress. The actual root
+  cause (a cancelled fight becoming the sole remaining "candidate") is
+  already fixed by the `eligibleUnpricedFights.ts` exclusion above.
+
+**Why.** Second sub-phase of Phase M (`ROADMAP.md`), continuing directly
+from M1's live pipeline investigation prompted by the user's Tapology
+question.
+
+**Tests:** written first throughout -- every new pure function and I/O
+wrapper had its test file created and confirmed failing (module missing,
+or the exact reported bug reproduced) before the implementation existed.
+34 new tests total.
+
+**Reviewer pass:** one real design gap, fixed before shipping. This
+function is also reached from `refreshRecentEventResults.ts` (re-pulls
+results for cards up to 30 days finished) and
+`backfillWikipediaHistory.ts` (any historical card), not only
+`syncSchedule.ts`'s still-upcoming loop -- a path the whole grace-window
+design never considered. On a PAST card, a bout can drop out of the live
+`{{MMAevent bout}}` wikitext for reasons that have nothing to do with
+cancellation (editors folding results into prose, trimming prelims long
+after the event), while still being genuinely unsettled for an unrelated
+reason (an open `disputed_opponent` conflict, permanently disagreeing
+sources) -- exactly the "missing twice, 6h+ apart" shape reconciliation
+was built to catch, wrongly. **Fixed:** `applyCardReconciliation` now
+takes the event's date and skips entirely (`event_in_past`) for any
+`eventDate` strictly before today, before any other check -- the same
+`>= today` boundary `syncSchedule.ts`'s own upcoming loop and
+`selectEventsNeedingResultRefresh.ts`'s past-window already use. 2 new
+tests (an already-happened card with a bout missing well past grace is
+untouched; an event happening today still proceeds normally).
+
+Also noted, not fixed (Low severity, opposite direction from the PR's
+concern -- a false NEGATIVE, not money-affecting): if Wikipedia renames an
+event page between two syncs, a bout that was already missing before the
+rename keeps its old-titled `external_id` forever and can never be
+reconciled again, since the prefix filter uses the event's *current*
+title. Rare (mid-lifecycle page rename) and safe to leave for a later
+pass if it's ever actually observed.
+
+Everything else in the reviewer's checklist -- the boundary at exactly
+half-parsed, event-id scoping, `presentFightIds` correctness including
+the disputed-opponent case, partial-run-failure safety, the cancel
+write's CHECK-constraint compatibility, and exclusion completeness across
+every other fight-reading query in the codebase -- checked out with no
+changes needed.
+
+**Ran live:** **not yet -- migration 0044 has NOT been applied to
+production, and no sync run has executed this code against real data.**
+Cancelling a fight voids real picks; per the project's own bulk-mutation
+rule this needs an explicit dry-run and the owner's go-ahead before
+anything writes, not just before code review. The Silva vs. Delgado card
+was checked read-only (SQL, 2026-09-13/14) to confirm Jimenez vs. Vera is
+still the only stuck unsettled bout on that card, matching the scenario
+every test above is built from.
+
+**Not in scope:** M3–M5 (remembered dispute answers/fighter merge,
+settlement cadence, Sherdog auto-disambiguation) -- each its own
+sub-phase, `ROADMAP.md` Phase M. The one-time cleanup of the 24 already-
+open odds conflicts (a data-fix, not a code change) is also deferred to
+the live-run step, since most of them should self-resolve once
+`eligibleUnpricedFights.ts`'s exclusion is live and a sync actually
+cancels Vera.
+
+**Status:** `npx vitest run` (731, +36) / `npx tsc --noEmit` (via
+`npm run build`) / `eslint` / `npm run build` all green, route table
+unchanged.
+
+
+## Phase 81 (M3) — Remembered dispute answers, aliases, fighter merge (2026-09-14)
 
 **What.** "Keep existing" on a `disputed_opponent` conflict recorded
 nothing, so a same-card name variant ("Jose Delgado" → "Jose Miguel
@@ -3529,7 +3868,7 @@ the very next sync -- found live, twice, 2026-09-13. There was also no
 real way to merge two duplicate fighter rows other than one-off, hand-run
 SQL under `supabase/data-fixes/`.
 
-- **`0044_fighter_aliases_and_merge.sql`** (**NOT YET APPLIED to
+- **`0045_fighter_aliases_and_merge.sql`** (**NOT YET APPLIED to
   production** -- see "Ran live" below): new `fighter_aliases` table
   (stores the raw dropped name, not pre-normalized -- see the migration's
   own comment on why that departs from the plan's original
@@ -3621,7 +3960,7 @@ trigger changes were.
 
 **Reviewer pass:** pending -- see next entry once it runs.
 
-**Ran live:** **not yet -- migration 0044 has NOT been applied to
+**Ran live:** **not yet -- migration 0045 has NOT been applied to
 production, and no job has executed this code against real data.**
 Merging two fighters is effectively irreversible (a deleted row, a
 recomputed Elo history) and repoints picks -- per the project's own
@@ -3639,3 +3978,4 @@ gap this phase needs to close.
 **Status:** `npx vitest run` (732, +34) / `npx tsc --noEmit` (via
 `npm run build`) / `eslint` / `npm run build` all green, route table
 unchanged.
+

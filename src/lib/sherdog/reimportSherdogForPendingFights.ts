@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { selectAllPages } from "../supabase/selectAllPages";
+import { selectAllPagesByIds } from "../supabase/selectAllPagesByIds";
 import { importSherdogHistory } from "./importSherdogHistoryJob";
+import { orderSherdogIdsForReimport } from "./orderSherdogIdsForReimport";
 import type { FetchOptions } from "./client";
 
 export interface ReimportPendingSummary {
@@ -66,24 +68,35 @@ export async function reimportSherdogForPendingFights(
   );
   const eventDateById = new Map(events.map((e) => [e.id, e.event_date]));
 
-  const pending = unsettled.filter((f) => {
-    if (f.sherdog_bilateral) return false; // already have a firm Sherdog answer
-    const date = eventDateById.get(f.event_id);
-    return date != null && date <= today; // the fight has actually happened
-  });
+  const pending = unsettled
+    .filter((f) => {
+      if (f.sherdog_bilateral) return false; // already have a firm Sherdog answer
+      const date = eventDateById.get(f.event_id);
+      return date != null && date <= today; // the fight has actually happened
+    })
+    .map((f) => ({
+      fighter1_id: f.fighter1_id,
+      fighter2_id: f.fighter2_id,
+      eventDate: eventDateById.get(f.event_id)!,
+    }));
   summary.pendingFights = pending.length;
   if (pending.length === 0) return summary;
 
   const fighterIds = [...new Set(pending.flatMap((f) => [f.fighter1_id, f.fighter2_id]))];
-  const fighters = await selectAllPages<{ id: string; sherdog_id: number | null }>(
+  const fighters = await selectAllPagesByIds<{ id: string; sherdog_id: number | null }>(
     supabase,
     "fighters",
     "id, sherdog_id",
-    (q) => q.in("id", fighterIds),
+    "id",
+    fighterIds,
   );
-  const sherdogIds = [
-    ...new Set(fighters.map((f) => f.sherdog_id).filter((id): id is number => id != null)),
-  ].slice(0, maxFighters);
+  const sherdogIdByFighterId = new Map(fighters.map((f) => [f.id, f.sherdog_id]));
+  // Newest card's fighters first (reviewer-scoped fix, M4): the previous
+  // Set built straight from an unordered DB fetch capped at an ARBITRARY
+  // subset, which could just as easily leave the newest card -- the one
+  // most likely still waiting on a Sherdog answer -- uncovered while
+  // re-fetching an older one instead.
+  const sherdogIds = orderSherdogIdsForReimport(pending, sherdogIdByFighterId, maxFighters);
 
   for (const sherdogId of sherdogIds) {
     const result = await importSherdogHistory(supabase, { sherdogId, ...fetchOpts });

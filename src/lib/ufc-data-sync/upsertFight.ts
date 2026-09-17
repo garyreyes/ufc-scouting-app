@@ -31,9 +31,17 @@ export interface FightWrite {
 // branch below -- so callers can no longer assume a fight id always comes
 // back. Neither current caller (syncJob.ts, syncSchedule.ts) uses the
 // return value, so this is a safe shape change.
+//
+// M2: the conflict branch now also carries `fightId` -- the DISPUTED
+// fight's own id, i.e. the existing row the incoming bout collided with --
+// alongside the conflict row's id. processScheduleEvent's cancellation
+// reconciliation needs this: a fight under an open dispute must always
+// count as "present" on the page (it plainly is -- the sources merely
+// disagree about who it's against), never be mistaken for a bout that
+// vanished from the card.
 export type UpsertFightResult =
   | { status: "upserted"; fightId: string }
-  | { status: "conflict"; conflictId: string };
+  | { status: "conflict"; conflictId: string; fightId: string };
 
 function sourceReport(fight: FightWrite, existing: ExistingSourceReports, now: string) {
   return buildSourceReportUpdate(
@@ -178,7 +186,7 @@ export async function upsertFight(
       .maybeSingle();
     if (existingError) throw existingError;
     if (existingConflict) {
-      return { status: "conflict", conflictId: existingConflict.id };
+      return { status: "conflict", conflictId: existingConflict.id, fightId: disputed.id };
     }
 
     const { data: conflict, error: conflictError } = await supabase
@@ -200,7 +208,7 @@ export async function upsertFight(
       .select("id")
       .single();
     if (conflictError) throw conflictError;
-    return { status: "conflict", conflictId: conflict.id };
+    return { status: "conflict", conflictId: conflict.id, fightId: disputed.id };
   }
 
   const insertPayload = {
