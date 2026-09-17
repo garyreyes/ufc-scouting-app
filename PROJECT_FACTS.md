@@ -1079,20 +1079,38 @@ Decided 2026-08-29, user-originated.
   position. If a future table needs paging and lacks a UUID `id` primary
   key, this exact approach does not transfer without checking the ordering
   guarantee still holds.
-- **The intern predicts method of victory from base rates + matchup
-  lopsidedness + weight class only — there is NO finish-rate data
-  anywhere in this app.** `predictInternMethod.ts`. API-Sports doesn't
-  serve it, Wikipedia parsing doesn't capture it per-fighter, and
-  nothing derives it. So the method prediction is a stated assumption,
-  not a measurement. If it turns out badly calibrated, the base rates
-  (`BASE` constant) and the two shift magnitudes are the dials — same
-  "first dial to turn" note `flagPenalty.ts` carries. Do not wire in a
-  "fighter finish rate" input on the assumption one exists.
-- **`picks.predicted_method` is a 3-value enum** (`DECISION` / `KO_TKO`
-  / `SUBMISSION`) or null, CHECK-constrained by `0035`. `null` stays
-  valid — "no method called" is a real state for a human pick. The type
-  and labels live in `lib/scoring/fightMethod.ts`; both the form and the
-  intern write through it.
+- **The intern predicts method of victory from the fighters' own Sherdog
+  finish records when both sides have one, falling back to base rates +
+  matchup lopsidedness + weight class when either side doesn't.**
+  `predictInternMethod.ts` (L5, 2026-09-13). Before L5 this used weight
+  class only, which mispredicted Fiorot vs Grasso as a **submission**
+  (women's flyweight → 60% of finishes assumed subs) despite Fiorot's
+  real record being 7 KO / 0 SUB / 6 DEC — logged live 2026-09-13, fixed
+  same day. Now: the picked fighter's own win split and the opponent's
+  own loss split are each shrunk toward the weight-class prior for a
+  small sample (`SHRINKAGE_K`), combined via a geometric mean (one side
+  resisting a finish is enough to drag the fight toward decision), and
+  applied as a **capped** nudge (`MAX_RECORD_FINISH_SHIFT`) plus a
+  **blended** (not fully record-driven, `WEIGHT_CLASS_VOTE`) KO-vs-
+  submission share — both caps exist because an uncapped first version
+  badly over-called finishes, verified live via `methodBacktest.ts`. If
+  either side has no Sherdog history, the original weight-class-only rule
+  applies unchanged. Validated with a read-only backtest
+  (`npm run intern:method-backtest`) against 68 real fights where both
+  sides had a Sherdog record: 74.1% exact-call accuracy vs the old rule's
+  69.1% on the same population. First dials to turn if recalibration is
+  ever needed: `SHRINKAGE_K`, `KO_VS_SUB_THRESHOLD`,
+  `MAX_RECORD_FINISH_SHIFT`, `WEIGHT_CLASS_VOTE` — re-run the backtest
+  after changing any of them. See `DECISIONS.md`.
+- **`picks.predicted_method` is a 4-value enum** (`DECISION` / `KO_TKO`
+  / `SUBMISSION` / `FINISH`) or null, CHECK-constrained by `0035`, widened
+  by `0043` (L5, 2026-09-13). `FINISH` ("ends early, KO or submission,
+  unclear which") is for a genuinely mixed signal — a fighter with a real
+  KO/submission mix, or two conflicting sides — rather than a forced
+  guess. `null` stays valid — "no method called" is a real state for a
+  human pick. The type and labels live in `lib/scoring/fightMethod.ts`;
+  both the form and the intern write through it, so `FINISH` is available
+  to the human pick form too, not intern-only.
 - **Method-of-victory predictions are recorded and displayed but NOT
   scored.** No scoreboard line, no settlement logic touches them. This
   is deliberate — method scoring is a PRD Could-have and its own feature
