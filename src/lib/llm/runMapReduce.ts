@@ -1,5 +1,6 @@
-import type { ModelRequest, ModelResponse, ReservationDecision, VerificationResult } from "./types";
-import type { Degradation } from "./types";
+import type { Degradation, ModelRequest, ModelResponse, ReservationDecision, VerificationResult } from "./types";
+
+export type { Degradation };
 
 export interface MappedUnit<TUnit, TMapClaim> {
   unit: TUnit;

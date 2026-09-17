@@ -13,13 +13,17 @@ async function main() {
     `Rumour scan: event ${summary.eventId ?? "(none upcoming)"}, ${summary.fightsScanned} fights scanned ` +
       `(${summary.llmFights} via LLM, ${summary.heuristicFallbackFights} heuristic fallback, ` +
       `${summary.skippedNoPosts} skipped, ${summary.failedFights} failed), ` +
-      `${summary.flagsWritten} flags written, ${summary.sourcesWritten} sources written.`,
+      `${summary.flagsWritten} flags written, ${summary.sourcesWritten} sources written, ` +
+      `${summary.flagsRetracted}/${summary.proposedRetractions} flags retracted.`,
   );
 
   if (summary.heuristicFallbackFights > 0) {
     console.warn(
       `Degraded: ${summary.heuristicFallbackFights} fight(s) fell back to heuristic clustering this run.`,
     );
+  }
+  if (summary.retractionFailed) {
+    console.warn("Degraded: the retraction pass failed this run -- no flags were reconsidered.");
   }
 }
 

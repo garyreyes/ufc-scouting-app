@@ -1,8 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BlueskyAuthError } from "../bluesky";
 import { fetchNearestUpcomingEventId } from "../events/nearestUpcomingEvent";
+import { createMapReduceDeps } from "../llm/createMapReduceDeps";
+import { describeDegradation } from "../llm/describeDegradation";
+import { proposeCardRetractions } from "./proposeCardRetractions";
 import { scanFightForRumours } from "./scanFightForRumours";
 import type { FightToScan } from "./scanFightForRumours";
+import type { CandidatePost } from "./types";
 
 export interface RumourScanSummary {
   eventId: string | null;
@@ -13,6 +17,14 @@ export interface RumourScanSummary {
   failedFights: number;
   flagsWritten: number;
   sourcesWritten: number;
+  // Phase N3: the card-level retraction pass, run once after every fight
+  // has been scanned. `retractionFailed` is deliberately separate from
+  // `failedFights` above -- a retraction failure never invalidates this
+  // run's real clustering work, so it must never count toward the
+  // "every fight failed" abort check below.
+  proposedRetractions: number;
+  flagsRetracted: number;
+  retractionFailed: boolean;
 }
 
 interface EmbeddedFight {
@@ -72,7 +84,16 @@ export async function runRumourScanJob(supabase: SupabaseClient): Promise<Rumour
     failedFights: 0,
     flagsWritten: 0,
     sourcesWritten: 0,
+    proposedRetractions: 0,
+    flagsRetracted: 0,
+    retractionFailed: false,
   };
+
+  // Deduped the same way collectCandidatePosts (inside
+  // scanFightForRumours.ts) dedupes within one fight -- a post naming
+  // fighters from two different bouts on the same card would otherwise
+  // appear twice in the retraction prompt.
+  const cardPostsByUri = new Map<string, CandidatePost>();
 
   for (const fight of fights) {
     try {
@@ -83,6 +104,7 @@ export async function runRumourScanJob(supabase: SupabaseClient): Promise<Rumour
       else summary.skippedNoPosts++;
       summary.flagsWritten += result.flagsWritten;
       summary.sourcesWritten += result.sourcesWritten;
+      for (const post of result.candidatePosts) cardPostsByUri.set(post.uri, post);
     } catch (err) {
       // A Bluesky auth failure (rate limit or bad credentials) is
       // card-wide, not one fight's bad luck -- every remaining fight would
@@ -98,6 +120,29 @@ export async function runRumourScanJob(supabase: SupabaseClient): Promise<Rumour
 
   if (fights.length > 0 && summary.failedFights === fights.length) {
     throw new Error(`Rumour scan failed for every fight on event ${eventId} (${fights.length}/${fights.length}).`);
+  }
+
+  // Phase N3: one card-level pass, after every fight's own scan, proposing
+  // retractions for flags the real evidence has moved past. Isolated in
+  // its own try/catch -- unlike a Bluesky auth failure above, a bug here
+  // must never invalidate the real clustering work this run already did
+  // and already wrote.
+  if (fights.length > 0) {
+    try {
+      const retractionResult = await proposeCardRetractions(
+        supabase,
+        createMapReduceDeps(supabase),
+        fights,
+        [...cardPostsByUri.values()],
+      );
+      summary.proposedRetractions = retractionResult.proposedRetractions;
+      summary.flagsRetracted = retractionResult.flagsRetracted;
+      const warning = describeDegradation(retractionResult.degradation);
+      if (warning) console.warn(`Degraded (retraction pass): ${warning}`);
+    } catch (err) {
+      summary.retractionFailed = true;
+      console.error("Retraction pass failed:", err);
+    }
   }
 
   return summary;

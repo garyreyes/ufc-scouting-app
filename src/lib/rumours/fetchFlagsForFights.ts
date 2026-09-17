@@ -26,10 +26,14 @@ export async function fetchFlagsForFights(
 ): Promise<FlagWithCount[]> {
   if (fightIds.length === 0) return [];
 
+  // Phase N3: a retracted flag must never contribute to flagPenalty()
+  // again -- this is the fix the whole retraction feature exists for.
+  // See 0048_rumour_flag_retraction.sql.
   const { data: flags, error: flagsError } = await supabase
     .from("rumour_flags")
     .select("id, fight_id, fighter_id, category")
-    .in("fight_id", fightIds);
+    .in("fight_id", fightIds)
+    .is("retracted_at", null);
   if (flagsError) throw flagsError;
   if (!flags || flags.length === 0) return [];
 

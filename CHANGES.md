@@ -4175,3 +4175,82 @@ check used.
 and a genuine bug fix (nothing in `lib/rumours/` currently expires a
 flag once its rumour is retracted; a weight-cut concern from a week ago
 still feeds `flagPenalty()` at full strength today).
+
+## Phase 84 (N3) — Rumour flag retraction: the harness's first real caller, and a real bug fix (2026-09-18)
+
+**What.** Fixed a genuine pre-existing bug found while planning Phase N,
+not introduced by it: nothing in `lib/rumours/` has ever expired a flag
+once its rumour is retracted or resolved. `rumour_flags` only ever
+upserted on `(fight_id, fighter_id, category)` and bumped
+`last_corroborated_at`, so a weight-cut concern from a week ago kept
+feeding `flagPenalty()` at full strength into `estimated_probability`
+indefinitely.
+
+**New card-level retraction pass**, `proposeCardRetractions.ts`, wired
+into `runRumourScanJob.ts` right after the per-fight clustering loop.
+One `runMapReduce` call (Flash Lite) reviews every currently-open flag
+against every post collected across the whole card this run, and
+proposes `{flagId, action, supersededByUri, rationale}` per flag.
+Deliberately skipped entirely (spends nothing) when there are no open
+flags or no posts collected this run.
+
+**Ground-truth checks, none trusting the model's own framing**
+(`retractionChecks.ts`, test-first, 12 tests, mutation-verified): the
+flag is a real, still-open id; the superseding post is a real post from
+this run, never an invented uri; the post is **strictly newer** than
+every existing source already backing that flag — the exact-value case
+this whole feature exists for; and the post's own text actually names
+the flagged fighter (`findFighterMentionInText`, the same two-candidate-
+scoped matcher the clustering path already uses), independent of
+anything the model claims — the claim schema doesn't even carry a
+fighter field, on purpose.
+
+New migration `0048_rumour_flag_retraction.sql`: `retracted_at`,
+`retraction_reason`, `superseded_by_post_uri` on `rumour_flags`, plus a
+check constraint that all three are set together or none are. Nothing
+deleted — a wrong retraction is reversible by nulling three columns.
+`fetchFlagsForFights.ts` (the intern's read path) now excludes retracted
+flags — **correctness-critical**, test-first: the failing test first
+reproduced the real bug (a retracted flag still counted toward
+corroboration) against the *unpatched* code, then passed once the
+`.is("retracted_at", null)` filter was added.
+
+**Deliberately deferred, stated rather than silently dropped**: the
+plan's stretch goal of refactoring `parseClusterResponse.ts`'s hand-rolled
+checks into `ClaimCheck`s (matching `retractionChecks.ts`'s shape) was
+skipped. It's a working, already-tested, already-in-production path —
+the refactor would have been pure consistency, no new capability, and
+`retractionChecks.ts` already proves the harness's pattern generalizes
+for N4's conflict proposals. Revisit only if a real reason (a bug, a
+second caller that needs the same checks) comes up.
+
+**Verified, not assumed:**
+
+- `retractionChecks.ts`'s load-bearing "strictly newer" check mutation-
+  verified: reverting `>` to a version that ignores the comparison
+  reproduced exactly 2 failing tests (the two testing that logic),
+  restored to green.
+- `fetchFlagsForFights.ts`'s fix mutation-verified the honest way — the
+  test was written and run **against the unpatched code first**, and it
+  failed exactly as the real bug predicts (2 flags returned instead of
+  1), before the `.is()` filter was added.
+- Full suite: 892 → 916 passing (24 new), lint clean, build clean.
+- Migration `0048` applied to production (`vrwlfcywyfzfczajpdoh`,
+  confirmed before pushing; dry-run showed only `0048` pending). Verified
+  live: new columns readable; 84 pre-existing open flags unaffected; the
+  consistency constraint genuinely rejects an inconsistent write (tried
+  setting `retraction_reason` alone on a real row, got a real rejection,
+  confirmed the row was unchanged afterward).
+- **Ran the real job against production** (`npx tsx
+  runScheduledRumourJob.ts`): 13/13 fights clustered via LLM as before
+  (unchanged behaviour), then the new retraction pass made exactly one
+  real call (confirmed via `llm_call_log`, `status: ok`), proposing 0
+  retractions — correct, since nothing in this run's freshly-scraped
+  posts contradicted an existing flag. Real prompt size measured:
+  165,143 characters in one call (recorded in `PROJECT_FACTS.md` — this
+  prompt scales with card size × posts/fight, unlike the bounded
+  per-fight clustering prompt, so an unusually large card is worth
+  watching).
+
+**Next:** N4 — conflict proposals for the `/conflicts` queue, propose-only,
+never auto-apply.

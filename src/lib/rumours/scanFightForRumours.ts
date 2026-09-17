@@ -18,6 +18,12 @@ export interface ScanFightResult {
   mode: "llm" | "heuristic" | "skipped_no_posts";
   flagsWritten: number;
   sourcesWritten: number;
+  // Phase N3: the exact posts this scan collected, so runRumourScanJob.ts
+  // can hand them to proposeCardRetractions.ts without a second Bluesky
+  // search -- scanFightForRumours.ts's own docstring already treats
+  // re-searching as an accepted per-run cost for clustering; doing it
+  // AGAIN just for retraction-checking would double it for no reason.
+  candidatePosts: CandidatePost[];
 }
 
 async function collectCandidatePosts(
@@ -65,7 +71,7 @@ export async function scanFightForRumours(
   const candidatePosts = await collectCandidatePosts(fight.fighter1, fight.fighter2);
 
   if (candidatePosts.length === 0) {
-    return { fightId: fight.id, mode: "skipped_no_posts", flagsWritten: 0, sourcesWritten: 0 };
+    return { fightId: fight.id, mode: "skipped_no_posts", flagsWritten: 0, sourcesWritten: 0, candidatePosts: [] };
   }
 
   let flags: ClusteredFlag[];
@@ -122,5 +128,5 @@ export async function scanFightForRumours(
     }
   }
 
-  return { fightId: fight.id, mode, flagsWritten, sourcesWritten };
+  return { fightId: fight.id, mode, flagsWritten, sourcesWritten, candidatePosts };
 }

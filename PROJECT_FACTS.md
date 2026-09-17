@@ -833,6 +833,15 @@ Decided 2026-08-29, user-originated.
   "no" branch, call it for real, and confirm nothing was written. Cheaper
   and more honest than mocking the function, and unlike a read-only
   `explain` it actually executes the function body.
+- **The N3 retraction pass's real prompt size, measured live on a real
+  13-fight card (2026-09-18): 165,143 characters (~41K tokens estimated)
+  in one call.** Unlike the per-fight clustering prompt (bounded at ≤50
+  posts, 2 searches × 25), the card-level retraction prompt lists every
+  post collected across every fight on the card in one call, so its size
+  scales with card size × posts/fight, not a fixed cap. Ran fine — well
+  under Flash Lite's 250K TPM — but the ~6x headroom at a 13-fight card
+  is the only measurement so far; an unusually large card (a stacked
+  international event) is the case to watch, not yet stress-tested.
 
 ## Deliberate non-decisions
 
