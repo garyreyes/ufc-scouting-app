@@ -1254,3 +1254,19 @@ Decided 2026-08-29, user-originated.
   "is this the same name" comparison happens in JS (`normalizeName()`,
   `upsertFighter.ts`), matching this codebase's standing rule that every
   name-matching decision lives in TypeScript, never SQL.
+- **Migration `0043_predicted_method_finish.sql` was applied to production
+  before Phase M started, but belonged to a still-open, unmerged PR (#66,
+  L5) -- `main`'s own migration folder never had the file, even though the
+  live database genuinely had the schema change.** Found by `supabase db
+  push --dry-run` before running M2/M3's `0044`/`0045`: it refused with
+  "Remote migration versions not found in local migrations directory,"
+  correctly catching real drift rather than a false alarm. Fixed by
+  pulling just that one file from the L5 branch into `main` (a tiny,
+  separate PR, no other L5 code) -- not by `migration repair --status
+  reverted`, which would have told the tracker something false (0043 is
+  genuinely applied) and risked a later push trying to re-run DDL that
+  already succeeded. **Lesson:** when `db push --dry-run` reports a
+  remote-only migration, check whether it's real drift from a merged-but-
+  undocumented change before ever touching `migration repair` -- reverting
+  the tracker is for a migration that was truly rolled back, not one
+  that's just missing from the branch you happen to be on.
