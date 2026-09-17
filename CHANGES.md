@@ -3644,3 +3644,84 @@ an overlapping run rather than cancelling one mid-write.
 `npm run build` all green, route table unchanged. Branched fresh off
 `origin/main` per Phase M's own convention — independent PR, no
 merge-order dependency on M1/M2/M3.
+
+## Phase 79 (M5) — Sherdog auto-disambiguation via history corroboration (2026-09-17)
+
+**What.** New `historyCorroborates.ts` (pure, test-first, mutation-verified):
+does a Sherdog candidate's own pro fight history contain a bout against
+one of our fighter's KNOWN opponents (from our own `fights` table) within
+±10 days of the date we already have for that matchup? A strictly
+stronger identity signal than name similarity — it doesn't care what a
+candidate's name looks like, only whether the same career actually
+happened.
+
+Wired into two places:
+
+1. **`resolveSherdogIdentityJob.ts`** (new fighters): before either
+   existing fallback (queue, or the old pro-fight-count ambiguous
+   tie-break), tries history corroboration across every returned
+   candidate (capped at 20 — Sherdog's own search-results ceiling, and
+   the exact count on the real David Martínez conflict below). Auto-
+   matches only when exactly one candidate corroborates.
+2. **New `resolveOpenSherdogConflictsJob.ts`**: re-examines every OPEN
+   `low_confidence_sherdog_match` conflict already sitting in
+   `data_conflicts` against its own already-snapshotted candidate list —
+   no new Sherdog search needed. Wired into `sherdog.yml` right after
+   identity resolution. Skips `guard_mismatch` conflicts deliberately —
+   a different, riskier question ("is this one already-rejected candidate
+   secretly right") this feature doesn't try to answer.
+
+**Verified live before building anything, and again after:** inspected
+the real open conflicts via a throwaway read-only script (deleted before
+commit) — 10 open `low_confidence_sherdog_match` conflicts in production,
+matching the roadmap's own claim (common names: David Martínez, 20 tied
+candidates; nickname-only storage: "Renato Moicano" → Sherdog's "Renato
+Carneiro", "Patrício Pitbull" → Sherdog's "Patricio Freire"). Fetched the
+real Sherdog page for "Patricio Freire" (id 9960) and confirmed its real
+history lists bouts against Aaron Pico (2026-04-11), Dan Ige
+(2025-07-19), and Yair Rodríguez (2025-04-12) — all matching our own
+`fights` rows for "Patrício Pitbull" almost to the day, even though
+Freire's own name similarity to "Patrício Pitbull" (0.55) is LOWER than
+the wrong namesake candidate's (0.59, "Patricio Lima") — the concrete
+case that motivated building this rather than tightening the name
+threshold.
+
+After building both pieces, ran the new sweep job's `--dry-run` against
+production for real: **10 checked, 10 auto-resolved, 0 failed** — every
+open conflict, including the 20-candidate David Martínez case,
+corroborates to exactly one candidate. Not yet run for real; needs the
+user's explicit go-ahead first, same discipline as every other Phase M
+data-mutating job.
+
+**A real bug caught while writing this, not by the reviewer:** the sweep
+job's own dry-run initially printed "would auto-resolve" for all 10 while
+its summary line reported `0 auto-resolved` — the counter increment was
+placed after the dry-run `continue`, so dry-run mode never actually
+counted what it just logged. Fixed by counting before the dry-run
+short-circuit and only after a real write succeeds otherwise, matching
+`resolveSherdogIdentityJob.ts`'s own established shape for the same
+dry-run/live split.
+
+**Status:** `npx vitest run` (709, +10 across `historyCorroborates.test.ts`
+and `resolveOpenSherdogConflictsJob.test.ts`) / `npx tsc --noEmit` /
+`eslint` / `npm run build` all green, route table unchanged. Branched
+fresh off `origin/main` per Phase M's own convention.
+
+**Reviewer found no correctness bugs in the matching logic** (date
+parsing, name matching, corroboration threshold, control flow), but
+flagged two real operational issues, both fixed before merge:
+
+1. `sherdog.yml`'s sweep step (`resolveOpenSherdogConflictsJob.ts`) ran
+   right after identity resolution — guaranteed, not hypothetical, that
+   any fighter newly queued that same run had its full candidate set
+   fetched twice back-to-back (once by the identity job's own history-
+   corroboration attempt, once by the sweep re-examining the conflict it
+   just opened). Fixed by reordering: the sweep now runs FIRST, so it
+   only ever touches conflicts at least one run old.
+2. The sweep's final `data_conflicts` update had no `resolved_at IS NULL`
+   re-check, unlike the manual action it's patterned after — a real gap
+   given its loop does up to 20 rate-limited Sherdog fetches between the
+   initial select and that final write (the manual action's own window
+   is instant, no I/O in between). Fixed by adding the re-check: a
+   concurrent manual `/conflicts` resolution now wins instead of being
+   silently overwritten.

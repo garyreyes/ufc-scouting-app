@@ -32,6 +32,25 @@ jobs:
 
       - run: npm ci
 
+      # 0b (M5). Re-examine every OPEN low_confidence_sherdog_match
+      #     conflict from a PRIOR run against its own already-snapshotted
+      #     candidate list -- no new Sherdog search needed. Runs BEFORE
+      #     step 1 deliberately (reviewer finding): step 1's own history-
+      #     corroboration attempt already re-fetches a fighter's full
+      #     candidate set before ever opening a new conflict for it, so
+      #     running this sweep afterward would guarantee re-fetching the
+      #     identical pages a second time, same run, for every fighter
+      #     newly queued today -- pure waste, worse the more candidates a
+      #     name has (David Martínez's 20 would cost 40 fetches instead of
+      #     20). Running first means this sweep only ever touches
+      #     conflicts at least one run old. job_runs:
+      #     "sherdog_open_conflict_resolution".
+      - name: Auto-resolve open Sherdog match conflicts (history corroboration)
+        run: npx tsx src/lib/sherdog/runResolveOpenSherdogConflictsJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       # 1. Link fighters on newly-announced cards to their Sherdog id.
       #    Auto-matches a confident name hit (guard-verified), runs the
       #    fight-count tie-break on exact-name ties, opens a
