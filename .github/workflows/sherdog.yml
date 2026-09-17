@@ -36,6 +36,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
+      # 1b (M5). Re-examine every OPEN low_confidence_sherdog_match
+      #     conflict (including ones opened long before this feature
+      #     existed) against its own already-snapshotted candidate list --
+      #     no new Sherdog search needed. Right after step 1 so a
+      #     same-run auto-match feeds nothing stale into it. job_runs:
+      #     "sherdog_open_conflict_resolution".
+      - name: Auto-resolve open Sherdog match conflicts (history corroboration)
+        run: npx tsx src/lib/sherdog/runResolveOpenSherdogConflictsJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       # 2. Import the full career for any fighter just linked (and not
       #    yet imported). job_runs: "sherdog_history_import".
       - name: Import Sherdog history (new)

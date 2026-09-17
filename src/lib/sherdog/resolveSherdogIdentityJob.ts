@@ -3,6 +3,7 @@ import { selectAllPages } from "../supabase/selectAllPages";
 import { fetchFighterHtmlById, type FetchOptions } from "./client";
 import { parseFighterName } from "./parseFighterPage";
 import { searchSherdogFighters } from "./searchFighters";
+import type { SherdogSearchCandidate } from "./parseSearch";
 import {
   AMBIGUOUS_TIEBREAK_MAX_CANDIDATES,
   decideSherdogIdentity,
@@ -10,13 +11,16 @@ import {
   rankSherdogCandidates,
   tiedTopCandidates,
 } from "./resolveSherdogIdentity";
-import { parseFightHistory } from "./parseFightHistory";
+import { parseFightHistory, type SherdogHistoryFight } from "./parseFightHistory";
 import { sherdogNameMatchesExpected } from "./identityGuard";
 import { buildSherdogConflictInsert, buildSherdogIdentityUpdate } from "./buildSherdogIdentityWrites";
+import { historyCorroborates, type KnownOpponentBout } from "./historyCorroborates";
+import { fetchKnownOpponentBouts } from "./fetchKnownOpponentBouts";
 
 export interface SherdogIdentitySummary {
   attempted: number;
   matched: number;
+  historyMatched: number; // of `matched`, how many via M5's history corroboration
   queued: number; // low_confidence_sherdog_match conflicts opened
   guardRejected: number; // search matched but the fetched page's name did not -- also queued
   noCandidates: number;
@@ -70,6 +74,7 @@ export async function resolveUpcomingCardSherdogIds(
   const summary: SherdogIdentitySummary = {
     attempted: 0,
     matched: 0,
+    historyMatched: 0,
     queued: 0,
     guardRejected: 0,
     noCandidates: 0,
@@ -131,6 +136,27 @@ export async function resolveUpcomingCardSherdogIds(
         if (dryRun) console.log(`  no Sherdog result   ${fighter.name}`);
         notFound.push(fighter.id);
         continue;
+      }
+
+      if (decision.kind === "low_confidence") {
+        // M5: before either fallback below, try history corroboration
+        // across EVERY returned candidate (not just the name-tied top
+        // ones) -- a strictly stronger signal than name similarity, and
+        // the only thing that can ever resolve a pure nickname-storage
+        // mismatch (name similarity never clears any threshold for that
+        // case, no matter how correct the match actually is).
+        const historyMatch = await tryHistoryCorroboration(supabase, fighter, candidates, fetchOpts);
+        if (historyMatch) {
+          summary.matched++;
+          summary.historyMatched++;
+          if (dryRun) {
+            console.log(
+              `  auto-match (history)  ${fighter.name} -> #${historyMatch} (${decision.reason})`,
+            );
+          }
+          if (!dryRun) await writeMatch(supabase, fighter.id, historyMatch, checkedAt);
+          continue;
+        }
       }
 
       if (decision.kind === "low_confidence" && decision.reason === "below_threshold") {
@@ -232,6 +258,7 @@ interface PageFacts {
   pageName: string;
   guardPassed: boolean;
   proFightCount: number;
+  history: SherdogHistoryFight[];
 }
 
 async function pageFacts(
@@ -241,11 +268,55 @@ async function pageFacts(
 ): Promise<PageFacts> {
   const html = await fetchFighterHtmlById(sherdogId, fetchOpts);
   const pageName = parseFighterName(html) ?? "";
+  const history = parseFightHistory(html);
   return {
     pageName,
     guardPassed: sherdogNameMatchesExpected(storedName, pageName),
-    proFightCount: parseFightHistory(html).length,
+    proFightCount: history.length,
+    history,
   };
+}
+
+// M5: bounds the number of candidate-page fetches history corroboration
+// will attempt for one fighter. 20 covers every real case seen live
+// (David Martínez's own open conflict has exactly 20 -- Sherdog's own
+// search results cap) with no margin needed beyond it; a fighter with
+// MORE than 20 same-name candidates gets no history check and falls
+// through to the existing behavior unchanged, same fail-safe posture as
+// the pro-fight-count tie-break's own AMBIGUOUS_TIEBREAK_MAX_CANDIDATES.
+const HISTORY_CORROBORATION_MAX_CANDIDATES = 20;
+
+/**
+ * M5: fetch every candidate's page (bounded, see above) and return the
+ * sherdog_id of the ONE candidate whose real fight history corroborates
+ * one of our fighter's own known bouts -- or null if zero or more than
+ * one candidate corroborates (an actual tie between two real corroborated
+ * careers is not this function's call to make; it goes to review like
+ * any other unresolved ambiguity).
+ *
+ * Deliberately does not apply identityGuard.ts's page-name check here:
+ * the whole point of this path is the case where the page's own name
+ * legitimately does NOT match our stored name (a nickname we store
+ * instead of the legal name Sherdog uses, or vice versa) -- that guard
+ * would reject the exact fix this function exists to make.
+ */
+async function tryHistoryCorroboration(
+  supabase: SupabaseClient,
+  fighter: { id: string; name: string },
+  candidates: SherdogSearchCandidate[],
+  fetchOpts: FetchOptions,
+): Promise<number | null> {
+  if (candidates.length === 0 || candidates.length > HISTORY_CORROBORATION_MAX_CANDIDATES) return null;
+
+  const knownBouts: KnownOpponentBout[] = await fetchKnownOpponentBouts(supabase, fighter.id);
+  if (knownBouts.length === 0) return null; // nothing to corroborate against yet
+
+  const corroborated: number[] = [];
+  for (const candidate of candidates) {
+    const facts = await pageFacts(candidate.sherdogId, fighter.name, fetchOpts);
+    if (historyCorroborates(knownBouts, facts.history)) corroborated.push(candidate.sherdogId);
+  }
+  return corroborated.length === 1 ? corroborated[0] : null;
 }
 
 async function writeMatch(
