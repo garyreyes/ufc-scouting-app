@@ -72,6 +72,43 @@ miscalibrated: the cap (0.04), then the window edges, then the youth weight.
 
 ---
 
+## 2026-09-13 — Tapology-Scraper rejected as a data source (Phase M)
+
+**Decision.** github.com/ehan03/Tapology-Scraper will not be adopted, and
+Tapology will not be scraped by any other means, to address the user's three
+standing complaints (slow settlement, cancelled bouts lingering, recurring
+conflicts).
+
+**Why.** Checked the repo directly rather than taking the suggestion on
+faith: its `items.py` collects event/bout/fighter identity fields only — no
+winner, method, round, or stats field exists anywhere in its schema, so it
+cannot address any of the three complaints even in principle. It only reads
+Tapology's *results* pages, never upcoming cards, so it structurally can't
+catch a cancellation either. It has 5 commits, all from December 2023, and
+the author states "I will not be updating this repository." It also turns
+off robots.txt compliance and rotates fake user agents to get around
+Tapology's anti-bot defences; Tapology's own robots.txt blocks
+`ClaudeBot`/`Claude-Web`/`anthropic-ai` by name. `PROJECT_FACTS.md` (G1b,
+2026-09-02) had already ruled out Tapology for the same reason.
+
+**Real root causes, found instead by reading this project's own pipeline**
+(all measured live, 2026-09-13): `processScheduleEvent.ts` never reconciles
+a bout removed from its Wikipedia source page (→ M2); resolving a
+`disputed_opponent` conflict as "keep existing" records nothing, so a
+same-card name variant reopens on the next sync (→ M3); `sync.yml`'s cron
+runs ~3h late live, compounding the existing 24h single-source wait (→ M4);
+9 Sherdog identity conflicts are common-name or nickname-only cases a
+history cross-check could resolve (→ M5). See `ROADMAP.md` Phase M.
+
+**Alternatives considered.**
+- Building a fresh Tapology scraper from scratch — rejected for the same
+  ToS/anti-bot reason as the existing one, independent of code quality.
+- Wikidata's P2818 ("Sherdog fighter ID") property — not rejected, kept as
+  an optional M5b spike. Different profile entirely: CC0-licensed structured
+  data via SPARQL, no scraping, no ToS conflict. Verified live (4,797
+  fighters; resolved 3 of the session's 9 open Sherdog ambiguities by label)
+  before being added to the plan at all, per `verification-spike`.
+
 ## 2026-09-14 — M2: cancelled-bout UX, and when to trust "it's gone"
 
 **Decision (confirmed with the owner).** A cancelled bout stays visible on

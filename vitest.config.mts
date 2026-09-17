@@ -13,4 +13,16 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  test: {
+    // M1: features/fighters/api.ts (and other lib/db.ts importers) build
+    // the Supabase client at module scope, so importing them in a test
+    // throws requireEnv's error before any test body runs -- even though
+    // every test injects its own fake client and never touches the real
+    // one. Dummy values only; createClient never makes a network call at
+    // construction time, so no real Supabase project is contacted.
+    env: {
+      NEXT_PUBLIC_SUPABASE_URL: "https://test-project.supabase.co",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
+    },
+  },
 });
