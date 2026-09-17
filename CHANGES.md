@@ -3600,3 +3600,47 @@ the dummy test env vars — checked out with no changes needed.
 **Status:** `npx vitest run` (722, +25) / `npx tsc --noEmit` (via
 `npm run build`) / `eslint` / `npm run build` all green, route table
 unchanged.
+
+## Phase 78 (M4) — settlement cadence (2026-09-17)
+
+**What.** New `.github/workflows/settle.yml`: hourly, Saturday through
+Monday UTC, running only `runSettlementJobs.ts` (no API-Sports or
+Wikipedia calls, so no quota cost) so a 24h single-source settlement
+timeout no longer has to wait for `sync.yml`'s next twice-daily run to
+actually fire. `runSettlementJobs.ts` gains a `--sherdog-reimport-cap=<n>`
+flag; `settle.yml` passes `30` (vs. the default 12) since it has no sync
+step competing for its time budget.
+
+**Verified live before building anything:** `gh run list --workflow=sync.yml`
+on real recent runs showed the 00:00/12:00 UTC cron actually landing
+02:55–03:11 and 15:32–17:34 UTC — 3–5.5h late, GitHub Actions' own
+schedule-queuing delay, not a hypothetical. Stacked on the up-to-12h gap
+between runs, a fight settling only on the 24h single-source timeout
+could previously sit stale for well over 24h before `sync.yml` next
+checked it. The 24h rule itself is unchanged.
+
+**Reordering fix.** `reimportSherdogForPendingFights.ts`'s per-run cap
+previously applied to a `Set` built from an unordered DB fetch — an
+effectively arbitrary subset, which could leave the newest card (the one
+most likely still waiting on a Sherdog answer) uncovered while
+re-fetching an older one instead. Extracted the ordering rule into a new
+pure function, `orderSherdogIdsForReimport.ts` (test-first, 5 tests,
+mutation-verified — reversing the sort direction failed 3 of the 5): sort
+pending fights newest-event-first, dedupe fighters in that order, map to
+sherdog ids, then cap. `reimportSherdogForPendingFights.ts` now calls it
+instead of building the Set inline — merged cleanly alongside M1's own
+`selectAllPagesByIds` change to the same function; both fixes now apply
+together.
+
+**Concurrency guard.** `sync.yml`, `sherdog.yml`, and the new `settle.yml`
+all write overlapping tables (`fighters`, `fights`, `picks`,
+`fighter_elo_history`) and previously had no protection against running
+at the same time — a real, not hypothetical, risk once an hourly job
+exists alongside two scheduled ones. Added a shared `concurrency: {group:
+ufc-data-write, cancel-in-progress: false}` block to all three — queues
+an overlapping run rather than cancelling one mid-write.
+
+**Status:** `npx vitest run` (704, +5) / `npx tsc --noEmit` / `eslint` /
+`npm run build` all green, route table unchanged. Branched fresh off
+`origin/main` per Phase M's own convention — independent PR, no
+merge-order dependency on M1/M2/M3.

@@ -76,12 +76,24 @@ async function runOptionalStep<T>(
   }
 }
 
-export async function runSettlementJobsOnce(supabase: SupabaseClient): Promise<SettlementJobsSummary> {
+export interface RunSettlementJobsOnceOptions {
+  // M4: settle.yml's hourly weekend run has no other jobs competing for
+  // its time budget (unlike sync.yml's twice-daily run, which also does
+  // both syncs), so it can afford to look further into the pending
+  // backlog per invocation. See reimportSherdogForPendingFights.ts's own
+  // comment on the per-fighter time cost this is bounded by.
+  sherdogReimportMaxFighters?: number;
+}
+
+export async function runSettlementJobsOnce(
+  supabase: SupabaseClient,
+  opts: RunSettlementJobsOnceOptions = {},
+): Promise<SettlementJobsSummary> {
   const sherdogReimport = await runOptionalStep(
     supabase,
     "sherdog_reimport_pending",
     EMPTY_REIMPORT,
-    () => reimportSherdogForPendingFights(supabase),
+    () => reimportSherdogForPendingFights(supabase, { maxFighters: opts.sherdogReimportMaxFighters }),
   );
   const sherdogResults = await runOptionalStep(
     supabase,
