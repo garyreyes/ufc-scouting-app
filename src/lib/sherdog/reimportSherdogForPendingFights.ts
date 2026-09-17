@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { selectAllPages } from "../supabase/selectAllPages";
+import { selectAllPagesByIds } from "../supabase/selectAllPagesByIds";
 import { importSherdogHistory } from "./importSherdogHistoryJob";
 import { orderSherdogIdsForReimport } from "./orderSherdogIdsForReimport";
 import type { FetchOptions } from "./client";
@@ -82,11 +83,12 @@ export async function reimportSherdogForPendingFights(
   if (pending.length === 0) return summary;
 
   const fighterIds = [...new Set(pending.flatMap((f) => [f.fighter1_id, f.fighter2_id]))];
-  const fighters = await selectAllPages<{ id: string; sherdog_id: number | null }>(
+  const fighters = await selectAllPagesByIds<{ id: string; sherdog_id: number | null }>(
     supabase,
     "fighters",
     "id, sherdog_id",
-    (q) => q.in("id", fighterIds),
+    "id",
+    fighterIds,
   );
   const sherdogIdByFighterId = new Map(fighters.map((f) => [f.id, f.sherdog_id]));
   // Newest card's fighters first (reviewer-scoped fix, M4): the previous

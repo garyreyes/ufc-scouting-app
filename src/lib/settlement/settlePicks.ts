@@ -3,6 +3,8 @@ import { fightOutcomeFromSettledFight } from "../scoring/fightOutcomeFromSettled
 import { scorePickCorrect } from "../scoring/scorePickCorrect";
 import { scoreBetPnl } from "../scoring/scoreBetPnl";
 import { priceForFighter } from "../scoring/priceForFighter";
+import { selectAllPages } from "../supabase/selectAllPages";
+import { selectAllPagesByIds } from "../supabase/selectAllPagesByIds";
 
 export interface SettlePicksSummary {
   picksSettled: number;
@@ -25,50 +27,58 @@ export interface SettlePicksSummary {
  * Writes go through the service-role admin client, the only role
  * 0022's trigger allows to set these three columns at all -- see that
  * migration's own comment on why (and how it's verified, not assumed).
+ *
+ * M1: the unsettled-picks read is paged with selectAllPages (a plain
+ * `.select()` truncates at PostgREST's row cap with no error), and the
+ * fights/odds_snapshots lookups go through selectAllPagesByIds so their
+ * `.in()` lists are chunked instead of growing unbounded with the number
+ * of unsettled picks.
  */
 export async function settlePicks(supabase: SupabaseClient): Promise<SettlePicksSummary> {
   const now = new Date().toISOString();
 
-  const { data: unsettledPicks, error: picksError } = await supabase
-    .from("picks")
-    .select("id, fight_id, predicted_fighter_id, bet_fighter_id, stake_units")
-    .is("settled_at", null);
-  if (picksError) throw picksError;
-  if (!unsettledPicks || unsettledPicks.length === 0) {
+  const unsettledPicks = await selectAllPages<{
+    id: string;
+    fight_id: string;
+    predicted_fighter_id: string;
+    bet_fighter_id: string | null;
+    stake_units: number | null;
+  }>(supabase, "picks", "id, fight_id, predicted_fighter_id, bet_fighter_id, stake_units", (q) =>
+    q.is("settled_at", null),
+  );
+  if (unsettledPicks.length === 0) {
     return { picksSettled: 0, fightsProcessed: 0 };
   }
 
-  const fightIds = [...new Set(unsettledPicks.map((p) => p.fight_id as string))];
-  const { data: fights, error: fightsError } = await supabase
-    .from("fights")
-    .select("id, fighter1_id, fighter2_id, winner_id, settled_at")
-    .in("id", fightIds);
-  if (fightsError) throw fightsError;
+  const fightIds = [...new Set(unsettledPicks.map((p) => p.fight_id))];
+  const fights = await selectAllPagesByIds<{
+    id: string;
+    fighter1_id: string;
+    fighter2_id: string;
+    winner_id: string | null;
+    settled_at: string | null;
+  }>(supabase, "fights", "id, fighter1_id, fighter2_id, winner_id, settled_at", "id", fightIds);
 
-  const settledFightById = new Map(
-    (fights ?? []).filter((f) => f.settled_at !== null).map((f) => [f.id as string, f]),
-  );
+  const settledFightById = new Map(fights.filter((f) => f.settled_at !== null).map((f) => [f.id, f]));
 
-  const picksToSettle = unsettledPicks.filter((p) => settledFightById.has(p.fight_id as string));
+  const picksToSettle = unsettledPicks.filter((p) => settledFightById.has(p.fight_id));
   if (picksToSettle.length === 0) {
     return { picksSettled: 0, fightsProcessed: 0 };
   }
 
   const betFightIds = [
-    ...new Set(picksToSettle.filter((p) => p.bet_fighter_id !== null).map((p) => p.fight_id as string)),
+    ...new Set(picksToSettle.filter((p) => p.bet_fighter_id !== null).map((p) => p.fight_id)),
   ];
-  const { data: oddsRows, error: oddsError } =
-    betFightIds.length === 0
-      ? { data: [], error: null }
-      : await supabase
-          .from("odds_snapshots")
-          .select("fight_id, fighter1_price, fighter2_price")
-          .in("fight_id", betFightIds);
-  if (oddsError) throw oddsError;
+  const oddsRows = await selectAllPagesByIds<{
+    id: string;
+    fight_id: string;
+    fighter1_price: number;
+    fighter2_price: number;
+  }>(supabase, "odds_snapshots", "id, fight_id, fighter1_price, fighter2_price", "fight_id", betFightIds);
   const oddsByFightId = new Map(
-    (oddsRows ?? []).map((row) => [
-      row.fight_id as string,
-      { fighter1_price: row.fighter1_price as number, fighter2_price: row.fighter2_price as number },
+    oddsRows.map((row) => [
+      row.fight_id,
+      { fighter1_price: row.fighter1_price, fighter2_price: row.fighter2_price },
     ]),
   );
 

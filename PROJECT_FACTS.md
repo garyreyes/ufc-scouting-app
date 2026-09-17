@@ -1176,3 +1176,37 @@ Decided 2026-08-29, user-originated.
   (`ROADMAP.md` L4-fix): the first run ever inside the intern's lock
   window reported "13 failed, 0 already locked". Read `message` off any
   object that has one, not only `Error` instances.
+- **`fights` crossed PostgREST's row cap live (M1, 2026-09-13): 1,044
+  rows > 1,000.** `fetchUnpricedFights` (`lib/odds/eligibleUnpricedFights.ts`)
+  was reading it with a plain `.select()` and silently returning ~998
+  fights instead of 1,047 unpriced ones (SQL ground truth), with no
+  error anywhere in the chain — exactly the class of bug `CLAUDE.md`'s
+  new db-read-safety section exists to catch. Fixed by switching to
+  `selectAllPages`; the fix was verified live (read-only) against
+  production: `fetchUnpricedFights` now returns 1,017, matching
+  `count(fights) - count(odds_snapshots) = 1044 - 27`. `upsertFighter.ts`'s
+  fold-match scan (822 fighters, one growth cycle from the same cap) and
+  `sweepLatentDisputedOpponents.ts` (a one-time backfill script, kept
+  correct in case it's ever re-run) got the same fix pre-emptively, before
+  either actually failed. **A second, separate bug found in the same
+  fold-match scan:** `upsertFighter`'s exact-name lookup used
+  `.maybeSingle()`, which *throws* on two case-insensitively matching rows
+  instead of resolving them — the tie-break logic already existed a few
+  lines below for the fold-match branch (prefer the row with an
+  `external_id`, else lowest `id`) but the plain-name-match branch didn't
+  use it. Extracted into `pickCanonicalFighter.ts` and reused by both
+  branches. `RETROSPECTIVE.md`'s five db-read-safety rules are now also in
+  `CLAUDE.md` (previously only in `RETROSPECTIVE.md`, where a project's
+  actual working rules shouldn't have to live).
+- **Testing a `features/*/api.ts` file that imports the `lib/db.ts`
+  singleton throws at import time, not at call time** (found live, M1):
+  `createClient()` runs at module scope and `requireEnv` throws
+  immediately if the real Supabase env vars aren't set, so a test can't
+  even import the file to inject a fake client. Fixed generally —
+  `vitest.config.mts` now sets dummy `NEXT_PUBLIC_SUPABASE_*` values for
+  the whole test run (safe: `createClient` never makes a network call at
+  construction, and every test still injects and asserts against its own
+  fake) — and specifically for `features/fighters/api.ts`'s `getFighters`,
+  which now takes an optional injected client (default: the singleton),
+  the same DI pattern every other tested I/O function in this codebase
+  already uses.
