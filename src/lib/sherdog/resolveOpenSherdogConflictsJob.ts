@@ -106,10 +106,19 @@ export async function resolveOpenSherdogConflicts(
         if (fightersError) throw fightersError;
       }
 
+      // Reviewer finding: unlike the manual action this pattern is
+      // copied from, there's a real gap here for a concurrent write to
+      // land in -- the loop above does up to 20 rate-limited Sherdog
+      // fetches between the initial select and this update, a much
+      // wider window than the manual action's instant one. Re-checking
+      // resolved_at IS NULL here means a human resolving the same
+      // conflict via /conflicts mid-loop wins; this write is silently
+      // skipped (0 rows matched) instead of overwriting their choice.
       const { error: conflictError } = await supabase
         .from("data_conflicts")
         .update(resolution.conflictUpdate)
-        .eq("id", row.id);
+        .eq("id", row.id)
+        .is("resolved_at", null);
       if (conflictError) throw conflictError;
 
       summary.resolved++;

@@ -3581,3 +3581,22 @@ dry-run/live split.
 and `resolveOpenSherdogConflictsJob.test.ts`) / `npx tsc --noEmit` /
 `eslint` / `npm run build` all green, route table unchanged. Branched
 fresh off `origin/main` per Phase M's own convention.
+
+**Reviewer found no correctness bugs in the matching logic** (date
+parsing, name matching, corroboration threshold, control flow), but
+flagged two real operational issues, both fixed before merge:
+
+1. `sherdog.yml`'s sweep step (`resolveOpenSherdogConflictsJob.ts`) ran
+   right after identity resolution — guaranteed, not hypothetical, that
+   any fighter newly queued that same run had its full candidate set
+   fetched twice back-to-back (once by the identity job's own history-
+   corroboration attempt, once by the sweep re-examining the conflict it
+   just opened). Fixed by reordering: the sweep now runs FIRST, so it
+   only ever touches conflicts at least one run old.
+2. The sweep's final `data_conflicts` update had no `resolved_at IS NULL`
+   re-check, unlike the manual action it's patterned after — a real gap
+   given its loop does up to 20 rate-limited Sherdog fetches between the
+   initial select and that final write (the manual action's own window
+   is instant, no I/O in between). Fixed by adding the re-check: a
+   concurrent manual `/conflicts` resolution now wins instead of being
+   silently overwritten.
