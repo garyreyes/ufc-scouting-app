@@ -4101,3 +4101,77 @@ the live re-run of M3.
 
 **Ran live:** migration not yet applied at time of writing — needs the
 owner's go-ahead per `CLAUDE.md`, same as every other migration.
+
+## Phase 83 (N1-N2) — llm/ map-reduce harness; strong-tier design dropped after a live spike (2026-09-18)
+
+**What prompted this.** A request to apply a map-reduce pattern (many
+cheap calls, one stronger call for the final decision, ground-truth
+verification against hallucination) to AI-assisted work in the app.
+Exploration found picks are deliberately deterministic, not LLM-driven
+(`ARCHITECTURE.md` Fork 10), and the only existing LLM call is the
+rumour-clustering path (`lib/llm.ts`) — so the pattern was redirected onto
+three real surfaces instead: rumours (retraction, N3), the `data_conflicts`
+queue (advisory proposals, N4), and a shadow-only scouting layer measured
+against the deterministic rule on Brier score (N5-N9), never assumed to
+replace it. Full plan and reasoning in `DECISIONS.md`'s N1 entry.
+
+**N1 — verification spike, live, before any code.** Re-measured Gemini's
+free tier 16 days after the original F1 measurement. The two-tier design
+(a cheap "map" model, a stronger "reduce" model) was dropped entirely: 4
+of 6 full-Flash calls returned `503 UNAVAILABLE`, latency was 9.7–19.3s
+vs ~0.9s for Flash Lite, and two trap-laden card-level consolidation
+tasks showed no reproducible quality gap between tiers. **Every call now
+goes to `gemini-3.5-flash-lite`.**
+
+The dashboard check that followed moved the real constraint: RPD sat at
+56/500 (11%), but **RPM was 14/15 (93%)** — production was already
+nearing the limit the strong tier's removal made irrelevant. The cause is
+structural (`runRumourScanJob.ts` issues one call per fight, serially,
+~1s apart, over a ~14-fight card) and pre-existing, not introduced by this
+work. Also confirmed live: `temperature: 0` + `topK: 1` give
+byte-identical repeats without breaking JSON parsing (every call before
+this ran at the default temperature of 1.0); no dated/pinnable model id
+exists, so a silent model swap can't be prevented, only made auditable via
+the response's own version field; RPD resets at midnight Pacific.
+
+**N2 — the harness.** `lib/llm.ts` split into `lib/llm/`: one wrapper
+(`geminiClient.ts`, the only file that knows the base URL/API key/model
+id), a generic `runMapReduce` orchestrator built to serve rumours,
+conflicts, and scouting from the same code with zero network/Supabase
+dependency of its own, a generalized claim verifier (`verifyClaims.ts`,
+generalizing what `parseClusterResponse.ts` already hand-rolled), and a
+Postgres-backed budget allocator.
+
+New migration `0047_llm_call_log.sql`: `llm_call_log` table plus
+`try_reserve_llm_call()`, a `security definer` function that atomically
+counts-and-inserts so two concurrent job runs can't both pass the daily
+cap or both fire inside the 4.2s minimum interval — advisory-locked per
+model id, since the RPM guard is global across every surface, matching how
+the provider itself enforces it. A cheap non-atomic per-surface soft
+ceiling is checked in TypeScript first, so one runaway surface can't eat
+another's budget even before the atomic check runs.
+
+`generateJson` preserved byte-for-byte — `scanFightForRumours.ts`'s
+`import { generateJson } from "../llm"` resolves unchanged to the new
+`llm/index.ts` (`moduleResolution: "bundler"`), verified with a real
+`npx tsx src/lib/rumours/runScheduledRumourJob.ts` run against production:
+13/13 fights via LLM, 0 heuristic fallback, 0 failed.
+
+65 new tests. Budget-policy cap exclusivity and `runMapReduce`'s
+budget-denied counting mutation-verified (reverting each fix reproduces
+exactly one failing test, confirmed, then restored). Full suite:
+892/892 passing, lint clean, build clean.
+
+**Migration applied 2026-09-18**, target ref confirmed as
+`vrwlfcywyfzfczajpdoh` before pushing (dry-run showed only `0047`
+pending). Verified live, not by the tracker alone: `llm_call_log` selects
+cleanly (0 rows, expected — nothing has used it yet); `try_reserve_llm_call`
+called with `p_cap=0` returned `null` (its denial branch, proven to run)
+while writing zero rows, the same "prove it runs via a guaranteed
+no-write guard clause" verification pattern Phase 79's `merge_fighters()`
+check used.
+
+**Next:** N3 — rumour flag retraction, the harness's first real caller
+and a genuine bug fix (nothing in `lib/rumours/` currently expires a
+flag once its rumour is retracted; a weight-cut concern from a week ago
+still feeds `flagPenalty()` at full strength today).
