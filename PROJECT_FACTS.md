@@ -821,6 +821,18 @@ Decided 2026-08-29, user-originated.
   true)`, never `current_user` or `session_user` (the latter is the
   underlying login role and doesn't reflect `SET ROLE` either — confirmed
   the same session, both stay `postgres` throughout).
+- **Verifying a new SQL function live, without writing throwaway data:
+  call it with an input guaranteed to hit its own denial/no-op branch.**
+  First used for `merge_fighters()` (Phase M merge, identical keep/drop
+  UUIDs → its own guard clause fires, proving the function runs without
+  touching a real row). Reused for `try_reserve_llm_call()` (Phase N2,
+  `p_cap=0` → `count(*) >= 0` is always true → guaranteed `null`, proving
+  the function runs and its denial path is real) — both writes and reads
+  came back exactly as predicted, zero rows left behind either time. The
+  general form: find the cheapest input that forces the function's own
+  "no" branch, call it for real, and confirm nothing was written. Cheaper
+  and more honest than mocking the function, and unlike a read-only
+  `explain` it actually executes the function body.
 
 ## Deliberate non-decisions
 
