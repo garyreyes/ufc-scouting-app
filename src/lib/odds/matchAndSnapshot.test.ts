@@ -17,31 +17,50 @@ interface ConflictRow {
   details: { oddsEvent: { id: string } };
 }
 
+// Both `fights` and `odds_snapshots` reads go through selectAllPages now
+// (M1) -- the fake must support its real chain (`.order().limit()`, plus
+// `.gt()` for the keyset cursor) or it throws before ever reaching the
+// `.is()` filter M2 added. Every row is returned in one page here (well
+// under selectAllPages' 1000-row cap), so `.gt()`/`.limit()` are no-ops
+// in practice but still need to exist on the chain.
+function fakePagedTable<T extends { id: string }>(rows: T[]) {
+  return {
+    select() {
+      let isCol: string | null = null;
+      let isVal: unknown = undefined;
+      const builder = {
+        order() {
+          return builder;
+        },
+        gt() {
+          return builder;
+        },
+        limit() {
+          return builder;
+        },
+        is(col: string, val: unknown) {
+          isCol = col;
+          isVal = val;
+          return builder;
+        },
+        then(resolve: (r: { data: T[]; error: null }) => void) {
+          const filtered = isCol
+            ? rows.filter((r) => (r as unknown as Record<string, unknown>)[isCol!] === isVal)
+            : rows;
+          resolve({ data: filtered, error: null });
+        },
+      };
+      return builder;
+    },
+  };
+}
+
 function fakeSupabase(fights: FightRow[], conflicts: ConflictRow[]) {
   const inserted: { table: string; payload: Record<string, unknown> }[] = [];
   const client = {
     from(table: "fights" | "odds_snapshots" | "data_conflicts") {
       if (table === "fights") {
-        return {
-          select() {
-            let isCol: string | null = null;
-            let isVal: unknown = undefined;
-            const builder = {
-              is(col: string, val: unknown) {
-                isCol = col;
-                isVal = val;
-                return builder;
-              },
-              then(resolve: (r: { data: FightRow[]; error: null }) => void) {
-                const rows = isCol
-                  ? fights.filter((f) => (f as unknown as Record<string, unknown>)[isCol!] === isVal)
-                  : fights;
-                resolve({ data: rows, error: null });
-              },
-            };
-            return builder;
-          },
-        };
+        return fakePagedTable(fights);
       }
       if (table === "data_conflicts") {
         return {
@@ -71,11 +90,9 @@ function fakeSupabase(fights: FightRow[], conflicts: ConflictRow[]) {
           },
         };
       }
-      // odds_snapshots
+      // odds_snapshots -- nothing priced yet in any of this file's fixtures
       return {
-        select() {
-          return Promise.resolve({ data: [], error: null }); // nothing priced yet
-        },
+        ...fakePagedTable<{ id: string; fight_id: string }>([]),
         insert(payload: Record<string, unknown>) {
           inserted.push({ table: "odds_snapshots", payload });
           return Promise.resolve({ error: null });
