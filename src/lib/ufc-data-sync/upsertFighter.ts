@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripNullish } from "./stripNullish";
 import { namesLikelySamePerson } from "../text/namesLikelySamePerson";
+import { normalizeName } from "../text/normalizeName";
 import { pickCanonicalFighter } from "./pickCanonicalFighter";
 import { selectAllPages } from "../supabase/selectAllPages";
 
@@ -45,6 +46,36 @@ export async function upsertFighter(
       if (updateError) throw updateError;
       return byExternalId.id;
     }
+  }
+
+  // M3: a fighter name that was merged away lives on here (0045's
+  // merge_fighters() writes one row per drop, source 'merge'). Checked
+  // after external_id and before the plain name match so a since-renamed
+  // source ("Jose Delgado", now merged into "Jose Miguel Delgado")
+  // resolves straight to the keeper instead of recreating the duplicate
+  // it was merged to fix -- which is exactly what would reopen the
+  // disputed_opponent conflict this was built to stop recurring.
+  //
+  // Fetched broadly and matched in JS (normalizeName), same pattern as
+  // the fold-match branch below: this table is small, and every real
+  // "same name" rule in this codebase already lives in TypeScript, not
+  // SQL (see 0045's own migration comment on why).
+  const { data: aliases, error: aliasError } = await supabase.from("fighter_aliases").select("alias, fighter_id");
+  if (aliasError) throw aliasError;
+  const aliasMatch = (aliases ?? []).find((a) => normalizeName(a.alias as string) === normalizeName(fighter.name));
+  if (aliasMatch) {
+    // Never write `name` here -- the incoming name is, by definition, the
+    // dropped alias, not the keeper's canonical one. Writing it would
+    // flip-flop the keeper's display name between the two every time the
+    // still-reporting source syncs (reviewer finding).
+    const aliasUpdatePayload = { ...updatePayload };
+    delete aliasUpdatePayload.name;
+    const { error: updateError } = await supabase
+      .from("fighters")
+      .update(aliasUpdatePayload)
+      .eq("id", aliasMatch.fighter_id);
+    if (updateError) throw updateError;
+    return aliasMatch.fighter_id as string;
   }
 
   // M1: was `.maybeSingle()`, which THROWS on more than one row instead of

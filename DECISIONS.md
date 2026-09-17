@@ -169,3 +169,55 @@ the event for reasons unrelated to cancellation, so the same "missing
 twice, 6h+ apart" signal would misfire. Fixed by skipping reconciliation
 outright for any event dated before today, checked first, ahead of every
 other guard -- see `applyCardReconciliation.ts`'s own comment.
+
+## 2026-09-14 — M3: fighter aliases stay raw text; one hard merge guard, no exceptions
+
+**Decision.** `fighter_aliases.alias` stores the dropped fighter's raw
+display name, not a pre-normalized form -- the plan going in called for
+`alias_normalized unique`. `upsertFighter.ts` reads the whole (small)
+table and compares with the existing `normalizeName()` in JS, the same
+"fetch broadly, decide in tested TypeScript" pattern the fold-match branch
+right below it already uses.
+
+Separately: `checkMergeGuard` refuses ANY merge -- automatic sweep or a
+human clicking "same fighter" at `/conflicts` -- between two fighters
+carrying two DIFFERENT confirmed Sherdog ids. No override path, for either
+trigger.
+
+**Why.** Every other "are these the same name" rule in this codebase
+(`normalizeName`, `namesMatchExactly`, `namesLikelySamePerson`,
+`nameSimilarity`, the new `isSameCardNameVariant`) already lives in
+TypeScript. A `alias_normalized` column would mean reimplementing fold/
+case/whitespace normalization in SQL and keeping two definitions of
+"normalized" in sync forever, for a table that will only ever hold a few
+hundred rows.
+
+The Sherdog guard has no override because it isn't a judgment call -- it's
+a fact already established by an earlier, separate confirmation (the
+Sherdog identity job's own auto-match threshold and guard, J3). A human
+clicking "merge" is real evidence two fighters are the same person, but
+it does not outrank two independently-confirmed different Sherdog
+records; if a human genuinely believes one of those Sherdog links is
+wrong, the fix is to correct that link first (at the Sherdog identity
+layer), not to force a fighter merge through it.
+
+**Alternatives considered.**
+- Normalize in SQL via a stored generated column or the `unaccent`
+  extension (not currently installed) -- rejected: a second
+  implementation of name-folding to keep aligned with the TS one, for no
+  real gain at this table's size.
+- Let a manual merge override the Sherdog guard with an explicit
+  confirmation step -- rejected: the guard exists precisely because a
+  Sherdog link is itself already a confirmed fact, not a guess; if it's
+  wrong, fixing it is the correct place to intervene, not bypassing the
+  guard downstream.
+
+**Consequence, found while implementing, not anticipated in the plan:**
+`fighter_sherdog_bouts` and `fighter_scouting_reports` are both
+`on delete cascade` on `fighter_id`. `merge_fighters()` must repoint both
+onto the keeper before deleting the dropped row, or the merge would
+silently destroy the dropped fighter's real Sherdog bout history (and any
+scouting notes) instead of just re-filing it under a different id. Traced
+against the real production shape (Jose Delgado / Jose Miguel Delgado):
+the keeper-selection rule prefers `external_id`, so the Sherdog-linked
+identity is not reliably the side that survives.

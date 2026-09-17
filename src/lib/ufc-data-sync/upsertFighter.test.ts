@@ -8,24 +8,40 @@ interface FighterRow {
   external_id: string | null;
 }
 
+interface AliasRow {
+  alias: string;
+  fighter_id: string;
+}
+
 const ROW_CAP = 1000;
 
 /**
  * A fake covering every fighters-table operation upsertFighter makes:
  * eq/maybeSingle (external_id lookup), ilike (case-insensitive name
- * lookup), a plain unpaged-looking select (the fold-match scan, now
- * expected to page via selectAllPages), update, and insert. The plain
- * select enforces the same ROW_CAP truncation PostgREST applies live, so
- * a fold-match fix that forgets to page still fails this test.
+ * lookup, returning every matching row -- pickCanonicalFighter decides,
+ * not `.maybeSingle()`), a plain unpaged-looking select (the fold-match
+ * scan, paged via selectAllPages), update, and insert -- plus
+ * fighter_aliases (M3's alias lookup, checked before the name match).
+ * The plain select enforces the same ROW_CAP truncation PostgREST
+ * applies live, so a fold-match fix that forgets to page still fails
+ * this test.
  */
-function fakeSupabase(initialRows: FighterRow[]) {
-  const rows: FighterRow[] = [...initialRows];
+function fakeSupabase(initialFighters: FighterRow[], aliases: AliasRow[] = []) {
+  const rows: FighterRow[] = [...initialFighters];
   const updates: { id: string; payload: Record<string, unknown> }[] = [];
+  const inserts: Record<string, unknown>[] = [];
   let nextInsertId = 1;
 
   const client = {
-    from(table: string) {
-      if (table !== "fighters") throw new Error(`unexpected table ${table}`);
+    from(table: "fighters" | "fighter_aliases") {
+      if (table === "fighter_aliases") {
+        return {
+          select() {
+            return Promise.resolve({ data: aliases, error: null });
+          },
+        };
+      }
+
       return {
         select() {
           let eqCol: string | null = null;
@@ -96,17 +112,18 @@ function fakeSupabase(initialRows: FighterRow[]) {
             },
           };
         },
-        insert(fighter: { name: string; external_id?: string }) {
+        insert(fighter: Record<string, unknown>) {
           return {
             select() {
               return {
                 single() {
-                  const row: FighterRow = {
+                  const row = {
                     id: `new-${nextInsertId++}`,
-                    name: fighter.name,
-                    external_id: fighter.external_id ?? null,
-                  };
+                    external_id: null,
+                    ...fighter,
+                  } as FighterRow;
                   rows.push(row);
+                  inserts.push(fighter);
                   return Promise.resolve({ data: { id: row.id }, error: null });
                 },
               };
@@ -117,7 +134,7 @@ function fakeSupabase(initialRows: FighterRow[]) {
     },
   };
 
-  return { client: client as unknown as SupabaseClient, rows, updates };
+  return { client: client as unknown as SupabaseClient, rows, updates, inserts };
 }
 
 function padId(n: number): string {
@@ -173,5 +190,53 @@ describe("upsertFighter", () => {
 
     expect(rows.find((r) => r.id === id)?.name).toBe("Brand New Fighter");
     expect(rows).toHaveLength(2);
+  });
+});
+
+describe("upsertFighter -- alias resolution (M3)", () => {
+  it("resolves an incoming name through fighter_aliases before ever reaching the name match, without reverting the keeper's canonical name", async () => {
+    // "Jose Delgado" was merged away; its name lives on as an alias
+    // pointing at the keeper, "Jose Miguel Delgado". A later sync
+    // reporting the OLD name must resolve straight to the keeper, not
+    // recreate a duplicate or reopen a dispute -- and must NOT write the
+    // dropped name back onto the keeper's own `name` column, or the
+    // keeper's display name would flip-flop every time this source syncs.
+    const { client, updates } = fakeSupabase(
+      [{ id: "keeper", name: "Jose Miguel Delgado", external_id: "2759" }],
+      [{ alias: "Jose Delgado", fighter_id: "keeper" }],
+    );
+
+    const id = await upsertFighter(client, { name: "Jose Delgado" });
+    expect(id).toBe("keeper");
+    expect(updates).toEqual([{ id: "keeper", payload: {} }]);
+  });
+
+  it("still writes other fields from an alias match, just never `name`", async () => {
+    const { client, updates } = fakeSupabase(
+      [{ id: "keeper", name: "Jose Miguel Delgado", external_id: "2759" }],
+      [{ alias: "Jose Delgado", fighter_id: "keeper" }],
+    );
+
+    await upsertFighter(client, { name: "Jose Delgado", height_cm: 180 });
+    expect(updates).toEqual([{ id: "keeper", payload: { height_cm: 180 } }]);
+  });
+
+  it("matches an alias case/diacritic-insensitively, same as the rest of this module's name matching", async () => {
+    const { client } = fakeSupabase(
+      [{ id: "keeper", name: "Andre Lima", external_id: "2679" }],
+      [{ alias: "André Lima", fighter_id: "keeper" }],
+    );
+
+    const id = await upsertFighter(client, { name: "andre lima" });
+    expect(id).toBe("keeper");
+  });
+
+  it("falls through to normal insert when no alias matches", async () => {
+    const { client, inserts } = fakeSupabase([], [{ alias: "Someone Else", fighter_id: "other" }]);
+
+    const id = await upsertFighter(client, { name: "Brand New Fighter" });
+
+    expect(id).toBe("new-1");
+    expect(inserts).toHaveLength(1);
   });
 });

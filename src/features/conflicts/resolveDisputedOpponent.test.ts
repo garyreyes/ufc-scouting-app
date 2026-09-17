@@ -66,4 +66,17 @@ describe("buildDisputedOpponentResolution", () => {
     expect(result.fightsUpdate).not.toHaveProperty("candidate_external_id");
     expect(result.fightsUpdate).not.toHaveProperty("external_id");
   });
+
+  // M3: merging is an I/O operation (features/conflicts/actions.ts calls
+  // mergeFighters() before this ever runs for "merge"), so this function's
+  // own job for that choice is just resolving the conflict row -- the
+  // fighter merge already repointed `fights` generically.
+  it("merging writes no fights update -- the caller's mergeFighters() call already fixed it", () => {
+    const result = buildDisputedOpponentResolution(conflict(), "merge", NOW);
+    expect(result.fightsUpdate).toBeNull();
+    expect(result.conflictUpdate).toEqual({
+      resolved_at: "2026-09-05T00:00:00.000Z",
+      resolution: "merged_fighters",
+    });
+  });
 });

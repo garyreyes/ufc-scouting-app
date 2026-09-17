@@ -17,18 +17,23 @@ interface ConflictRow {
   kind: string;
   fight_id: string;
   resolved_at: string | null;
+  resolution: string | null;
+  details: Record<string, unknown>;
 }
 
 /**
- * Covers the three branches upsertFight can take: found by external_id,
- * found by fighter pair, and disputed (shares exactly one fighter). Real
- * assertion here (M2): the "conflict" result must carry the DISPUTED
- * FIGHT's own id, not just the conflict row's id -- processScheduleEvent's
- * reconciliation needs it to know the disputed bout is still "present."
+ * Covers every branch upsertFight can take: found by external_id, found
+ * by fighter pair, disputed (shares exactly one fighter, opened fresh or
+ * already-open), and M3's remembered "confirmed_existing" suppression.
+ * Real assertion here (M2): the "conflict" result must carry the
+ * DISPUTED FIGHT's own id, not just the conflict row's id --
+ * processScheduleEvent's reconciliation needs it to know the disputed
+ * bout is still "present."
  */
 function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
   const fights = [...seed.fights];
   const conflicts = [...seed.conflicts];
+  const updates: { id: string; payload: Record<string, unknown> }[] = [];
   let nextId = 1;
 
   const client = {
@@ -59,6 +64,7 @@ function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
               eq(_c: string, id: string) {
                 const row = fights.find((f) => f.id === id);
                 if (row) Object.assign(row, payload);
+                updates.push({ id, payload });
                 return Promise.resolve({ error: null });
               },
             };
@@ -84,6 +90,7 @@ function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
           let eqKind: string | null = null;
           let eqFightId: string | null = null;
           let isResolvedNull = false;
+          let notResolvedNull = false;
           const builder = {
             eq(col: string, val: unknown) {
               if (col === "kind") eqKind = val as string;
@@ -92,6 +99,10 @@ function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
             },
             is(col: string, val: unknown) {
               if (col === "resolved_at" && val === null) isResolvedNull = true;
+              return builder;
+            },
+            not(col: string, op: string, val: unknown) {
+              if (col === "resolved_at" && op === "is" && val === null) notResolvedNull = true;
               return builder;
             },
             maybeSingle() {
@@ -103,15 +114,24 @@ function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
               );
               return Promise.resolve({ data: row ?? null, error: null });
             },
+            then(resolve: (r: { data: ConflictRow[]; error: null }) => void) {
+              const rows = conflicts.filter(
+                (c) =>
+                  c.kind === eqKind &&
+                  c.fight_id === eqFightId &&
+                  (!notResolvedNull || c.resolved_at !== null),
+              );
+              resolve({ data: rows, error: null });
+            },
           };
           return builder;
         },
-        insert(payload: { kind: string; fight_id: string; details: unknown }) {
+        insert(payload: { kind: string; fight_id: string; details: Record<string, unknown> }) {
           return {
             select() {
               return {
                 single() {
-                  const row: ConflictRow = { id: `conflict-${nextId++}`, resolved_at: null, ...payload };
+                  const row: ConflictRow = { id: `conflict-${nextId++}`, resolved_at: null, resolution: null, ...payload };
                   conflicts.push(row);
                   return Promise.resolve({ data: { id: row.id }, error: null });
                 },
@@ -123,7 +143,7 @@ function fakeSupabase(seed: { fights: FightRow[]; conflicts: ConflictRow[] }) {
     },
   };
 
-  return { client: client as unknown as SupabaseClient, fights, conflicts };
+  return { client: client as unknown as SupabaseClient, fights, conflicts, updates };
 }
 
 describe("upsertFight", () => {
@@ -216,7 +236,14 @@ describe("upsertFight", () => {
         },
       ],
       conflicts: [
-        { id: "existing-conflict", kind: "disputed_opponent", fight_id: "disputed-fight", resolved_at: null },
+        {
+          id: "existing-conflict",
+          kind: "disputed_opponent",
+          fight_id: "disputed-fight",
+          resolved_at: null,
+          resolution: null,
+          details: {},
+        },
       ],
     });
 
@@ -229,5 +256,149 @@ describe("upsertFight", () => {
     });
 
     expect(result).toEqual({ status: "conflict", conflictId: "existing-conflict", fightId: "disputed-fight" });
+  });
+});
+
+describe("upsertFight -- resolved 'keep current' suppression (M3)", () => {
+  it("opens a fresh disputed_opponent conflict on a genuinely new dispute (regression)", async () => {
+    const { client, conflicts } = fakeSupabase({
+      fights: [
+        {
+          id: "kept-fight",
+          external_id: "wiki:Card:a:x",
+          event_id: "e1",
+          fighter1_id: "a",
+          fighter2_id: "x",
+          wikipedia_reported_at: null,
+          api_sports_reported_at: null,
+        },
+      ],
+      conflicts: [],
+    });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:c",
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "c",
+      source: "wikipedia",
+    });
+
+    expect(result.status).toBe("conflict");
+    expect(conflicts).toHaveLength(1);
+  });
+
+  it("does not reopen a dispute the owner already resolved as 'confirmed_existing' for this exact candidate", async () => {
+    const { client, conflicts, updates } = fakeSupabase({
+      fights: [
+        {
+          id: "kept-fight",
+          external_id: "wiki:Card:a:x",
+          event_id: "e1",
+          fighter1_id: "a",
+          fighter2_id: "x",
+          wikipedia_reported_at: null,
+          api_sports_reported_at: null,
+        },
+      ],
+      conflicts: [
+        {
+          id: "old-conflict",
+          kind: "disputed_opponent",
+          fight_id: "kept-fight",
+          resolved_at: "2026-09-13T00:00:00Z",
+          resolution: "confirmed_existing",
+          details: { candidate_external_id: "wiki:Card:a:c" },
+        },
+      ],
+    });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:c",
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "c",
+      source: "wikipedia",
+      method: "Decision",
+    });
+
+    // Updated in place, exactly like a normal match -- no new conflict.
+    expect(result).toEqual({ status: "upserted", fightId: "kept-fight" });
+    expect(conflicts).toHaveLength(1); // the old one, untouched
+    expect(updates.some((u) => u.id === "kept-fight")).toBe(true);
+  });
+
+  it("still opens a new dispute if a DIFFERENT candidate shows up later, even with a resolved history", async () => {
+    const { client, conflicts } = fakeSupabase({
+      fights: [
+        {
+          id: "kept-fight",
+          external_id: "wiki:Card:a:x",
+          event_id: "e1",
+          fighter1_id: "a",
+          fighter2_id: "x",
+          wikipedia_reported_at: null,
+          api_sports_reported_at: null,
+        },
+      ],
+      conflicts: [
+        {
+          id: "old-conflict",
+          kind: "disputed_opponent",
+          fight_id: "kept-fight",
+          resolved_at: "2026-09-13T00:00:00Z",
+          resolution: "confirmed_existing",
+          details: { candidate_external_id: "wiki:Card:a:c" }, // a DIFFERENT candidate than below
+        },
+      ],
+    });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:d", // new, never-before-seen candidate
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "d",
+      source: "wikipedia",
+    });
+
+    expect(result.status).toBe("conflict");
+    expect(conflicts).toHaveLength(2);
+  });
+
+  it("still opens a new dispute when the past resolution was 'used_candidate', not 'confirmed_existing'", async () => {
+    const { client, conflicts } = fakeSupabase({
+      fights: [
+        {
+          id: "kept-fight",
+          external_id: "wiki:Card:a:x",
+          event_id: "e1",
+          fighter1_id: "a",
+          fighter2_id: "x",
+          wikipedia_reported_at: null,
+          api_sports_reported_at: null,
+        },
+      ],
+      conflicts: [
+        {
+          id: "old-conflict",
+          kind: "disputed_opponent",
+          fight_id: "kept-fight",
+          resolved_at: "2026-09-13T00:00:00Z",
+          resolution: "used_candidate",
+          details: { candidate_external_id: "wiki:Card:a:c" },
+        },
+      ],
+    });
+
+    const result = await upsertFight(client, {
+      external_id: "wiki:Card:a:c",
+      event_id: "e1",
+      fighter1_id: "a",
+      fighter2_id: "c",
+      source: "wikipedia",
+    });
+
+    expect(result.status).toBe("conflict");
+    expect(conflicts).toHaveLength(2);
   });
 });

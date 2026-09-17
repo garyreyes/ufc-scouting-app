@@ -44,6 +44,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
+      # M3: right after the schedule sync, while any disputed_opponent
+      # conflicts it just opened are still fresh -- auto-merges a genuine
+      # same-card name variant (e.g. Wikipedia renaming "Jose Delgado" to
+      # "Jose Miguel Delgado" mid-card) instead of leaving "keep existing"
+      # to record nothing and the identical dispute to reopen next run.
+      - name: Resolve same-card fighter name variants
+        run: npx tsx src/lib/ufc-data-sync/runResolveSameCardNameVariantsJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       # D1 + D2 (ARCHITECTURE.md Fork 6): runs after both syncs above, on
       # the same cadence, since it evaluates whatever each source just
       # wrote to its own per-source columns (fights.wikipedia_*/
