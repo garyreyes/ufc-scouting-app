@@ -4,6 +4,7 @@ import { fetchUnpricedFights } from "./eligibleUnpricedFights";
 
 interface FightRow {
   id: string;
+  settled_at: string | null;
   fighter1: { name: string };
   fighter2: { name: string };
   event: { event_date: string; starts_at: string | null };
@@ -27,6 +28,8 @@ const ROW_CAP = 1000;
  * matching) look like a complete, successful read. `.order()`/`.gt()`
  * make the fake behave like `selectAllPages`'s real keyset pagination so
  * the fix under test is exercised for real, not just type-checked.
+ * `.is()` layers on top of that same chain so M2's `settled_at` filter
+ * (cancelled fights excluded) is exercised the same way.
  */
 function fakeSupabase(tables: { fights: FightRow[]; odds_snapshots: OddsRow[] }): SupabaseClient {
   return {
@@ -36,6 +39,8 @@ function fakeSupabase(tables: { fights: FightRow[]; odds_snapshots: OddsRow[] })
         select() {
           let gtValue: string | null = null;
           let limitValue = ROW_CAP; // an unpaged select still hits the real server-side cap
+          let isCol: string | null = null;
+          let isVal: unknown = undefined;
           const builder = {
             order() {
               return builder;
@@ -48,9 +53,17 @@ function fakeSupabase(tables: { fights: FightRow[]; odds_snapshots: OddsRow[] })
               limitValue = Math.min(limitValue, n);
               return builder;
             },
+            is(col: string, val: unknown) {
+              isCol = col;
+              isVal = val;
+              return builder;
+            },
             then(resolve: (result: { data: unknown[]; error: null }) => void) {
               let rows = allRows;
               if (gtValue !== null) rows = rows.filter((r) => r.id > (gtValue as string));
+              if (isCol !== null) {
+                rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[isCol!] === isVal);
+              }
               resolve({ data: rows.slice(0, limitValue), error: null });
             },
           };
@@ -61,16 +74,41 @@ function fakeSupabase(tables: { fights: FightRow[]; odds_snapshots: OddsRow[] })
   } as unknown as SupabaseClient;
 }
 
-function makeFight(n: number): FightRow {
+function makeFight(n: number, overrides: Partial<FightRow> = {}): FightRow {
   return {
     id: String(n).padStart(6, "0"),
+    settled_at: null,
     fighter1: { name: `Fighter1-${n}` },
     fighter2: { name: `Fighter2-${n}` },
     event: { event_date: "2026-09-12", starts_at: null },
+    ...overrides,
   };
 }
 
 describe("fetchUnpricedFights", () => {
+  it("excludes a cancelled fight -- it will never need a price", async () => {
+    const upcoming = makeFight(1);
+    const cancelled = makeFight(2, { settled_at: "2026-09-14T06:00:00Z" });
+
+    const result = await fetchUnpricedFights(
+      fakeSupabase({ fights: [upcoming, cancelled], odds_snapshots: [] }),
+    );
+    expect(result.map((f) => f.id)).toEqual([upcoming.id]);
+  });
+
+  it("still excludes an already-priced fight", async () => {
+    const priced = makeFight(1);
+    const unpriced = makeFight(2);
+
+    const result = await fetchUnpricedFights(
+      fakeSupabase({
+        fights: [priced, unpriced],
+        odds_snapshots: [{ id: "snap-1", fight_id: priced.id }],
+      }),
+    );
+    expect(result.map((f) => f.id)).toEqual([unpriced.id]);
+  });
+
   it("returns every unpriced fight even when the table has more rows than PostgREST's page cap", async () => {
     // 1,050 fights (today's real production count is 1,044), 3 already
     // priced -- so the correct answer is exactly 1,047, not 1,000.

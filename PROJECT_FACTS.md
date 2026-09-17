@@ -1210,3 +1210,20 @@ Decided 2026-08-29, user-originated.
   which now takes an optional injected client (default: the singleton),
   the same DI pattern every other tested I/O function in this codebase
   already uses.
+- **A bout removed from its Wikipedia card page was never reconciled**
+  (M2, found live 2026-09-13): `processScheduleEvent.ts` only ever
+  upserted bouts present on the page. Jimenez vs. Vera (UFC Fight Night:
+  Silva vs. Delgado, cancelled for a visa issue) stayed on the card,
+  the intern picked it, and it caused all 24 open `low_confidence_odds_match`
+  conflicts live at the time (the only unpriced fight left on that card).
+  Fixed in `ROADMAP.md` Phase M2 (`planCardReconciliation.ts` +
+  `applyCardReconciliation.ts`, migration `0044`) — **not yet applied to
+  production** as of this note; see `CHANGES.md` Phase 77 (M2)'s "Ran
+  live" section before assuming Vera has actually been cancelled.
+- **`fights.settled_from = 'cancelled'` is a real, valid settled state**
+  from migration `0044` onward (M2) — any future code reading
+  `settled_from` or filtering "is this fight settled" must not assume the
+  only values are the five result-settlement ones from `0021`/`0040`. A
+  cancelled fight always has `winner_id = null` and never has `method`/
+  `round` set (deliberately — see `applyCardReconciliation.ts`'s own
+  comment on why a fake method string would corrupt Elo/records).

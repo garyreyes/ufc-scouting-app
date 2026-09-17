@@ -95,6 +95,13 @@
   color: var(--muted);
 }
 
+/* M2: a cancelled fight is settled, not "needs attention" -- shares
+   .locked's quiet, muted register rather than .held's one-accent color. */
+.cancelled {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .lockedPick {
   color: var(--foreground);
 }
