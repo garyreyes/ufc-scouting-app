@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { selectAllPages } from "../supabase/selectAllPages";
+import { selectAllPagesByIds } from "../supabase/selectAllPagesByIds";
+import { chunk, DEFAULT_CHUNK_SIZE } from "../supabase/chunk";
 import { fetchFighterHtmlById, type FetchOptions } from "./client";
 import { parseFighterName } from "./parseFighterPage";
 import { searchSherdogFighters } from "./searchFighters";
@@ -31,18 +33,10 @@ export interface SherdogIdentitySummary {
 // timeout-safety cap, not a quota one.
 export const DEFAULT_BATCH_SIZE = 100;
 
-const ID_CHUNK = 100; // keep any .in() list well under the URL-length wall
-
 interface Options extends FetchOptions {
   batchSize?: number;
   dryRun?: boolean;
   now?: () => Date;
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
 }
 
 /**
@@ -84,22 +78,19 @@ export async function resolveUpcomingCardSherdogIds(
   );
   if (events.length === 0) return summary;
 
-  const fights: Array<{ fighter1_id: string; fighter2_id: string }> = [];
-  for (const eventChunk of chunk(events.map((e) => e.id), ID_CHUNK)) {
-    const rows = await selectAllPages<{ id: string; fighter1_id: string; fighter2_id: string }>(
-      supabase,
-      "fights",
-      "id, fighter1_id, fighter2_id",
-      (q) => q.in("event_id", eventChunk),
-    );
-    fights.push(...rows);
-  }
+  const fights = await selectAllPagesByIds<{ id: string; fighter1_id: string; fighter2_id: string }>(
+    supabase,
+    "fights",
+    "id, fighter1_id, fighter2_id",
+    "event_id",
+    events.map((e) => e.id),
+  );
 
   const cardFighterIds = [...new Set(fights.flatMap((f) => [f.fighter1_id, f.fighter2_id]))];
   if (cardFighterIds.length === 0) return summary;
 
   const queue: Array<{ id: string; name: string }> = [];
-  for (const idChunk of chunk(cardFighterIds, ID_CHUNK)) {
+  for (const idChunk of chunk(cardFighterIds, DEFAULT_CHUNK_SIZE)) {
     const { data, error } = await supabase
       .from("fighters")
       .select("id, name")
