@@ -4658,3 +4658,70 @@ formatting glued onto the value (units, punctuation) for readability
 will get echoed back verbatim and silently break a strict-equality
 verifier downstream. Put units/labels on the field name, never on the
 value, in any prompt whose response gets checked by exact restatement.
+
+## Phase 91 — 27 stale `/conflicts` rows traced to one never-cancelled orphan fight; corrected with a guarded data-only migration (2026-09-18)
+
+**What.** The owner flagged the `/conflicts` page: all 27 open
+`low_confidence_odds_match` rows were showing the exact same wrong
+candidate ("Ramiro Jimenez vs Rodrigo Vera") regardless of which real
+odds event each row was for, at wildly different match percentages.
+
+**Root cause.** `features/conflicts/api.ts`'s `resolveLowConfidenceDisplays`
+re-ranks each conflict's candidates LIVE against the current unpriced-
+fights pool (`fetchUnpricedFights`) every time the page loads — not
+against the pool as it existed when the conflict was originally
+detected. Fight `4103205b-193a-480b-8e92-f48026a78617` (Ramiro Jimenez
+vs Rodrigo Vera, on "UFC Fight Night: Silva vs. Delgado," 2026-09-12)
+was the only fight on its 14-fight card still unsettled — every other
+bout on the same `event_id` had a real `settled_at` between 2026-09-13
+and 2026-09-18. Read back live: `wikipedia_missing_since` was still
+null on it, meaning the automatic cancellation pipeline
+(`applyCardReconciliation.ts`) never caught it before the event date
+passed, and that pipeline refuses by design to touch a past event
+afterward (a later Wikipedia page edit trimming an old card's bouts must
+never be read as a cancellation). Left permanently "unpriced," it kept
+winning as the best-available (still wrong) candidate for every
+unrelated low-confidence odds event ranked against it.
+
+This is not a new bug — `0044_cancelled_fights.sql`'s own header
+already documents this exact fight and root cause from 2026-09-13's
+first occurrence ("Jimenez vs. Vera pulled for a visa issue... the sole
+cause of 24 open low_confidence_odds_match conflicts"). That pass fixed
+the *general* case in code (excluding settled fights from the candidate
+pool); it never corrected *this specific row's* data, so it silently
+kept poisoning the pool for five more days until it recurred as a fresh
+batch of 27.
+
+**Fix.** `supabase/migrations/0053_cancel_orphaned_jimenez_vera.sql` — a
+one-off, data-only migration, not a schema change. Writes the exact
+shape `applyCardReconciliation.ts`'s own "cancel" branch already uses
+(`settled_at = now()`, `settled_from = 'cancelled'`, `winner_id = null`),
+guarded by `where settled_at is null` so it's a no-op if the row somehow
+settled through another path first. `fightOutcomeFromSettledFight.ts`
+already treats a null winner on a settled fight as void, so the one real
+pick sitting on this fight (`d72e22e5-c578-4fc9-aa6b-e4c83657b6ac`)
+settles as void, not wrong, on the next `settlePicks` run — no code
+change needed for that part.
+
+**Verified live.** Migration applied via `supabase db push --linked`
+(project ref `vrwlfcywyfzfczajpdoh`, confirmed against `PROJECT_FACTS.md`
+before pushing). Read back: the fight now shows
+`settled_at`/`settled_from: 'cancelled'`/`winner_id: null` as written.
+`supabase migration list --linked` shows `0053` reconciled
+local/remote; `supabase db push --linked --dry-run` reports "Remote
+database is up to date." Confirmed the unpriced-fight count dropped by
+exactly one (92 → 91), and that zero remaining unpriced fights fall
+within ±36h of the stale card's date window — so the 27 conflicts will
+now correctly show "no candidate fights" instead of silently offering a
+wrong match, the same honest-refusal behavior the rest of this codebase
+already commits to elsewhere.
+
+**Open, deliberately not done this pass.** The 27 stale conflicts
+themselves are still open rows in `data_conflicts` — there is no
+"dismiss, no correct match exists" action anywhere in the conflicts UI,
+only "confirm this match," so forcing any of them closed would mean
+writing a fabricated price onto the wrong fight. Whether to add a
+dismiss action, or an auto-expiry for a low-confidence conflict whose
+candidate pool has gone empty, is a real product decision, not something
+to invent unilaterally under a bug-fix pass — flagged for the owner
+rather than built silently.
