@@ -4604,3 +4604,57 @@ after its own first live run.
 `LLM_ASSISTED`, `LLM_ONLY`), which is also the first real reader of the
 "latest row before lock" selection rule N8's `DECISIONS.md` entries
 require.
+
+## Phase 90 (N8 follow-up) — First live `shadow-picks.yml` run finds and fixes a 100% verifier-rejection bug (2026-09-18)
+
+**What.** Triggered `shadow-picks.yml` once via `workflow_dispatch`
+against the real nearest-upcoming card (12 eligible fights, all with N7
+dossiers) — the live check Phase 89 explicitly deferred. `job_runs`
+recorded the run as `ran: true` but `shadowPicksWritten: 0`, with
+`degradation.dropReasons: { numeric_mismatch: 12 }` — every single
+proposed claim was dropped by `shadowPickClaimChecks.ts`'s numeric-
+restatement check, not a partial miss.
+
+**Root cause, confirmed from the stored `llm_call_log.raw_output` for
+that call.** `buildShadowPicksPrompt.ts` rendered reach/height as
+`${f.reachCm ?? "unknown"}cm` — the unit glued directly onto the number
+with no separator — then instructed the model to restate every numeric
+fact "EXACTLY as given." The model complied literally and returned
+`"193cm"` (and `"unknowncm"` for a null fighter) as JSON string values.
+`parseShadowPicksResponse.ts`'s `nullableNumber()` correctly refuses to
+coerce a non-number string and returns `null`, which then fails the
+verifier's strict `null !== 193` equality check against the real fact.
+Since nearly every card has at least one fighter with a known reach or
+height, this was a ~100%-reproducible failure mode, not a flaky model
+miss — confirmed by inspecting the real prompt/response pair, not
+assumed from the drop-reason label alone.
+
+**Fix.** `buildShadowPicksPrompt.ts`: moved the unit into the field
+label (`Reach (cm): 193`) instead of suffixing the value, and added an
+explicit rule that restated numerics must be bare, unquoted numbers,
+with "unknown" restated as JSON `null` rather than the word itself.
+Existing 25-test `shadowPicks` suite still green (the bug was in prompt
+text, not in `parseShadowPicksResponse.ts`/`shadowPickClaimChecks.ts`
+themselves, so no test needed to change) — lint and `tsc --noEmit`
+clean.
+
+**Verified live, not just re-read.** Re-triggered `shadow-picks.yml`
+against this fix's own branch (`gh workflow run --ref`, so the checkout
+ran the fixed prompt, not `main`'s buggy one) before merging. Read back
+the real rows with an ad-hoc service-role script (not just the Actions
+log line): `job_runs.summary` showed `dropReasons: {}`,
+`mapClaimsKept: 12/12`, `shadowPicksWritten: 24`; `shadow_picks` itself
+had 24 real rows — one `LLM_ASSISTED` (with a populated `confidence`)
+and one `LLM_ONLY` (confidence `null`, as designed) per fight, every
+`probability` a sane value strictly inside (0, 1). This is N8's actual
+N7-equivalent first live fan-out check, one phase later than planned —
+Phase 89 named the gap honestly instead of glossing over it, which is
+exactly what let this session close it.
+
+**Lesson for future prompt work in this codebase:** a prompt that asks
+a model to restate a human-readable fact "exactly as given" must give
+that fact in a form that IS the exact value wanted back — any
+formatting glued onto the value (units, punctuation) for readability
+will get echoed back verbatim and silently break a strict-equality
+verifier downstream. Put units/labels on the field name, never on the
+value, in any prompt whose response gets checked by exact restatement.
