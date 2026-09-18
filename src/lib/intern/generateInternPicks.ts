@@ -8,7 +8,7 @@ import type { InternBetDecision } from "./decideInternBet";
 import { decideInternPick } from "./decideInternPick";
 import { finishSplitFrom, predictInternMethod } from "./predictInternMethod";
 import type { InternMethodDecision } from "./predictInternMethod";
-import type { InternFlag, InternPickDecision } from "./types";
+import type { InternFlag, InternPickDecision, InternPickSignals } from "./types";
 import { ageOnDate } from "../../shared/utils/ageOnDate";
 
 export interface InternPicksSummary {
@@ -52,6 +52,7 @@ interface ExistingPick {
   predictedMethod: string | null;
   betFighterId: string | null;
   stakeUnits: number | null;
+  signals: InternPickSignals | null;
 }
 
 function isLockedError(err: unknown): boolean {
@@ -237,6 +238,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
           predicted_method: method.method,
           bet_fighter_id: bet.betFighterId,
           stake_units: bet.stakeUnits,
+          signals: decision.signals,
         },
         { onConflict: "fight_id,author" },
       );
@@ -277,7 +279,23 @@ function isUnchanged(
       ? true
       : existing.stakeUnits !== null &&
         bet.stakeUnits !== null &&
-        Math.abs(existing.stakeUnits - bet.stakeUnits) < 0.005)
+        Math.abs(existing.stakeUnits - bet.stakeUnits) < 0.005) &&
+    // N5: existing.signals is null for every pick written before this
+    // migration -- treated as "changed" so a re-run backfills it once,
+    // same as any other genuinely new value.
+    existing.signals !== null &&
+    signalsEqual(existing.signals, decision.signals)
+  );
+}
+
+function signalsEqual(a: InternPickSignals, b: InternPickSignals): boolean {
+  return (
+    Math.abs(a.rumours - b.rumours) < 1e-9 &&
+    Math.abs(a.elo - b.elo) < 1e-9 &&
+    Math.abs(a.size - b.size) < 1e-9 &&
+    Math.abs(a.age - b.age) < 1e-9 &&
+    Math.abs(a.rawDelta - b.rawDelta) < 1e-9 &&
+    Math.abs(a.clampedDelta - b.clampedDelta) < 1e-9
   );
 }
 
@@ -338,7 +356,7 @@ async function fetchExistingInternPicks(
   const { data, error } = await supabase
     .from("picks")
     .select(
-      "fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning, predicted_method, bet_fighter_id, stake_units",
+      "fight_id, predicted_fighter_id, estimated_probability, confidence, reasoning, predicted_method, bet_fighter_id, stake_units, signals",
     )
     .eq("author", "INTERN")
     .in("fight_id", fightIds);
@@ -356,6 +374,7 @@ async function fetchExistingInternPicks(
         predictedMethod: row.predicted_method as string | null,
         betFighterId: row.bet_fighter_id as string | null,
         stakeUnits: row.stake_units === null ? null : Number(row.stake_units),
+        signals: row.signals as InternPickSignals | null,
       },
     ]),
   );

@@ -1,0 +1,141 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: ageEdgeNoOdds 1`] = `
+{
+  "confidence": 1,
+  "estimatedProbability": 0.53,
+  "marketAnchored": false,
+  "predictedFighterId": "f1",
+  "reasoning": "No market price yet — anchored at an even 50%. No rumour flags on either fighter. Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. Age: Alexandre Pantoja 29, Joshua Van 38 — edge Alexandre Pantoja (3.0%). Final: 53.0% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: agePrimeNoEdge 1`] = `
+{
+  "confidence": 1,
+  "estimatedProbability": 0.5,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 50.0% Alexandre Pantoja (de-vigged from 2 / 2). No rumour flags on either fighter. Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. Age: Alexandre Pantoja 30, Joshua Van 31 (no edge). Final: 50.0% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: allSignalsAgreeClamped 1`] = `
+{
+  "confidence": 4,
+  "estimatedProbability": 0.75,
+  "marketAnchored": false,
+  "predictedFighterId": "f1",
+  "reasoning": "No market price yet — anchored at an even 50%. Rumour adjustment: −0.0% Alexandre Pantoja (0 flags), −12.0% Joshua Van (2 flags). Elo: Alexandre Pantoja 2000 (10 rated), Joshua Van 1500 (10 rated). Size edge: Alexandre Pantoja (6.0%). Age: Alexandre Pantoja 29, Joshua Van 45 — edge Alexandre Pantoja (4.0%). Final: 75.0% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: allSignalsAgreeUnclamped 1`] = `
+{
+  "confidence": 4,
+  "estimatedProbability": 0.7443807892765693,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 52.6% Alexandre Pantoja (de-vigged from 1.8 / 2). Rumour adjustment: −0.0% Alexandre Pantoja (0 flags), −4.0% Joshua Van (1 flag). Elo: Alexandre Pantoja 1600 (10 rated), Joshua Van 1500 (10 rated). Size edge: Alexandre Pantoja (2.8%). Age: Alexandre Pantoja 29, Joshua Van 34 — edge Alexandre Pantoja (1.0%). Final: 74.4% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: eloEdgeToF1 1`] = `
+{
+  "confidence": 4,
+  "estimatedProbability": 0.775,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 62.5% Alexandre Pantoja (de-vigged from 1.5 / 2.5). No rumour flags on either fighter. Elo: Alexandre Pantoja 1700 (10 rated), Joshua Van 1500 (10 rated). No usable size data. No usable age data. Final: 77.5% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: eloEdgeToF2ThinSample 1`] = `
+{
+  "confidence": 2,
+  "estimatedProbability": 0.6435064935064936,
+  "marketAnchored": true,
+  "predictedFighterId": "f2",
+  "reasoning": "Market anchor 50.6% Alexandre Pantoja (de-vigged from 1.9 / 1.95). No rumour flags on either fighter. Elo: Alexandre Pantoja 1300 (10 rated), Joshua Van 1500 (1 rated). No usable size data. No usable age data. Final: 64.4% Joshua Van.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: favouriteFlippedByFlags 1`] = `
+{
+  "confidence": 2,
+  "estimatedProbability": 0.6135064935064936,
+  "marketAnchored": true,
+  "predictedFighterId": "f2",
+  "reasoning": "Market anchor 50.6% Alexandre Pantoja (de-vigged from 1.9 / 1.95). Rumour adjustment: −12.0% Alexandre Pantoja (2 flags), −0.0% Joshua Van (0 flags). Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. No usable age data. Final: 61.4% Joshua Van.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: heavyFavouriteExtremeOdds 1`] = `
+{
+  "confidence": 5,
+  "estimatedProbability": 0.99,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 96.1% Alexandre Pantoja (de-vigged from 1.01 / 25). Rumour adjustment: −0.0% Alexandre Pantoja (0 flags), −6.0% Joshua Van (1 flag). Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. No usable age data. Final: 99.0% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: noOddsNoSignals 1`] = `
+{
+  "confidence": 1,
+  "estimatedProbability": 0.5,
+  "marketAnchored": false,
+  "predictedFighterId": "f1",
+  "reasoning": "No market price yet — anchored at an even 50%. No rumour flags on either fighter. Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. No usable age data. Final: 50.0% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: pricedNoSignals 1`] = `
+{
+  "confidence": 3,
+  "estimatedProbability": 0.625,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 62.5% Alexandre Pantoja (de-vigged from 1.5 / 2.5). No rumour flags on either fighter. Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. No usable age data. Final: 62.5% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: rumourFlagOnF1Only 1`] = `
+{
+  "confidence": 2,
+  "estimatedProbability": 0.585,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 62.5% Alexandre Pantoja (de-vigged from 1.5 / 2.5). Rumour adjustment: −4.0% Alexandre Pantoja (1 flag), −0.0% Joshua Van (0 flags). Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. No usable age data. Final: 58.5% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: rumourFlagsBothSidesEqual 1`] = `
+{
+  "confidence": 3,
+  "estimatedProbability": 0.625,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 62.5% Alexandre Pantoja (de-vigged from 1.5 / 2.5). Rumour adjustment: −4.0% Alexandre Pantoja (1 flag), −4.0% Joshua Van (1 flag). Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). No usable size data. No usable age data. Final: 62.5% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: signalsConflict 1`] = `
+{
+  "confidence": 4,
+  "estimatedProbability": 0.8045794392523364,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 93.5% Alexandre Pantoja (de-vigged from 1.05 / 15). Rumour adjustment: −0.0% Alexandre Pantoja (0 flags), −6.0% Joshua Van (1 flag). Elo: Alexandre Pantoja 1000 (10 rated), Joshua Van 1500 (10 rated). No usable size data. Age: Alexandre Pantoja 40, Joshua Van 27 — edge Joshua Van (4.0%). Final: 80.5% Alexandre Pantoja.",
+}
+`;
+
+exports[`decideInternPick characterization (N5 refactor gate) > stays bit-identical on: sizeEdgeToF1 1`] = `
+{
+  "confidence": 3,
+  "estimatedProbability": 0.685,
+  "marketAnchored": true,
+  "predictedFighterId": "f1",
+  "reasoning": "Market anchor 62.5% Alexandre Pantoja (de-vigged from 1.5 / 2.5). No rumour flags on either fighter. Elo: Alexandre Pantoja 1500 (10 rated), Joshua Van 1500 (10 rated). Size edge: Alexandre Pantoja (6.0%). No usable age data. Final: 68.5% Alexandre Pantoja.",
+}
+`;

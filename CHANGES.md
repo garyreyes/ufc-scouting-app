@@ -4295,6 +4295,39 @@ null on a fallback), threaded through from the reservation. N2's own
 tests updated to match — a small, backward-compatible addition to
 already-shipped code, not a new file.
 
+## Phase 86 (N5) — Per-signal breakdown on picks, a pure refactor (2026-09-18)
+
+**What.** `decideInternPick` already computed rumour/Elo/size/age deltas
+at its `rawDelta` line; they were only ever concatenated into the
+`reasoning` prose column. Now every INTERN pick also stores them
+structured in a new `signals jsonb` column
+(`0050_pick_signals.sql`) — the raw signed delta each signal contributed
+toward fighter1, the pre-clamp raw sum, and the post-`MAX_TOTAL_ADJUSTMENT`
+clamped sum. Prerequisite for N8: today there is no way to query "how
+much did Elo move this pick," only read a sentence.
+
+**Correctness-critical gate, per `ARCHITECTURE.md` item #2**: a fixture
+corpus of 14 cases (every signal alone, every signal in combination, the
+combined-cap clamp firing and not firing) snapshotted on the fields the
+refactor must not touch — `predictedFighterId`, `estimatedProbability`,
+`confidence`, `reasoning`, `marketAnchored` — captured *before* the
+refactor, then re-run unmodified *after* it. All 14 stayed bit-identical.
+`signals` was deliberately excluded from the snapshot: it's the field
+being added, not preserved.
+
+**Live-verified.** Migration `0050` applied to production
+(`vrwlfcywyfzfczajpdoh`), read-back confirmed the column exists and
+every pre-existing INTERN pick reads `signals: null`. Ran the real
+`npm run intern:scheduled-job`: 12/12 fights written, `signals` populated
+with real per-signal deltas on production rows (e.g. one pick showing
+`elo: 0.15, rumours: 0.02, age: 0.0125`, summed and unclamped at
+`rawDelta === clampedDelta === 0.1825`).
+
+`generateInternPicks.ts`'s `isUnchanged` check now also compares
+`signals` (treating a pre-migration `null` as "changed," so a re-run
+backfills every existing pick exactly once, same as any other genuinely
+new value).
+
 New migration `0049_conflict_resolution_proposals.sql`
 (`conflict_id`/`proposed_action`/`rationale`/`llm_call_id`, one active
 proposal per conflict, same no-client-grant posture as `data_conflicts`
