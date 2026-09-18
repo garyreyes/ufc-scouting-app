@@ -1,3 +1,4 @@
+import { MIN_CALL_INTERVAL_MS } from "./models";
 import type { Degradation, ModelRequest, ModelResponse, ReservationDecision, VerificationResult } from "./types";
 
 export type { Degradation };
@@ -63,6 +64,19 @@ export interface MapReduceDeps {
     rawOutput: string | null;
     error: string | null;
   }) => Promise<void>;
+  // Real per-process pacing (N7 finding, 2026-09-18): the architecture
+  // this harness was built against ("Minimum 4s between calls, enforced
+  // so no caller can forget it") was never actually implemented -- only
+  // the atomic SQL reservation's interval DENIAL existed
+  // (0047_llm_call_log.sql), with no caller ever waiting and retrying.
+  // N2/N3/N4's unit counts (1, 1, <=10) never fanned out fast enough to
+  // expose this; N7's real run against production (24 units) did --
+  // 20 of 24 fighters were denied on their first real fan-out, exactly
+  // the failure the plan's own N2 gate warned about ("a pacer that is
+  // wrong is invisible until a card-sized run hits 429s"). Injected
+  // (not a bare setTimeout call here) so this file's own tests stay
+  // instant -- see createMapReduceDeps.ts for the real implementation.
+  sleep: (ms: number) => Promise<void>;
 }
 
 export interface MapReduceOutcome<TUnit, TMapClaim, TReduceClaim> {
@@ -142,6 +156,17 @@ export async function runMapReduce<TUnit, TMapClaim, TReduceClaim, TFacts>(
   }
 
   const mapped: MappedUnit<TUnit, TMapClaim>[] = [];
+  // Paced from the SECOND attempt onward (map or reduce) -- the first
+  // attempt in a run has nothing to wait on. See MapReduceDeps.sleep's
+  // own doc comment for why this exists at all.
+  let isFirstAttempt = true;
+  async function pace(): Promise<void> {
+    if (isFirstAttempt) {
+      isFirstAttempt = false;
+      return;
+    }
+    await deps.sleep(MIN_CALL_INTERVAL_MS);
+  }
 
   for (const unit of spec.units) {
     let claims: TMapClaim[];
@@ -149,6 +174,7 @@ export async function runMapReduce<TUnit, TMapClaim, TReduceClaim, TFacts>(
     let callLogId: string | null = null;
 
     try {
+      await pace();
       const { text, callLogId: reservedId } = await callAndLog(deps, spec.surface, spec.buildMapPrompt(unit, spec.facts));
       callLogId = reservedId;
       let parsed: TMapClaim[];
@@ -195,6 +221,7 @@ export async function runMapReduce<TUnit, TMapClaim, TReduceClaim, TFacts>(
   }
 
   try {
+    await pace();
     const { text } = await callAndLog(deps, spec.surface, spec.buildReducePrompt(mapped, spec.facts));
     const parsed = spec.parseReduceResponse(text);
     const verified = spec.verifyReduceClaims(parsed, mapped, spec.facts);

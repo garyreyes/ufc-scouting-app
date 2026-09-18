@@ -1,0 +1,37 @@
+name: Scouting dossiers job
+
+on:
+  schedule:
+    # Every 6 hours, matching rumours.yml's cadence -- content-addressed
+    # (fetchFightersNeedingDossiers.ts), so most runs cost 0 calls once a
+    # card's roster has current dossiers (Elo only moves on settlement,
+    # Sherdog/physical data barely changes). The first run after a new
+    # card appears is ~1 call per fighter (~28 on a full card), well
+    # under the free tier's 500 requests/day.
+    - cron: "15 */6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  scouting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # One dossier per fighter on the nearest upcoming card whose input
+      # bundle has actually changed (or who has never had one) --
+      # generateScoutingDossiers.ts. Recorded in job_runs as
+      # "scouting_dossiers". N8 (not built yet) is the first consumer.
+      - name: Generate scouting dossiers
+        run: npx tsx src/lib/scouting/runScheduledScoutingJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

@@ -25,5 +25,6 @@ export function createMapReduceDeps(supabase: SupabaseClient): MapReduceDeps {
         rawOutput: record.rawOutput,
         error: record.error,
       }),
+    sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
 }
