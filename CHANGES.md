@@ -4295,6 +4295,47 @@ null on a fallback), threaded through from the reservation. N2's own
 tests updated to match — a small, backward-compatible addition to
 already-shipped code, not a new file.
 
+New migration `0049_conflict_resolution_proposals.sql`
+(`conflict_id`/`proposed_action`/`rationale`/`llm_call_id`, one active
+proposal per conflict, same no-client-grant posture as `data_conflicts`
+itself). Runs as the **last step** of the existing `sherdog.yml` job —
+after `resolveOpenSherdogConflictsJob.ts`'s heuristic sweep — so it only
+ever spends a call on the real residual, not a conflict about to be
+auto-resolved moments later in the same run. No new cron schedule.
+
+**Deliberately deferred**: `low_confidence_fighter_match` (the
+API-Sports analogue of the same candidate-list shape) — same
+architecture would extend to it directly, skipped only to keep this pass
+to one clearly-verified surface.
+
+**Verified, not assumed:**
+
+- `reconcileSherdogProposals.ts`'s collision check mutation-verified:
+  removing it reproduced exactly 3 of 7 failing tests (the ones
+  exercising collisions), restored to green.
+- `sherdogProposalChecks.ts`'s candidate-reality check mutation-verified:
+  weakening it to always pass reproduced exactly 2 of 5 failing tests,
+  restored to green.
+- Full suite: 916 → 936 passing (20 new), lint clean, build clean.
+- Workflow YAML parsed with `js-yaml` to confirm validity and step order
+  (the new step genuinely last) before relying on GitHub's own parser to
+  catch a mistake.
+- Migration `0049` applied to production (`vrwlfcywyfzfczajpdoh`,
+  confirmed before pushing; dry-run showed only `0049` pending).
+- **Real end-to-end pipeline proof**: with zero real open
+  `low_confidence_sherdog_match` conflicts existing right now (M5's own
+  sweep already cleared the residual close to zero), a synthetic test
+  conflict was inserted, run through the real orchestrator (real
+  reservation, real Gemini call, real write) — the model correctly chose
+  the exact-name-match candidate over a deliberately-planted decoy,
+  `llm_call_id` populated correctly, `reduceMode: "pure"` as designed —
+  then the synthetic conflict and its proposal were deleted and
+  confirmed gone, zero residue left in production.
+
+**Next:** N5 — a pure refactor exposing `decideInternPick`'s per-signal
+breakdown, the prerequisite for N8's shadow-pick comparison being
+interpretable at all.
+
 ## Phase 86 (N5) — Per-signal breakdown on picks, a pure refactor (2026-09-18)
 
 **What.** `decideInternPick` already computed rumour/Elo/size/age deltas
@@ -4383,43 +4424,88 @@ past the auth gate) — stated honestly rather than claimed.
 **Next:** N7 — scouting dossiers (the map step), content-addressed per
 fighter.
 
-New migration `0049_conflict_resolution_proposals.sql`
-(`conflict_id`/`proposed_action`/`rationale`/`llm_call_id`, one active
-proposal per conflict, same no-client-grant posture as `data_conflicts`
-itself). Runs as the **last step** of the existing `sherdog.yml` job —
-after `resolveOpenSherdogConflictsJob.ts`'s heuristic sweep — so it only
-ever spends a call on the real residual, not a conflict about to be
-auto-resolved moments later in the same run. No new cron schedule.
+## Phase 88 (N7) — Scouting dossiers, content-addressed per fighter; a real cross-surface pacing bug found and fixed (2026-09-18)
 
-**Deliberately deferred**: `low_confidence_fighter_match` (the
-API-Sports analogue of the same candidate-list shape) — same
-architecture would extend to it directly, skipped only to keep this pass
-to one clearly-verified surface.
+**What.** One Lite call per fighter on the nearest upcoming card, writing
+`fighter_scouting_dossiers` (migration `0051`): `formTrajectory`,
+`stylisticProfile`, `durability`, `layoff`, each grounded in a real bundle
+(Elo, reach/height, birth date, Sherdog win/loss split by method, last 5
+`fighter_sherdog_bouts`, open non-retracted flags) and citing real bout/flag
+ids as evidence. N8 (not built) is this table's only planned reader — no UI
+yet, same no-client-grant posture as `conflict_resolution_proposals`.
+
+**Content-addressed, the way the whole phase's budget math depends on**:
+`computeScoutingInputHash.ts` hashes the ENTIRE `ScoutingFighterBundle`
+object canonically, not a hand-picked subset of its fields — this is what
+forecloses the plan's own named risk ("cache key omits a field the prompt
+uses → stale dossiers served forever, invisibly") *structurally*, not just
+by test coverage: `buildScoutingDossierPrompt.ts` can only ever read from
+a bundle, and the hash already covers every field of it. Verified anyway
+with a mutation test (dropping the `birthDate` line from the rendered
+prompt correctly failed the parity check) and an exhaustive per-field
+mutation table (14 fields, each proven to change both the hash and the
+prompt). `unique (fighter_id, input_hash)` means a genuinely unchanged
+fighter costs 0 calls on a re-run — confirmed live, see below.
+
+**Ground-truth checks** (`scoutingDossierChecks.ts`, test-first,
+mutation-verified): every cited bout/flag id must be real for *that
+specific fighter's own* bundle, never merely present in another fighter's
+— drops the whole claim on a fabricated citation (not narrowed), since a
+fake citation means the prose reasoning around it may already be
+fabricated too.
+
+**A real bug, found live, not in a test.** The first production run wrote
+only 4 of 24 needed dossiers — `Degraded: 20 unit(s) denied budget on
+map`. Investigation found `runMapReduce.ts` (shipped in N2) had **no
+pacing at all**, despite the architecture doc's own stated design
+("Minimum 4s between calls, enforced so no caller can forget it") — only
+the atomic SQL reservation's interval *denial* existed
+(`0047_llm_call_log.sql`), with nothing ever waiting and retrying. N2's
+own verification gate said exactly this needed checking at scale ("a
+pacer that is wrong is invisible until a card-sized run hits 429s") but
+N2/N3/N4's real unit counts (1, 1, ≤10) never fanned out fast enough to
+trigger it — N7 (24 units) was the first real stress test this harness
+ever got. Fixed in the shared file, not worked around locally: added a
+`sleep` dependency to `MapReduceDeps` (real `setTimeout` in
+`createMapReduceDeps.ts`, instant in tests), and every reservation
+attempt after the first (map or reduce) now waits `MIN_CALL_INTERVAL_MS`
+first. Also benefits N3/N4 and any future surface, retroactively, without
+their own code changing.
 
 **Verified, not assumed:**
 
-- `reconcileSherdogProposals.ts`'s collision check mutation-verified:
-  removing it reproduced exactly 3 of 7 failing tests (the ones
-  exercising collisions), restored to green.
-- `sherdogProposalChecks.ts`'s candidate-reality check mutation-verified:
-  weakening it to always pass reproduced exactly 2 of 5 failing tests,
-  restored to green.
-- Full suite: 916 → 936 passing (20 new), lint clean, build clean.
-- Workflow YAML parsed with `js-yaml` to confirm validity and step order
-  (the new step genuinely last) before relying on GitHub's own parser to
-  catch a mistake.
-- Migration `0049` applied to production (`vrwlfcywyfzfczajpdoh`,
-  confirmed before pushing; dry-run showed only `0049` pending).
-- **Real end-to-end pipeline proof**: with zero real open
-  `low_confidence_sherdog_match` conflicts existing right now (M5's own
-  sweep already cleared the residual close to zero), a synthetic test
-  conflict was inserted, run through the real orchestrator (real
-  reservation, real Gemini call, real write) — the model correctly chose
-  the exact-name-match candidate over a deliberately-planted decoy,
-  `llm_call_id` populated correctly, `reduceMode: "pure"` as designed —
-  then the synthetic conflict and its proposal were deleted and
-  confirmed gone, zero residue left in production.
+- 4 new test files (35 tests): `parseScoutingDossierResponse`,
+  `scoutingDossierChecks` (mutation-verified — weakening the bout-citation
+  check to always pass reproduced exactly 2 of 6 failures), and
+  `computeScoutingInputHash`'s cache-key/prompt-parity suite (mutation-
+  verified as described above).
+- `runMapReduce.ts`'s new pacing logic: 4 new tests, mutation-verified
+  (forcing `pace()` to never sleep reproduced exactly 3 of 15 failures in
+  that file).
+- Migration `0051` applied to production (`vrwlfcywyfzfczajpdoh`,
+  confirmed before pushing).
+- **Real end-to-end proof, twice.** First run (pre-fix): 24 fighters
+  needed dossiers, 4 written, 20 correctly fell back and left no partial/
+  corrupt row. Second run (post-fix): all 20 remaining written, ~2m55s
+  wall time — matching the plan's own "~28-unit pass takes ~2 minutes
+  paced" estimate almost exactly, zero degradation. Third run: 0 fighters
+  needed a dossier, 0 calls — the cache working exactly as designed.
+  Sampled two real written rows: coherent, evidence-grounded prose citing
+  real bout/flag ids that passed the ground-truth checks.
+- Full suite: 958 → 997 passing (39 new — 35 scouting + 4 pacing), lint
+  clean, typecheck clean.
+- New GitHub Actions workflow `scouting.yml`, 6-hour cadence matching
+  `rumours.yml`'s reasoning (content-addressed, so most runs cost ~0
+  calls once a card's roster has current dossiers).
 
-**Next:** N5 — a pure refactor exposing `decideInternPick`'s per-signal
-breakdown, the prerequisite for N8's shadow-pick comparison being
-interpretable at all.
+**Scope note.** N7 is the map step only — no "serve a stale dossier on
+budget denial" fallback was built, since N8 (the only planned reader) has
+no code yet; a fighter with no fresh dossier this run simply keeps
+whatever dossier it already had (or none), the same "no evidence, no
+write" posture N4 already established. `mapFallback` returns `[]`, matching
+N4's own `() => []` for the identical reason.
+
+**Next:** N8 — shadow picks, the reduce step: one call per card (only
+when ≥1 dossier changed), emitting bounded signed deltas per named signal
+(never a direct probability) plus the model's own unconstrained read —
+two shadow lines, `LLM_ASSISTED` and `LLM_ONLY`, from one call.

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { runMapReduce } from "./runMapReduce";
 import { verifyClaims } from "./verifyClaims";
+import { MIN_CALL_INTERVAL_MS } from "./models";
 import type { MapReduceDeps, MapReduceSpec, MappedUnit } from "./runMapReduce";
 import type { ClaimCheck, ModelResponse, ReservationDecision } from "./types";
 
@@ -49,6 +50,11 @@ function baseDeps(overrides: Partial<MapReduceDeps> = {}): MapReduceDeps {
     callModel: vi.fn(),
     reserve: vi.fn(async (): Promise<ReservationDecision> => ({ granted: true, callLogId: "log-1" })),
     logCall: vi.fn(async () => undefined),
+    // Instant, not a real setTimeout -- these tests assert on CALL COUNT
+    // and ORDER (see the "paces" describe block below), never on real
+    // elapsed wall-clock time, so keeping this fast is correct, not a
+    // shortcut around the pacing behaviour itself.
+    sleep: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -234,5 +240,82 @@ describe("runMapReduce", () => {
     expect(logCall).toHaveBeenCalledTimes(2);
     expect(logCall).toHaveBeenNthCalledWith(1, expect.objectContaining({ status: "ok", surface: "rumours" }));
     expect(logCall).toHaveBeenNthCalledWith(2, expect.objectContaining({ status: "ok", surface: "rumours" }));
+  });
+
+  // N7 finding (2026-09-18): a real fanned-out run against production (24
+  // units) showed this file had NO pacing at all -- 20 of 24 attempts were
+  // denied on their first real run, exactly the failure the plan's own N2
+  // gate warned about but never actually verified at scale. These tests
+  // are the regression guard for that fix.
+  describe("pacing (N7 fix)", () => {
+    it("never sleeps before the very first reservation attempt in a run", async () => {
+      const sleep = vi.fn(async () => undefined);
+      const callModel = vi.fn().mockResolvedValue(okResponse('[{"value":1}]'));
+      const deps = baseDeps({ callModel, sleep });
+      const spec = baseSpec({ units: [{ id: "u1" }], reduceViaLlm: false, reduceFallback: () => [] });
+
+      await runMapReduce(spec, deps);
+
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it("sleeps for MIN_CALL_INTERVAL_MS before every map attempt after the first", async () => {
+      const sleep = vi.fn(async () => undefined);
+      const callModel = vi.fn().mockResolvedValue(okResponse('[{"value":1}]'));
+      const deps = baseDeps({ callModel, sleep });
+      const spec = baseSpec({
+        units: [{ id: "u1" }, { id: "u2" }, { id: "u3" }],
+        reduceViaLlm: false,
+        reduceFallback: () => [],
+      });
+
+      await runMapReduce(spec, deps);
+
+      // 3 units: no sleep before the 1st, one sleep before each of the
+      // 2nd and 3rd -- 2 total, not 3 and not 0.
+      expect(sleep).toHaveBeenCalledTimes(2);
+      expect(sleep).toHaveBeenCalledWith(MIN_CALL_INTERVAL_MS);
+    });
+
+    it("also paces the reduce call against the last map call", async () => {
+      const sleep = vi.fn(async () => undefined);
+      const callModel = vi
+        .fn()
+        .mockResolvedValueOnce(okResponse('[{"value":1}]'))
+        .mockResolvedValueOnce(okResponse('[{"total":1}]'));
+      const deps = baseDeps({ callModel, sleep });
+      // A single map unit means the map loop itself never sleeps (it's the
+      // first attempt) -- the ONE sleep call must be the reduce step's own
+      // pacing against that map call, not a map-loop artifact.
+      const spec = baseSpec({ units: [{ id: "u1" }] });
+
+      await runMapReduce(spec, deps);
+
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(sleep).toHaveBeenCalledWith(MIN_CALL_INTERVAL_MS);
+    });
+
+    it("still paces correctly when a map attempt is budget-denied, not just on a real call", async () => {
+      const sleep = vi.fn(async () => undefined);
+      const reserve = vi
+        .fn()
+        .mockResolvedValueOnce({ granted: true, callLogId: "log-1" })
+        .mockResolvedValueOnce({ granted: false, reason: "rate_limited" });
+      const callModel = vi.fn().mockResolvedValue(okResponse('[{"value":1}]'));
+      const deps = baseDeps({ callModel, reserve, sleep });
+      const spec = baseSpec({
+        units: [{ id: "u1" }, { id: "u2" }],
+        reduceViaLlm: false,
+        reduceFallback: () => [],
+      });
+
+      const outcome = await runMapReduce(spec, deps);
+
+      // Pacing runs before the RESERVE attempt, not after -- a denial on
+      // the 2nd unit still means exactly one sleep happened (before that
+      // 2nd attempt), same as if it had been granted.
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(outcome.degradation.mapBudgetDenied).toBe(1);
+    });
   });
 });

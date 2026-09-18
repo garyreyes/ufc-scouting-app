@@ -468,3 +468,51 @@ had not been fought yet at prediction time.
 and N9's readout (`/scoreboard`'s three-line comparison) — writing them
 after either exists risks quietly shaping the rule around what the code
 already produces.
+
+---
+
+## 2026-09-18 — N7: client-side sleep, not retry-on-denial, for RPM pacing
+
+**Decision.** `runMapReduce.ts`'s per-unit loop now unconditionally
+`await`s a fixed `MIN_CALL_INTERVAL_MS` sleep before every reservation
+attempt after the first (map or reduce), regardless of whether the
+previous attempt was granted, denied, or errored. It does **not** retry a
+denied reservation.
+
+**Why this was a real bug, not a hypothetical one.** N2's architecture
+doc said pacing would be "enforced in `geminiClient.ts` so no caller can
+forget it," but the shipped code only built the atomic SQL reservation's
+interval *denial* (`try_reserve_llm_call()`, `0047_llm_call_log.sql`) —
+nothing ever waited and retried on that denial, and nothing paced calls
+before attempting them. N2's own verification gate named exactly this
+risk ("a pacer that is wrong is invisible until a card-sized run hits
+429s") but N2/N3/N4's real unit counts (1, 1, ≤10) never fanned out fast
+enough to trigger it. N7's real production run (24 fighters) was the
+first genuine stress test this harness ever received, and it failed
+exactly as predicted: 20 of 24 units denied on the first real run.
+
+**Why a fixed sleep, not retry-on-`rate_limited`.**
+`reserveLlmCall.ts` deliberately collapses every denial reason (daily
+cap, RPM guard) into a uniform "budget denied" outcome — documented in
+its own header as intentional, since callers degrade the same way
+either way, and telling them apart server-side needs a second read of
+rows the SQL function already scanned. Retrying selectively would have
+required un-collapsing that distinction first, widening a boundary that
+was deliberately kept narrow for a reason unrelated to this bug. A flat
+sleep before every attempt (after the first) needs no new information
+from the reservation layer at all, and its cost is bounded and known in
+advance: an N-unit surface takes `(N-1) * 4.2s`, matching the ~2-minute
+estimate the original architecture doc already gave for a 28-unit pass —
+confirmed live (20 units, ~2m55s).
+
+**Consequence.** Every surface (rumours, conflicts, scouting) now gets
+this pacing for free from the shared file, without any surface-specific
+code change — N3/N4 were exposed to the same latent gap, just never at a
+unit count large enough to hit it.
+
+**Revisit if** a future surface's real fan-out is large enough that a
+flat `(N-1) * 4.2s` wait becomes the dominant cost of a job (e.g. N8's
+per-card reduce alongside a large scouting map in the same run) — at
+that point, un-collapsing `rate_limited` from `daily_cap` to allow
+skipping the wait on a soft-cap/daily-cap denial (which retrying can't
+fix) becomes worth the added surface area.
