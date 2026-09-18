@@ -833,6 +833,24 @@ Decided 2026-08-29, user-originated.
   "no" branch, call it for real, and confirm nothing was written. Cheaper
   and more honest than mocking the function, and unlike a read-only
   `explain` it actually executes the function body.
+- **Verifying a new WRITE path live, when no real data exists to trigger
+  it: insert an unmistakably-synthetic row, run the real pipeline against
+  it, confirm the result, then delete everything and confirm the delete.**
+  Used for N4 (2026-09-18): zero real `low_confidence_sherdog_match`
+  conflicts existed at verification time (M5's own sweep had already
+  cleared the residual), so the "guaranteed no-op branch" trick above
+  doesn't apply — there's nothing to call safely, the write path itself is
+  what needs proving. Inserted one `data_conflicts` row with an
+  all-zeros fighter id and made-up candidate names ("Test Fixture Fighter
+  N4-Verify"), ran the real orchestrator (real reservation, real Gemini
+  call, real write to `conflict_resolution_proposals`), confirmed the
+  model picked the planted exact-name-match candidate over a decoy, then
+  deleted both rows and re-queried to confirm zero residue. The
+  unmistakable naming is deliberate — a synthetic row must never be
+  mistakable for real production data even mid-verification, before
+  cleanup runs. Companion to the guaranteed-no-write pattern above: use
+  that one when the function has a real "no" branch to trigger; use this
+  one when proving a write requires triggering the write.
 - **The N3 retraction pass's real prompt size, measured live on a real
   13-fight card (2026-09-18): 165,143 characters (~41K tokens estimated)
   in one call.** Unlike the per-fight clustering prompt (bounded at ≤50
