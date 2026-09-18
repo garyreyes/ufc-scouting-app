@@ -516,3 +516,65 @@ per-card reduce alongside a large scouting map in the same run) — at
 that point, un-collapsing `rate_limited` from `daily_cap` to allow
 skipping the wait on a soft-cap/daily-cap denial (which retrying can't
 fix) becomes worth the added surface area.
+
+---
+
+## 2026-09-18 — N8: shadow-picks job runs on its own cron, decoupled from scouting.yml
+
+**Decision.** `shadow-picks.yml` is a separate scheduled workflow
+(`"45 */6 * * *"`, offset from `scouting.yml`'s `"15 */6 * * *"` and
+`rumours.yml`'s `"0 */6 * * *"`), not chained after scouting's job via a
+`workflow_run` trigger or a second step in the same workflow.
+
+**Alternatives considered.** Chaining would guarantee the reduce call
+always reads this cycle's freshest dossiers, with no staleness window.
+Rejected because it couples the two jobs' failure domains — a
+scouting.yml failure (budget denial, a thrown error) would block shadow
+picks entirely for that cycle, even though shadow picks could still
+usefully reduce over whatever dossiers already exist from a prior run.
+Chaining also adds real CI complexity (`workflow_run`'s own trigger
+quirks, or a multi-step single workflow) for a surface with zero
+user-facing consequence.
+
+**Why the decoupled cost is acceptable.** N8 is explicitly a
+measurement-only shadow line — nothing downstream reads it except future
+`/scoreboard` comparison (N9) and a human promotion decision
+(`DECISIONS.md`, 2026-09-18, "N6: promotion rule"). A few hours of
+dossier staleness on an occasional run changes nothing about what's
+being measured; independent failure domains and simpler CI outweigh it.
+
+---
+
+## 2026-09-18 — N8: shadow picks revise until card lock, append-only, latest-before-lock scores
+
+**Decision.** `shadow_picks` has no uniqueness constraint forcing one row
+per fight — a new reduce call before a card's lock time
+(`starts_at - 6h`, the same lock Fork 10 uses for real picks) inserts a
+new row rather than overwriting. For Brier scoring (N6, N9), only the
+**latest row per `(fight_id, line)` recorded before that fight's lock
+time** counts; earlier rows stay as history, matching N7's own
+append-only precedent for `fighter_scouting_dossiers`.
+
+**Why not one-shot.** A shadow pick that never revises doesn't test what
+production behavior would actually look like — a real pick (Fork 10)
+updates as new information (a late-breaking flag, a line move) arrives
+before lock, and the honest comparison is against that same behavior, not
+against a single first guess frozen in time.
+
+**Why not overwrite-in-place.** Overwriting would destroy the audit
+trail N9's replay tooling depends on (`npm run llm:replay --call-id=`)
+and would make it impossible to later ask "did the model's read change
+when a new dossier landed" — a question this measurement surface exists
+to answer. Append-only costs nothing extra: the table is already
+service-role-only with no row-count-sensitive UI reading it directly.
+
+**Consequence for N8's scoring logic.** Any code computing Brier score or
+accuracy over `shadow_picks` must first select, per fight and line, the
+row with the latest `created_at` strictly before that fight's card lock
+time — never the latest row unconditionally, which would leak
+post-lock/post-fight information into a supposedly-forward-only
+measurement (the same leakage this project's "never backtest" rule
+exists to prevent). This lands as N9's responsibility since N9 owns the
+readout, but is recorded now per this project's standing rule of writing
+down a scoring/selection rule before the data it will be applied to
+exists.

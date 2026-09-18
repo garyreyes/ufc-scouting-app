@@ -29,7 +29,7 @@ export interface MappedUnit<TUnit, TMapClaim> {
  * value.
  */
 export interface MapReduceSpec<TUnit, TMapClaim, TReduceClaim, TFacts> {
-  surface: "rumours" | "conflicts" | "scouting";
+  surface: "rumours" | "conflicts" | "scouting" | "shadowPicks";
   units: TUnit[];
   facts: TFacts; // ground truth, fetched ONCE by the caller before this runs
 

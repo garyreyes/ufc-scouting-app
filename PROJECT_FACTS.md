@@ -1415,3 +1415,19 @@ Decided 2026-08-29, user-originated.
   works -- and in this project SQL functions have no local test path
   either (no local Postgres), so the first live run IS the first test.
   Expect that and sequence it accordingly: one merge first, not a sweep.
+- **`supabase db query --linked` and a direct `--db-url` connection both
+  fail in this environment (2026-09-18, N8) -- read-back verification
+  after a migration has to route around this, not assume it'll work.**
+  `--linked` returns a 401 (the CLI's stored management-API access token
+  isn't valid for that endpoint here, even though `SUPABASE_ACCESS_TOKEN`
+  is set); a hand-built `--db-url` using the pooler host plus
+  `SUPABASE_DB_PASSWORD`/`PGPASSWORD` fails Postgres SASL auth (neither
+  env var matches the pooler role's actual password). `supabase db dump`
+  fails separately (no Docker in this environment). What DOES work,
+  confirmed live: `supabase migration list --linked` (reads the remote
+  tracking table correctly) and `supabase db push --linked --dry-run`
+  (connects directly to the database via the same path `db push` itself
+  uses, reports "Remote database is up to date" with an empty migrations
+  list when nothing's pending) -- both are real, if indirect, schema-state
+  confirmation. Use these two, not `db query`/`db dump`, for post-migration
+  verification until the underlying auth/Docker gap is fixed.
