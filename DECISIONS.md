@@ -368,3 +368,47 @@ the one originally designed for. See the N1 block in `PROJECT_FACTS.md`.
 **Revisit if** the real scouting prompt (N7/N8) is measured — with that
 prompt, not assumed — to need more than Lite delivers. The tier split can
 be reintroduced behind `models.ts` without touching feature code.
+
+---
+
+## 2026-09-18 — N4: conflict proposals scoped to Sherdog matching, not fighter merging
+
+**Decision.** N4's advisory LLM proposals target only `low_confidence_sherdog_match`
+conflicts. `disputed_opponent`'s optional merge path (`merge_fighters()`,
+`checkMergeGuard`) is deliberately out of scope, not just deferred.
+
+**Why.** The approved plan's own justification for N4 conflated two
+different mechanisms. Its worked example (Renato Moicano = Sherdog's
+"Renato Carneiro") and its "10/10 already auto-resolved by the heuristic"
+framing are both about `low_confidence_sherdog_match` — linking ONE
+existing fighter row to an external Sherdog id via
+`resolveSherdogMatchAction`. But the plan's literal checks section named
+`checkMergeGuard`/`decideSameCardMerge`, which govern a structurally
+different, higher-stakes action: merging TWO existing fighter rows into
+one via `merge_fighters()`, used by `disputed_opponent`'s same-card-variant
+resolution. A Sherdog match proposal's worst case is a fighter staying
+unmatched a while longer; a wrong merge proposal's worst case is
+irreversible data loss on the dropped row — exactly the failure mode
+Phase M's own `0045`/`0046` migrations found and fixed live, twice, before
+`merge_fighters()` ever ran safely.
+
+**Consequence.** `reconcileSherdogProposals.ts`'s pure reduce step is a
+uniqueness check on `fighters.sherdog_id` (real and schema-enforced), not
+the plan's more general "a fighter is both keeper and dropped" graph
+check — there is no keeper/dropped pair in this scope, only one fighter
+per conflict choosing among external candidates.
+
+**Alternatives considered.**
+
+- Building both kinds in N4 as originally read. Rejected: would have
+  meant designing a merge-proposal flow under real time pressure, on the
+  exact path Phase M's own history shows is easy to get subtly wrong.
+- `low_confidence_fighter_match` (the API-Sports analogue of the same
+  candidate-list shape). Deferred, not rejected — the same architecture
+  extends to it directly; skipped only to keep N4 to one clearly-verified
+  surface rather than two half-verified ones in the same pass.
+
+**Revisit if** `disputed_opponent` proposals are wanted later — that
+would be a new sub-phase with its own checks (verifying a proposed merge
+against `checkMergeGuard` for real, plus a graph check across the batch),
+not a trivial extension of this one.

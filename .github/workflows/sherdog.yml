@@ -87,3 +87,18 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 5 (N4). Propose -- never apply -- a Sherdog match for whatever
+      #    low_confidence_sherdog_match conflict is STILL open after every
+      #    step above, including any step 0b just declined and any step 1
+      #    just opened today. Runs last on purpose so it only ever spends
+      #    a call on the real residual, not a conflict about to be
+      #    auto-resolved moments later by this same job. Writes only to
+      #    conflict_resolution_proposals -- fighters.sherdog_id is never
+      #    touched here. job_runs: "conflict_proposals".
+      - name: Propose Sherdog match resolutions (advisory only)
+        run: npx tsx src/lib/conflictProposals/runScheduledConflictProposalJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

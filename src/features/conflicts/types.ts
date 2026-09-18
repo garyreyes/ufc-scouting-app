@@ -212,6 +212,17 @@ export interface LowConfidenceFighterMatchDisplay {
   candidates: FighterMatchCandidate[];
 }
 
+// N4: an advisory LLM proposal for this conflict, if one exists and
+// hasn't already been accepted/rejected -- conflict_resolution_proposals.
+// null means either no proposal job has run for this conflict yet, or
+// the model wasn't confident enough to suggest anything (a real,
+// distinct case from "no proposal exists" -- see the card component,
+// which shows the rationale either way when a proposal IS present).
+export interface SherdogMatchProposal {
+  chosenSherdogId: number | null;
+  rationale: string;
+}
+
 // J3b: like LowConfidenceFighterMatchDisplay, a plain reshape of details
 // -- the Sherdog identity job (lib/sherdog/buildSherdogIdentityWrites.ts)
 // snapshots the full ranked candidate list at detection.
@@ -223,6 +234,7 @@ export interface LowConfidenceSherdogMatchDisplay {
   reason: SherdogMatchQueueReason;
   guardMismatchPageName?: string;
   candidates: SherdogMatchCandidate[];
+  proposal: SherdogMatchProposal | null;
 }
 
 export type ConflictDisplay =

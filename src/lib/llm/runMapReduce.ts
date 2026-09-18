@@ -6,6 +6,12 @@ export interface MappedUnit<TUnit, TMapClaim> {
   unit: TUnit;
   claims: TMapClaim[];
   source: "llm" | "fallback";
+  // The llm_call_log row this unit's claims came from, when source is
+  // "llm" -- null on "fallback" (nothing was ever reserved or called) so
+  // a caller storing this alongside a decision (N4's
+  // conflict_resolution_proposals.llm_call_id) has real traceability back
+  // to the exact prompt/response, not just a boolean "used the LLM".
+  callLogId: string | null;
 }
 
 /**
@@ -90,7 +96,7 @@ async function callAndLog(
   deps: MapReduceDeps,
   surface: string,
   prompt: string,
-): Promise<{ text: string; modelVersion: string | null }> {
+): Promise<{ text: string; modelVersion: string | null; callLogId: string }> {
   const reservation = await deps.reserve(surface);
   if (!reservation.granted) {
     throw new BudgetDeniedError(reservation.reason);
@@ -105,7 +111,7 @@ async function callAndLog(
       rawOutput: response.text,
       error: null,
     });
-    return { text: response.text, modelVersion: response.modelVersion };
+    return { text: response.text, modelVersion: response.modelVersion, callLogId: reservation.callLogId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await deps.logCall({
@@ -140,9 +146,11 @@ export async function runMapReduce<TUnit, TMapClaim, TReduceClaim, TFacts>(
   for (const unit of spec.units) {
     let claims: TMapClaim[];
     let source: "llm" | "fallback";
+    let callLogId: string | null = null;
 
     try {
-      const { text } = await callAndLog(deps, spec.surface, spec.buildMapPrompt(unit, spec.facts));
+      const { text, callLogId: reservedId } = await callAndLog(deps, spec.surface, spec.buildMapPrompt(unit, spec.facts));
+      callLogId = reservedId;
       let parsed: TMapClaim[];
       try {
         parsed = spec.parseMapResponse(text, unit);
@@ -169,7 +177,7 @@ export async function runMapReduce<TUnit, TMapClaim, TReduceClaim, TFacts>(
       degradation.mapFallback++;
     }
 
-    mapped.push({ unit, claims, source });
+    mapped.push({ unit, claims, source, callLogId: source === "llm" ? callLogId : null });
   }
 
   if (!spec.reduceViaLlm) {

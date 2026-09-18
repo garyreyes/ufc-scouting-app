@@ -4254,3 +4254,84 @@ second caller that needs the same checks) comes up.
 
 **Next:** N4 — conflict proposals for the `/conflicts` queue, propose-only,
 never auto-apply.
+
+## Phase 85 (N4) — Advisory LLM proposals for Sherdog-match conflicts (2026-09-18)
+
+**What.** `/conflicts` cards for `low_confidence_sherdog_match` now show a
+pre-selected suggestion and a plain-language rationale, labeled "advisory
+only, not applied." The owner still has to click Confirm — the LLM never
+writes `fighters.sherdog_id` itself, the *existing* `resolveSherdogMatchAction`
+does, unchanged.
+
+**Scope note, written into `DECISIONS.md`.** The approved plan's own
+worked example (Renato Moicano = Sherdog's "Renato Carneiro") is about
+Sherdog identity *matching* — linking one fighter row to an external id.
+Its literal checks section named `checkMergeGuard`/`decideSameCardMerge`,
+which govern a different, higher-stakes action: *merging* two existing
+fighter rows via `merge_fighters()`, the exact function Phase M's own
+`0045`/`0046` migrations found subtly broken, live, before it ever ran
+safely. N4 built only the matching surface. `disputed_opponent`'s merge
+path stays manual-only, deliberately, not silently dropped.
+
+**Map — one Lite call per open conflict** (`buildSherdogProposalPrompt.ts`),
+genuinely decomposable unlike N3's card-level retraction pass, so this is
+`runMapReduce`'s real per-unit shape: each conflict's stored name, why it
+was queued, and its ranked Sherdog candidate list (already snapshotted at
+detection — no new fetch, no new Sherdog request). **Reduce — a pure
+function** (`reconcileSherdogProposals.ts`, test-first, mutation-verified):
+`fighters.sherdog_id` is unique, so if two different conflicts propose the
+same id, only the first is kept; the LLM never adjudicates this, code
+does, cheaply and deterministically.
+
+**Ground-truth checks** (`sherdogProposalChecks.ts`, test-first,
+mutation-verified): a cited candidate id must be real for *that specific
+conflict's own* candidate list, never merely present somewhere in the
+batch — checked and tested explicitly, since two conflicts commonly share
+overlapping candidate pools.
+
+**`runMapReduce.ts` gained real per-decision traceability**: `MappedUnit`
+now carries `callLogId` (the exact `llm_call_log` row a claim came from,
+null on a fallback), threaded through from the reservation. N2's own
+tests updated to match — a small, backward-compatible addition to
+already-shipped code, not a new file.
+
+New migration `0049_conflict_resolution_proposals.sql`
+(`conflict_id`/`proposed_action`/`rationale`/`llm_call_id`, one active
+proposal per conflict, same no-client-grant posture as `data_conflicts`
+itself). Runs as the **last step** of the existing `sherdog.yml` job —
+after `resolveOpenSherdogConflictsJob.ts`'s heuristic sweep — so it only
+ever spends a call on the real residual, not a conflict about to be
+auto-resolved moments later in the same run. No new cron schedule.
+
+**Deliberately deferred**: `low_confidence_fighter_match` (the
+API-Sports analogue of the same candidate-list shape) — same
+architecture would extend to it directly, skipped only to keep this pass
+to one clearly-verified surface.
+
+**Verified, not assumed:**
+
+- `reconcileSherdogProposals.ts`'s collision check mutation-verified:
+  removing it reproduced exactly 3 of 7 failing tests (the ones
+  exercising collisions), restored to green.
+- `sherdogProposalChecks.ts`'s candidate-reality check mutation-verified:
+  weakening it to always pass reproduced exactly 2 of 5 failing tests,
+  restored to green.
+- Full suite: 916 → 936 passing (20 new), lint clean, build clean.
+- Workflow YAML parsed with `js-yaml` to confirm validity and step order
+  (the new step genuinely last) before relying on GitHub's own parser to
+  catch a mistake.
+- Migration `0049` applied to production (`vrwlfcywyfzfczajpdoh`,
+  confirmed before pushing; dry-run showed only `0049` pending).
+- **Real end-to-end pipeline proof**: with zero real open
+  `low_confidence_sherdog_match` conflicts existing right now (M5's own
+  sweep already cleared the residual close to zero), a synthetic test
+  conflict was inserted, run through the real orchestrator (real
+  reservation, real Gemini call, real write) — the model correctly chose
+  the exact-name-match candidate over a deliberately-planted decoy,
+  `llm_call_id` populated correctly, `reduceMode: "pure"` as designed —
+  then the synthetic conflict and its proposal were deleted and
+  confirmed gone, zero residue left in production.
+
+**Next:** N5 — a pure refactor exposing `decideInternPick`'s per-signal
+breakdown, the prerequisite for N8's shadow-pick comparison being
+interpretable at all.

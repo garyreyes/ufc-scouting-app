@@ -44,9 +44,18 @@ export function LowConfidenceSherdogMatchCard({
 }: {
   conflict: LowConfidenceSherdogMatchDisplay;
 }) {
-  const [selected, setSelected] = useState(
-    conflict.candidates[0] ? String(conflict.candidates[0].sherdogId) : NONE_OF_THESE,
-  );
+  // N4: prefer the LLM's proposed candidate when one exists -- still only
+  // a pre-selected suggestion, never an auto-applied choice; the owner
+  // still has to click Confirm, same as before this existed. Falls back
+  // to today's default (the algorithm's own top-ranked candidate) when
+  // no proposal exists yet, and to "none" when the LLM itself proposed
+  // null (not confident any candidate is a match).
+  const [selected, setSelected] = useState(() => {
+    if (conflict.proposal) {
+      return conflict.proposal.chosenSherdogId !== null ? String(conflict.proposal.chosenSherdogId) : NONE_OF_THESE;
+    }
+    return conflict.candidates[0] ? String(conflict.candidates[0].sherdogId) : NONE_OF_THESE;
+  });
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +78,12 @@ export function LowConfidenceSherdogMatchCard({
       <div className={styles.kindLabel}>Sherdog match needs review</div>
       <div className={styles.eventMeta}>{conflict.storedName}</div>
       <p className={styles.optionHint}>{whyQueued(conflict)}</p>
+      {conflict.proposal && (
+        <div>
+          <div className={styles.proposalLabel}>Suggested (advisory only, not applied)</div>
+          <p className={styles.proposalRationale}>{conflict.proposal.rationale}</p>
+        </div>
+      )}
       {conflict.candidates.length === 0 ? (
         <p className={styles.noCandidates}>No Sherdog candidates — nothing to match yet.</p>
       ) : (

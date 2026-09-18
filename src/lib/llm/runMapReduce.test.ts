@@ -80,8 +80,8 @@ describe("runMapReduce", () => {
 
     expect(outcome.claims).toEqual([{ total: 3 }]);
     expect(outcome.mapped).toEqual([
-      { unit: { id: "u1" }, claims: [{ value: 1 }], source: "llm" },
-      { unit: { id: "u2" }, claims: [{ value: 2 }], source: "llm" },
+      { unit: { id: "u1" }, claims: [{ value: 1 }], source: "llm", callLogId: "log-1" },
+      { unit: { id: "u2" }, claims: [{ value: 2 }], source: "llm", callLogId: "log-1" },
     ]);
     expect(outcome.degradation).toMatchObject({
       mapLlm: 2,
@@ -105,7 +105,12 @@ describe("runMapReduce", () => {
 
     const outcome = await runMapReduce(spec, deps);
 
-    expect(outcome.mapped[0]).toEqual({ unit: { id: "u1" }, claims: [{ value: -999 }], source: "fallback" });
+    expect(outcome.mapped[0]).toEqual({
+      unit: { id: "u1" },
+      claims: [{ value: -999 }],
+      source: "fallback",
+      callLogId: null,
+    });
     expect(outcome.degradation.mapFallback).toBe(1);
     expect(outcome.degradation.mapBudgetDenied).toBe(0);
     expect(outcome.degradation.mapLlm).toBe(0);
@@ -121,6 +126,10 @@ describe("runMapReduce", () => {
     expect(outcome.degradation.mapBudgetDenied).toBe(1);
     expect(outcome.degradation.mapFallback).toBe(1);
     expect(outcome.mapped[0].source).toBe("fallback");
+    // A fallback unit was never reserved, so it has nothing to point a
+    // stored decision's llm_call_id at -- N4's conflict proposals store
+    // this alongside every accepted suggestion.
+    expect(outcome.mapped[0].callLogId).toBeNull();
     // A denied reservation must never reach callModel or logCall.
     expect(deps.callModel).not.toHaveBeenCalled();
     expect(deps.logCall).not.toHaveBeenCalled();

@@ -75,3 +75,20 @@
   font-size: 0.85rem;
   color: var(--accent);
 }
+
+/* N4: an advisory LLM proposal -- deliberately the same quiet weight as
+   .optionHint, not a louder treatment, since this is a suggestion to
+   read before deciding, not a verdict. */
+.proposalLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.proposalRationale {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-style: italic;
+}
