@@ -4760,3 +4760,40 @@ build clean.
 **Next:** a guarded, dry-run-first bulk script to dismiss the 27 stale
 rows Phase 91 left open (per `DECISIONS.md`'s Fork 1) — its own separate
 confirm point before running against production.
+
+## Phase 93 — Bulk-dismissed the 24 stale `low_confidence_odds_match` rows Phase 91/92 left open (2026-09-19)
+
+**What.** `0054_dismiss_stale_odds_conflicts.sql` — data-only, no schema
+change. Ran the dry-run Phase 92 deferred: re-ranked all 24 (not 27 —
+a few had resolved on their own since Phase 91) still-open
+`low_confidence_odds_match` rows live against the current
+unpriced-fights pool, confirmed all 24 have zero live candidates, then
+resolved exactly that id list with `resolved_at`/`resolution: 'no_match'`
+— the same write `resolveLowConfidenceAction`'s new dismiss path takes,
+applied in bulk since clicking through 24 identical judgment-free rows
+one at a time would be pure toil.
+
+**Correction to Phase 91's own framing.** The dry-run's actual names
+showed Phase 91's "regional/other-promotion fighters we don't track" 
+explanation was only partly right. Most of these 24 are real UFC roster
+fighters who WERE on that exact card (Fiorot vs Grasso, Moreno vs
+Morales, Cortes-Acosta vs Blaydes, Dan Ige, ...) — their odds-provider
+names just had diacritics stripped or fighter order flipped ("Zhu Rong"
+vs "Rong Zhu"), which kept them under `AUTO_MATCH_THRESHOLD`, and by the
+time anyone would have manually confirmed them, every one of those real
+fights had already settled and dropped out of the unpriced pool
+(`eligibleUnpricedFights.ts` already treats a settled fight as no
+longer needing an odds match, by design). The outcome is identical
+either way — no fight to write a price onto — but the migration's own
+comment records both real reasons rather than repeating the
+incomplete one.
+
+**Verified.** Read back live: `data_conflicts` open-row count dropped
+from 29 to 5, and a `kind`-scoped count confirms zero remaining open
+`low_confidence_odds_match` rows.
+
+**What's left.** `/conflicts` is not at 0 — 5 `disputed_opponent`
+conflicts remain, two detected as recently as 2026-09-18. This is a
+genuinely different conflict kind (two data sources disagree about which
+bout a fight actually was) requiring the owner's own judgment per row,
+not something this pass touched or should auto-resolve.
