@@ -105,7 +105,7 @@ export default async function ScoreboardPage() {
         <AccuracyBoard me={data.accuracy.me} intern={data.accuracy.intern} chalk={data.accuracy.chalk} />
       </div>
 
-      <CalibrationTable me={data.calibration.me} intern={data.calibration.intern} />
+      <CalibrationTable me={data.calibration.me} intern={data.calibration.intern} brier={data.brier} />
 
       <PickHistoryTable rows={data.pickHistory} />
     </div>

@@ -412,3 +412,59 @@ per conflict choosing among external candidates.
 would be a new sub-phase with its own checks (verifying a proposed merge
 against `checkMergeGuard` for real, plus a graph check across the batch),
 not a trivial extension of this one.
+
+---
+
+## 2026-09-18 — N6: the LLM-shadow promotion rule, pre-registered before N8 exists
+
+**Decision.** Two rules, written now — before N8 writes its first shadow
+pick — because deciding a promotion threshold after seeing the numbers
+means picking whichever one agrees with what's already hoped.
+
+**1. Promotion rule.** `LLM_ASSISTED` and `LLM_ONLY` (N8) are each judged
+independently against the deterministic line, never against each other:
+
+- **Minimum sample: 10 settled cards** with at least one scored shadow
+  pick each, before either arm's Brier score is even looked at as a
+  promotion signal. This reuses `SMALL_SAMPLE_THRESHOLD`
+  (`app/scoreboard/page.tsx`) rather than inventing a second "enough
+  data" number — the same threshold already governs when the real boards
+  stop being a small sample, and there is no principled reason a shadow
+  line needs a different bar.
+- **Winning margin: the challenger's Brier score must be at least 0.02
+  lower than the deterministic line's, over the same scored population.**
+  0.02 is a judgment call, not a derived number — stated honestly. It is
+  chosen to be small enough to be reachable (the useful range of a Brier
+  score on this kind of binary forecast, 0 to 0.25, is not wide) but
+  large enough that a margin this size is very unlikely to be sampling
+  noise on a ~10-card, ~15-fights/card population. If real data later
+  shows this bar is miscalibrated (too easy, too hard) that is itself
+  something to record here, not silently retune.
+- **No clear winner → the deterministic rule stays live.** Ties, a
+  margin under 0.02, or either arm's Brier score being *worse* than
+  deterministic's all resolve to "deterministic wins" — the rule never
+  needs to justify staying, only a challenger needs to justify replacing
+  it.
+- Promotion is a **human decision** made by reading `/scoreboard`'s three
+  lines once the sample gate clears — nothing in N8/N9 auto-promotes a
+  shadow line into `picks.author`. This rule defines when the evidence
+  supports asking, not an automated switch.
+
+**2. Never backtest the LLM scout over settled historical fights.**
+`methodBacktest.ts` (L5) is leakage-free because `predictInternMethod` is
+a pure function reasoning only from data that existed before the fight —
+it structurally cannot know the future. An LLM has no such guarantee: an
+LLM asked to scout a named 2024 fight very likely has that fight's real
+result somewhere in its training data, and nothing in the prompt can
+prove it doesn't. A historical backtest would return a confident,
+plausible-looking, and **entirely fake** accuracy number — the exact
+"silently wrong, nothing in lint/tests/build can see it" failure mode
+this project's own conventions exist to catch. **Forward shadow only**:
+every `LLM_ASSISTED`/`LLM_ONLY` pick is scored only against a fight that
+had not been fought yet at prediction time.
+
+**Why now, not at N8.** Both rules constrain N8's own design (what
+`shadow_picks` must record to make the promotion rule checkable later)
+and N9's readout (`/scoreboard`'s three-line comparison) — writing them
+after either exists risks quietly shaping the rule around what the code
+already produces.

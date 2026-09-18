@@ -1,9 +1,10 @@
 import type { UnitsLine } from "@/lib/scoring/aggregateUnitsLine";
 import type { AccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
 import type { CalibrationBucket } from "@/lib/scoring/computeCalibrationBuckets";
+import type { BrierScoreResult } from "@/lib/scoring/computeBrierScore";
 import type { PendingSummary, PendingSide } from "@/lib/scoring/summarizePendingPicks";
 
-export type { UnitsLine, AccuracyLine, CalibrationBucket, PendingSummary, PendingSide };
+export type { UnitsLine, AccuracyLine, CalibrationBucket, BrierScoreResult, PendingSummary, PendingSide };
 
 // The intern's accuracy carries two numbers, not one (docs/PRD.md UC-4):
 // head-to-head on fights both the owner and the intern picked is the
@@ -81,5 +82,14 @@ export interface ScoreboardData {
   calibration: {
     me: CalibrationBucket[];
     intern: CalibrationBucket[];
+  };
+  // N6: the same scored population calibration uses, reduced to one
+  // proper-scoring-rule number per line -- a single figure to compare
+  // against a future LLM-assisted/LLM-only shadow line (N8) without
+  // reading a whole bucket table. No chalk: same reasoning as
+  // calibration above, chalk has no independent probability estimate.
+  brier: {
+    me: BrierScoreResult;
+    intern: BrierScoreResult;
   };
 }
