@@ -104,4 +104,20 @@ describe("buildLowConfidenceResolution", () => {
     );
     expect(result.kind).toBe("no_price");
   });
+
+  it("dismisses with no odds_snapshots write when the owner rejects every candidate", () => {
+    // null chosenFightId -- same "none of these" shape
+    // buildFighterMatchResolution/buildSherdogMatchResolution already use
+    // for their own conflict kinds, same "no_match" resolution string
+    // kept identical on purpose (a later query over data_conflicts can
+    // then ask "was this ever a real match" without needing to know which
+    // kind it's reading). Nothing to attach a price to, so this must
+    // never fall through to parseFighterPrices at all.
+    const result = buildLowConfidenceResolution(conflict(), null, "", "", NOW);
+    expect(result.kind).toBe("dismissed");
+    if (result.kind === "dismissed") {
+      expect(result.conflictUpdate.resolved_at).toBe("2026-09-05T00:00:00.000Z");
+      expect(result.conflictUpdate.resolution).toBe("no_match");
+    }
+  });
 });

@@ -578,3 +578,29 @@ exists to prevent). This lands as N9's responsibility since N9 owns the
 readout, but is recorded now per this project's standing rule of writing
 down a scoring/selection rule before the data it will be applied to
 exists.
+
+## 2026-09-18 — Conflicts dismiss action: bulk cleanup, and one shared "no_match" resolution string
+
+Two forks resolved while planning the `low_confidence_odds_match`
+dismiss action (`resolveLowConfidence.ts`/`actions.ts`/
+`LowConfidenceCard.tsx`), both via `AskUserQuestion`.
+
+**Fork 1 — clearing the 27 existing stale conflicts.** Chose a guarded
+one-off bulk script over clicking through each row manually in the UI.
+Same read-back-verified, idempotent pattern as the `0053` migration that
+fixed their root cause (the orphaned Jimenez vs Vera fight) — a dry-run
+prints exact scope before anything writes, matching `feature-planner`'s
+own 5b requirement for any bulk write against existing rows.
+
+**Fork 2 — resolution string.** Chose to reuse the exact `"no_match"`
+string `buildFighterMatchResolution.ts`/`buildSherdogMatchResolution.ts`
+already write for their own "owner rejected every candidate" case,
+rather than inventing a second string (e.g. `"no_candidates"`) to
+distinguish "the pool was empty" from "candidates existed but none were
+right." Both are genuinely the same fact from a querying standpoint —
+"this conflict was never resolved to a real match" — and the sibling
+kinds already don't distinguish them either, so a new distinction here
+would be a one-off inconsistency across all three conflict kinds for no
+present analytics need. If a real need for the finer distinction shows
+up later, it's a small additive change (a new resolution string plus a
+migration of existing `"no_match"` rows), not a blocker to adding now.
