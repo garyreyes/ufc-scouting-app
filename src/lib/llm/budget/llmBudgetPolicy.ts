@@ -27,8 +27,13 @@ export const SURFACE_SOFT_CAPS: Record<string, number> = {
   rumours: 120,
   conflicts: 60,
   scouting: 200,
+  // N8: one call per card per run, only when >=1 dossier changed -- this
+  // cap exists only to stop a runaway retry loop, not because the surface
+  // is expected to come anywhere near it (budget table in the plan puts
+  // shadow picks' real worst case at 1-2 calls/day).
+  shadowPicks: 20,
 };
-// The three soft caps intentionally sum to less than DAILY_CALL_CAP
+// The four soft caps intentionally sum to less than DAILY_CALL_CAP
 // (500): the gap is headroom for workflow_dispatch re-runs and backfills
 // that don't belong to any one surface's normal budget.
 

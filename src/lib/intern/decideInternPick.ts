@@ -27,8 +27,12 @@ export const MAX_TOTAL_ADJUSTMENT = 0.25;
  * proven veterans at the same raw probability, since the intern's
  * Elo-based read of a debutant is close to a guess, not a real
  * assessment (user-confirmed 2026-09-02, discussing this exact gap).
+ *
+ * Exported (N8): the shadow-picks reduce applies this same banding to the
+ * LLM_ASSISTED line, so the comparison against the deterministic pick is
+ * over identical confidence semantics, not a second invented scale.
  */
-function confidenceFor(probability: number, minRatedFightCount: number): number {
+export function confidenceFor(probability: number, minRatedFightCount: number): number {
   let base: number;
   if (probability < 0.55) base = 1;
   else if (probability < 0.62) base = 2;

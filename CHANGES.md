@@ -4509,3 +4509,98 @@ N4's own `() => []` for the identical reason.
 when ≥1 dossier changed), emitting bounded signed deltas per named signal
 (never a direct probability) plus the model's own unconstrained read —
 two shadow lines, `LLM_ASSISTED` and `LLM_ONLY`, from one call.
+
+## Phase 89 (N8) — Shadow picks, the reduce step: two comparison lines from one call, zero new probability math (2026-09-18)
+
+**What.** One Lite call per card, only when ≥1 fighter's N7 dossier
+changed since the last run (`fetchShadowPickCard.ts`'s `needsRun` gate).
+The model never emits a probability for the assisted line — it proposes
+four bounded signed deltas (rumours/elo/size/age, same caps as
+`decideInternPick.ts`'s own signals) plus a *separate*, unconstrained
+`freeProbabilityFighter1`. `applyShadowPickClaims.ts` is pure code, not a
+second model call: it runs the verified deltas through the exact same
+`applyProbabilityDelta`/`MAX_TOTAL_ADJUSTMENT` clamp and `confidenceFor`
+banding real picks use (the latter newly exported from
+`decideInternPick.ts`), so the comparison is over identical math, never a
+second invented scale. One claim produces two rows: `LLM_ASSISTED`
+(bounded, market-anchored) and `LLM_ONLY` (the model's raw read, clamped
+only to strict (0,1)). Written to a new, fully separate `shadow_picks`
+table (migration `0052`) — never a third `picks.author` value, which
+would have broken the existing check constraint and leaked into
+`/scoreboard`'s live boards.
+
+**The map/reduce harness bent to fit, not the other way round.**
+`runMapReduce.ts` always calls the model once per map unit; N8 needed the
+opposite ratio (one call total, not one per fight). Solved by treating
+**the whole card as a single map unit** — `units: [{ eventId }]` — so the
+one map-step call covers every fight on the card in one prompt (and gets
+the plan's own stated bonus for free: cross-fight consistency reasoning a
+per-fight call structurally can't see). `reduceViaLlm: false` then routes
+straight to `applyShadowPickClaims` as a pure pass-through, the same
+posture N7's own dossier writer already uses for the opposite reason.
+
+**Ground-truth checks** (`shadowPickClaimChecks.ts`, test-first,
+mutation-verified): unknown `fightId`; every restated numeric (Elo,
+reach, height, age, record, market price) must match the DB exactly, a
+hard drop on any mismatch — the cheapest, highest-value check in the
+phase, since it catches a model reasoning fluently from a number it
+misread; fabricated bout/flag citations; each delta over its own
+per-signal cap; the sum over `MAX_TOTAL_ADJUSTMENT`; `freeProbability`
+not strictly inside (0,1). `applyShadowPickClaims.ts` re-clamps the delta
+sum independently anyway, defense-in-depth, never trusting the verifier
+alone.
+
+**Two forks resolved, both logged to `DECISIONS.md`:** the job runs on
+its **own cron** (`shadow-picks.yml`, offset from `scouting.yml`),
+decoupled on purpose — a scouting failure shouldn't block a
+measurement-only surface, and a few hours of dossier staleness changes
+nothing about what's being measured. And shadow picks **revise until
+card lock, append-only** (mirroring Fork 10's real-pick behavior, not a
+one-shot guess) — a later reader (N9) must select the latest row per
+`(fight_id, line)` strictly before that fight's lock time, never the
+latest row unconditionally, which would leak post-lock information into
+what's supposed to be a forward-only measurement.
+
+**Verified, not assumed:**
+
+- 2 new test files (25 tests): `shadowPickClaimChecks` (16 tests,
+  mutation-verified — collapsing the sum-over-cap check to always pass
+  reproduced exactly the 2 tests that exercise it) and
+  `applyShadowPickClaims` (9 tests, mutation-verified — removing the
+  delta-sum clamp reproduced exactly the 2 clamp-boundary tests).
+- Independent `reviewer` pass (fresh eyes, re-derived the numeric test
+  expectations by hand rather than trusting the test file's own
+  comments): no findings.
+- Migration `0052` applied to production (`vrwlfcywyfzfczajpdoh`, ref
+  confirmed before pushing). Read-back note, stated honestly: this
+  session's `supabase db query --linked` failed with a stale management-
+  API token (401) and a direct `--db-url` connection failed SASL auth —
+  both environment/tooling limits, not migration doubt. Verified instead
+  via `supabase migration list --linked` (separate command, run after the
+  push, independently showing remote `0052` now applied) and
+  `supabase db push --linked --dry-run` (connects directly to the
+  database, reported "Remote database is up to date" with zero pending
+  migrations).
+- Full suite: 997 → 1022 passing (25 new), lint clean, typecheck clean,
+  production build clean.
+- New GitHub Actions workflow `shadow-picks.yml`, cron `"45 */6 * * *"`.
+- Module resolution confirmed under `tsx` (ran the real entrypoint; it
+  got past every import and failed only on the expected missing-env-var
+  error, not a resolution error).
+
+**Scope note, stated honestly.** Unlike N7, this pass did **not** get a
+real production run against live data before merge — no local Supabase
+service-role credentials were available in this environment to run
+`generateShadowPicks` end-to-end, and this session deliberately did not
+trigger the new cron job's `workflow_dispatch` unprompted, since that
+spends real quota and writes real rows in production. The next session
+that has a live upcoming card with N7 dossiers already on it should
+trigger `shadow-picks.yml` once via `workflow_dispatch` and read back a
+real written row before trusting this surface the way N7 was trusted
+after its own first live run.
+
+**Next:** N9 — replay tooling (`npm run llm:replay -- --call-id=`) and
+`/scoreboard`'s three-line comparison readout (deterministic,
+`LLM_ASSISTED`, `LLM_ONLY`), which is also the first real reader of the
+"latest row before lock" selection rule N8's `DECISIONS.md` entries
+require.

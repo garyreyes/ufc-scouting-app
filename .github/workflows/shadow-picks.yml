@@ -1,0 +1,37 @@
+name: Shadow picks job
+
+on:
+  schedule:
+    # Every 6 hours, offset from scouting.yml (15 */6) and rumours.yml
+    # (0 */6) so the three don't collide on the shared RPM budget. Its own
+    # cron, decoupled from scouting.yml on purpose (DECISIONS.md,
+    # 2026-09-18, "N8: shadow-picks job runs on its own cron") -- a
+    # scouting failure shouldn't block this measurement-only surface, and
+    # a few hours of dossier staleness changes nothing about what's being
+    # measured.
+    - cron: "45 */6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  shadow-picks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # One reduce call per card, only when >=1 fighter's dossier changed
+      # since the last run -- generateShadowPicks.ts. Recorded in
+      # job_runs as "shadow_picks".
+      - name: Generate shadow picks
+        run: npx tsx src/lib/shadowPicks/runScheduledShadowPicksJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
