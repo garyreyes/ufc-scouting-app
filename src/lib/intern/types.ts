@@ -48,6 +48,23 @@ export interface InternPickInput {
   flags: InternFlag[];
 }
 
+// N5: the same deltas decideInternPick already computes at the rawDelta
+// line, structured instead of only concatenated into reasoning's prose --
+// so a later pass (N8) can query "how much did Elo move this pick"
+// instead of only reading a sentence. Values are the SIGNED deltas each
+// signal contributed toward fighter1 (positive favours fighter1), before
+// the combined MAX_TOTAL_ADJUSTMENT clamp is applied to their sum -- the
+// clamp is recorded separately (clampedDelta) so a reader can see whether
+// clamping actually fired for this pick.
+export interface InternPickSignals {
+  rumours: number;
+  elo: number;
+  size: number;
+  age: number;
+  rawDelta: number;
+  clampedDelta: number;
+}
+
 export interface InternPickDecision {
   predictedFighterId: string;
   estimatedProbability: number;
@@ -58,4 +75,5 @@ export interface InternPickDecision {
   // same quality of prediction and averaging them together would hide
   // that.
   marketAnchored: boolean;
+  signals: InternPickSignals;
 }

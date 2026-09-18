@@ -139,5 +139,13 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
     confidence: confidenceFor(estimatedProbability, minRatedFightCount),
     reasoning: `${anchorNote} ${rumourNote} ${eloNote} ${sizeNote} ${ageNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
     marketAnchored,
+    signals: {
+      rumours: penalty2 - penalty1,
+      elo: eloDelta,
+      size: sizeDelta,
+      age: ageDelta,
+      rawDelta,
+      clampedDelta: delta,
+    },
   };
 }
