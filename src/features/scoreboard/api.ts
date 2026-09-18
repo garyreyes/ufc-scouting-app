@@ -10,6 +10,7 @@ import { aggregateAccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
 import { fightOutcomeFromSettledFight } from "@/lib/scoring/fightOutcomeFromSettledFight";
 import { describeStanceMatchup } from "@/lib/scoring/describeStanceMatchup";
 import { computeCalibrationBuckets } from "@/lib/scoring/computeCalibrationBuckets";
+import { computeBrierScore } from "@/lib/scoring/computeBrierScore";
 import type { ScoreboardData, PickTableRow } from "./types";
 
 /**
@@ -174,6 +175,10 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
     calibration: {
       me: computeCalibrationBuckets(mePicks.map(toCalibrationEntry)),
       intern: computeCalibrationBuckets(internPicks.map(toCalibrationEntry)),
+    },
+    brier: {
+      me: computeBrierScore(mePicks.map(toCalibrationEntry)),
+      intern: computeBrierScore(internPicks.map(toCalibrationEntry)),
     },
   };
 }

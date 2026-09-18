@@ -4328,6 +4328,61 @@ with real per-signal deltas on production rows (e.g. one pick showing
 backfills every existing pick exactly once, same as any other genuinely
 new value).
 
+## Phase 87 (N6) — Brier scoring, wired into /scoreboard; the promotion rule pre-registered (2026-09-18)
+
+**What.** A new pure `src/lib/scoring/computeBrierScore.ts` — there was
+no proper scoring rule anywhere in the repo before this, only accuracy
+(right/wrong) and `computeCalibrationBuckets` (banded). Brier score is
+what tells apart a pick that called a fight 51% and won from one that
+called it 95% and won — accuracy alone can't, and telling those two
+apart is the entire point of comparing the deterministic rule against an
+LLM-assisted one later (N8). `CalibrationTable.tsx` now shows both
+lines' scores (`me`/`intern`) under its title, right above the existing
+bucket table — reusing the same scored population and the same
+`correct === null` void-filter `computeCalibrationBuckets` already uses,
+so there is one definition of "which picks count," not two.
+
+**Test-first, mutation-verified**: 8 tests written and confirmed failing
+before the implementation existed (module-not-found), then all passing
+against the real implementation. Mutation: inverting the
+correct-vs-actual mapping (`e.correct ? 0 : 1` instead of `e.correct ? 1
+: 0`) reproduced exactly 4 of 8 failures, confirming the tests actually
+exercise the formula's direction and not just its shape.
+
+**The pre-registered promotion rule, written into `DECISIONS.md` now —
+before N8 exists — per the plan's own requirement.** Two parts:
+
+1. **Promotion**: `LLM_ASSISTED` and `LLM_ONLY` (N8) are each judged
+   independently against the deterministic line. Minimum 10 settled
+   cards (reusing the existing `SMALL_SAMPLE_THRESHOLD` from
+   `app/scoreboard/page.tsx`, not a second invented threshold) before
+   either arm's score is even looked at; the challenger's Brier score
+   must then be at least 0.02 lower than deterministic's own, over the
+   same scored population. A stated judgment call, not a derived number.
+   Any tie, sub-threshold margin, or worse score resolves to
+   "deterministic stays" — the rule never has to justify staying, only
+   a challenger has to justify replacing it. Promotion itself stays a
+   human decision made by reading `/scoreboard`; nothing auto-promotes.
+2. **Never backtest the LLM scout over settled historical fights** —
+   unlike `predictInternMethod` (leakage-free by construction, a pure
+   function that cannot know the future), an LLM asked about a named
+   past fight likely has the real result in training data, and a
+   historical backtest would return a confident, entirely fake accuracy
+   number nothing in lint/tests/build could catch. Forward shadow only.
+
+**Verified.** Typecheck clean, lint clean, full suite 950 → 958 passing
+(8 new). Production build (`next build`) compiles the changed page and
+component with no new errors. Dev server started and `/scoreboard`
+smoke-tested unauthenticated: HTTP 200, correctly hit the existing
+sign-in gate, zero server errors in the compile/request log — confirms
+the change doesn't crash the route, but this did **not** visually
+confirm the actual rendered Brier line behind owner auth (no browser
+automation or login credentials available in this environment to get
+past the auth gate) — stated honestly rather than claimed.
+
+**Next:** N7 — scouting dossiers (the map step), content-addressed per
+fighter.
+
 New migration `0049_conflict_resolution_proposals.sql`
 (`conflict_id`/`proposed_action`/`rationale`/`llm_call_id`, one active
 proposal per conflict, same no-client-grant posture as `data_conflicts`

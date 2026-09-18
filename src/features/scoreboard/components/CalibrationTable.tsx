@@ -1,4 +1,4 @@
-import type { CalibrationBucket } from "../types";
+import type { BrierScoreResult, CalibrationBucket } from "../types";
 import styles from "./CalibrationTable.module.css";
 
 function formatPct(pct: number | null): string {
@@ -8,6 +8,14 @@ function formatPct(pct: number | null): string {
 function formatCell(bucket: CalibrationBucket | undefined): string {
   if (!bucket || bucket.count === 0) return "—";
   return `${formatPct(bucket.actualPct)} actual (${formatPct(bucket.avgEstimatedPct)} claimed) · ${bucket.count}`;
+}
+
+// N6: lower is better -- 0 is a perfect call, 0.25 is what an honest
+// coin flip always scores regardless of outcome (the "no better than
+// guessing" reference point), 1 is the worst possible single call.
+function formatBrier(result: BrierScoreResult): string {
+  if (result.score === null) return "—";
+  return `${result.score.toFixed(3)} (n=${result.n})`;
 }
 
 /**
@@ -23,7 +31,15 @@ function formatCell(bucket: CalibrationBucket | undefined): string {
  * The page's existing small-sample notice (above the two boards) already
  * covers this table too -- it isn't repeated here.
  */
-export function CalibrationTable({ me, intern }: { me: CalibrationBucket[]; intern: CalibrationBucket[] }) {
+export function CalibrationTable({
+  me,
+  intern,
+  brier,
+}: {
+  me: CalibrationBucket[];
+  intern: CalibrationBucket[];
+  brier: { me: BrierScoreResult; intern: BrierScoreResult };
+}) {
   const internByLabel = new Map(intern.map((b) => [b.label, b]));
   const hasAnyData = me.some((b) => b.count > 0) || intern.some((b) => b.count > 0);
 
@@ -31,6 +47,13 @@ export function CalibrationTable({ me, intern }: { me: CalibrationBucket[]; inte
     <section className={styles.section}>
       <h2 className={styles.title}>Calibration</h2>
       <p className={styles.subtitle}>Of the fights called at each band, how many actually happened that way?</p>
+
+      {hasAnyData && (
+        <p className={styles.subtitle}>
+          Brier score (lower is better, 0.25 = a coin flip) — Me: {formatBrier(brier.me)} · Intern:{" "}
+          {formatBrier(brier.intern)}
+        </p>
+      )}
 
       {!hasAnyData ? (
         <p className={styles.empty}>No scored picks yet.</p>
