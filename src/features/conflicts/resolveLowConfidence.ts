@@ -13,7 +13,8 @@ export type LowConfidenceResolution =
       };
       conflictUpdate: { resolved_at: string; resolution: string };
     }
-  | { kind: "no_price" };
+  | { kind: "no_price" }
+  | { kind: "dismissed"; conflictUpdate: { resolved_at: string; resolution: string } };
 
 /**
  * What to write when the owner confirms a low-confidence odds event
@@ -24,6 +25,15 @@ export type LowConfidenceResolution =
  * (rankFightMatches) is letting the owner override the algorithm's own
  * guess, so this must never fall back to trusting that guess itself.
  *
+ * `chosenFightId` null means "no candidate here is actually this odds
+ * event" -- same "reject every candidate" case
+ * buildFighterMatchResolution.ts/buildSherdogMatchResolution.ts already
+ * handle for their own conflict kinds, same `resolution: "no_match"`
+ * string, kept deliberately identical across all three so a later query
+ * over data_conflicts doesn't need to know which kind it's reading to
+ * ask "was this ever a real match." Writes nothing to odds_snapshots --
+ * there's no fight to attach a price to.
+ *
  * Reuses parseFighterPrices exactly as matchAndSnapshot.ts's automatic
  * path does, so a manual resolution produces the identical shape an
  * automatic match would have -- "no_price" is the same refuse-to-guess
@@ -31,11 +41,15 @@ export type LowConfidenceResolution =
  */
 export function buildLowConfidenceResolution(
   conflict: LowConfidenceConflict,
-  chosenFightId: string,
+  chosenFightId: string | null,
   chosenFighter1Name: string,
   chosenFighter2Name: string,
   now: Date = new Date(),
 ): LowConfidenceResolution {
+  if (chosenFightId === null) {
+    return { kind: "dismissed", conflictUpdate: { resolved_at: now.toISOString(), resolution: "no_match" } };
+  }
+
   const { oddsEvent } = conflict.details;
   const prices = parseFighterPrices(oddsEvent, chosenFighter1Name, chosenFighter2Name);
   if (!prices) return { kind: "no_price" };

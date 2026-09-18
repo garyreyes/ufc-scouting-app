@@ -10,6 +10,7 @@ import { identifyDifferingFighters } from "@/lib/ufc-data-sync/identifyDiffering
 import { checkMergeGuard, type MergeCandidateFighter } from "@/lib/ufc-data-sync/decideSameCardMerge";
 import { mergeFighters } from "@/lib/ufc-data-sync/mergeFighters";
 import { buildLowConfidenceResolution } from "./resolveLowConfidence";
+import type { LowConfidenceResolution } from "./resolveLowConfidence";
 import { buildFighterMatchResolution } from "./resolveFighterMatch";
 import { buildSherdogMatchResolution } from "./resolveSherdogMatch";
 import { getOpenConflictCount } from "./api";
@@ -136,9 +137,16 @@ export async function resolveDisputedOpponentAction(
   revalidatePath("/conflicts");
 }
 
+/**
+ * `chosenFightId` null means "none of these" -- same "reject every
+ * candidate, still resolve the row" shape resolveFighterMatchAction/
+ * resolveSherdogMatchAction already use below. Skips the fight lookup
+ * and odds_snapshots insert entirely: there's no fight to attach a price
+ * to, so nothing else gets written.
+ */
 export async function resolveLowConfidenceAction(
   conflictId: string,
-  chosenFightId: string,
+  chosenFightId: string | null,
 ): Promise<void> {
   await requireOwner();
   const admin = getSupabaseAdmin();
@@ -153,18 +161,6 @@ export async function resolveLowConfidenceAction(
   if (error) throw error;
   if (!row) throw new Error("Conflict not found or already resolved");
 
-  // The chosen fight's names, to parse the correct outcome prices out of
-  // the odds payload -- same PostgREST FK-embed pattern used throughout.
-  const { data: fight, error: fightError } = await admin
-    .from("fights")
-    .select("fighter1:fighter1_id(name), fighter2:fighter2_id(name)")
-    .eq("id", chosenFightId)
-    .maybeSingle();
-  if (fightError) throw fightError;
-  if (!fight) throw new Error("Chosen fight not found");
-
-  const typedFight = fight as unknown as { fighter1: { name: string }; fighter2: { name: string } };
-
   const conflict: LowConfidenceConflict = {
     id: row.id,
     kind: "low_confidence_odds_match",
@@ -173,24 +169,42 @@ export async function resolveLowConfidenceAction(
     details: row.details as LowConfidenceConflict["details"],
   };
 
-  const resolution = buildLowConfidenceResolution(
-    conflict,
-    chosenFightId,
-    typedFight.fighter1.name,
-    typedFight.fighter2.name,
-  );
+  let resolution: LowConfidenceResolution;
+  if (chosenFightId === null) {
+    resolution = buildLowConfidenceResolution(conflict, null, "", "");
+  } else {
+    // The chosen fight's names, to parse the correct outcome prices out of
+    // the odds payload -- same PostgREST FK-embed pattern used throughout.
+    const { data: fight, error: fightError } = await admin
+      .from("fights")
+      .select("fighter1:fighter1_id(name), fighter2:fighter2_id(name)")
+      .eq("id", chosenFightId)
+      .maybeSingle();
+    if (fightError) throw fightError;
+    if (!fight) throw new Error("Chosen fight not found");
+
+    const typedFight = fight as unknown as { fighter1: { name: string }; fighter2: { name: string } };
+    resolution = buildLowConfidenceResolution(
+      conflict,
+      chosenFightId,
+      typedFight.fighter1.name,
+      typedFight.fighter2.name,
+    );
+  }
 
   if (resolution.kind === "no_price") {
     throw new Error("The odds payload doesn't have a price for these two fighters -- refusing to guess.");
   }
 
-  // odds_snapshots is immutable and unique(fight_id) -- if the automatic
-  // job priced this fight from a different, higher-confidence event
-  // between detection and now, this insert fails on the unique
-  // constraint rather than silently double-pricing the fight. That's the
-  // correct outcome, not an error to work around.
-  const { error: snapshotError } = await admin.from("odds_snapshots").insert(resolution.snapshotInsert);
-  if (snapshotError) throw snapshotError;
+  if (resolution.kind === "resolved") {
+    // odds_snapshots is immutable and unique(fight_id) -- if the automatic
+    // job priced this fight from a different, higher-confidence event
+    // between detection and now, this insert fails on the unique
+    // constraint rather than silently double-pricing the fight. That's the
+    // correct outcome, not an error to work around.
+    const { error: snapshotError } = await admin.from("odds_snapshots").insert(resolution.snapshotInsert);
+    if (snapshotError) throw snapshotError;
+  }
 
   const { error: conflictError } = await admin
     .from("data_conflicts")

@@ -4725,3 +4725,38 @@ dismiss action, or an auto-expiry for a low-confidence conflict whose
 candidate pool has gone empty, is a real product decision, not something
 to invent unilaterally under a bug-fix pass — flagged for the owner
 rather than built silently.
+
+## Phase 92 — `low_confidence_odds_match` dismiss action, closing the gap Phase 91 flagged (2026-09-18)
+
+**What.** `resolveLowConfidenceAction`/`buildLowConfidenceResolution`
+now accept `chosenFightId: string | null` — `null` means "no candidate
+here is actually this odds event," writes only
+`{resolved_at, resolution: "no_match"}`, and never touches
+`odds_snapshots`. `LowConfidenceCard.tsx` gets a
+"No matching fight — dismiss" option in its candidate dropdown, plus (new
+UI, no existing sibling to copy) a dismiss button in the
+zero-candidates branch, which previously showed only static unresolvable
+text with no way to close the row at all.
+
+Mostly not new territory: `resolveFighterMatchAction`/
+`resolveSherdogMatchAction` already had this exact "reject every
+candidate, still resolve, write `resolution: 'no_match'`" shape for
+their own conflict kinds — this change brings the third,
+`low_confidence_odds_match`, up to the same pattern rather than
+inventing a new one. `DECISIONS.md` records the two forks resolved while
+planning it (bulk-cleanup approach for the 27 existing rows; reusing
+`"no_match"` rather than a new distinguishing string).
+
+**Verified.** `resolveLowConfidence.test.ts` gets a new case for the
+dismiss path. `reviewer` pass (fresh eyes, traced every path by hand):
+confirmed a null `chosenFightId` never reaches the fight lookup or the
+`odds_snapshots` insert in `actions.ts`, confirmed the sentinel-value
+handling is correct in both `LowConfidenceCard.tsx` branches with no
+stale-state risk, hand-re-derived the existing tests' price-swap
+expectations rather than trusting their comments. Zero findings. Full
+suite 1022 → 1023 passing, lint clean, `tsc --noEmit` clean, production
+build clean.
+
+**Next:** a guarded, dry-run-first bulk script to dismiss the 27 stale
+rows Phase 91 left open (per `DECISIONS.md`'s Fork 1) — its own separate
+confirm point before running against production.
