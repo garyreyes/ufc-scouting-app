@@ -3,7 +3,7 @@ import type { ShadowPickFighterFacts, ShadowPickFightFacts } from "./types";
 function formatFighter(label: "fighter1" | "fighter2", f: ShadowPickFighterFacts): string {
   return `${label} = ${f.name} (id=${f.fighterId})
   Elo: ${Math.round(f.eloRating)} (${f.ratedFightCount} rated UFC fights)
-  Reach: ${f.reachCm ?? "unknown"}cm, Height: ${f.heightCm ?? "unknown"}cm, Age: ${f.ageYears ?? "unknown"}
+  Reach (cm): ${f.reachCm ?? "unknown"}, Height (cm): ${f.heightCm ?? "unknown"}, Age (years): ${f.ageYears ?? "unknown"}
   Record by method: ${f.sherdogWins} wins, ${f.sherdogLosses} losses
   Scouting read -- form: ${f.dossier.formTrajectory} style: ${f.dossier.stylisticProfile} durability: ${f.dossier.durability} layoff: ${f.dossier.layoff}
   Recent bouts: ${f.recentBouts.length > 0 ? f.recentBouts.map((b) => `id=${b.id} ${b.result.toUpperCase()} vs ${b.opponentName}`).join("; ") : "(none on file)"}
@@ -51,6 +51,7 @@ For EACH fight above, propose:
 
 Rules, all strict:
 - Every restated numeric must exactly match what was given above -- never round differently, never estimate a value that was stated as unknown/null.
+- Restated numerics are bare numbers with no unit suffix and no quotes (e.g. 193, not "193cm" or "193"). A value stated as "unknown" above must be restated as JSON null, never as the word "unknown" or any string.
 - Never cite a bout or flag id not shown above.
 - Never let the four deltas sum past ±0.25 combined.
 
