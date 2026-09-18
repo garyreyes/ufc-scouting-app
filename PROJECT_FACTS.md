@@ -1431,3 +1431,25 @@ Decided 2026-08-29, user-originated.
   list when nothing's pending) -- both are real, if indirect, schema-state
   confirmation. Use these two, not `db query`/`db dump`, for post-migration
   verification until the underlying auth/Docker gap is fixed.
+- **The `mcp__claude_ai_Supabase__execute_sql` MCP tool DOES work for
+  reads in this environment (2026-09-18/19), unlike the CLI paths above
+  -- use it for read-back verification instead of a one-off tsx script.**
+  Confirmed live, repeatedly: arbitrary `select` queries against project
+  `vrwlfcywyfzfczajpdoh` return real rows with no auth issue. It does
+  NOT work for writes, though -- see the next fact.
+- **Both direct production writes (a raw SQL `update`/`insert`, whether
+  via a local script or the Supabase MCP `execute_sql` tool) and `gh pr
+  merge` are blocked by the Claude Code auto-mode classifier**
+  ("Modify Shared Resources" / "Merge Without Review" respectively),
+  confirmed live 2026-09-18/19 -- and this is a policy-level gate, not
+  something a prior "yes, go ahead" earlier in the same conversation
+  clears. Each actual write and each actual merge needs the user's
+  explicit confirmation on that SPECIFIC action, in the moment it's
+  attempted. Two consequences for how to work in this repo: (1) route
+  production data writes through git-tracked migration files (the same
+  reviewed path `migration-runner` already establishes for schema
+  changes) instead of ad-hoc write scripts, even for a one-off data
+  correction with no schema change -- the migration IS the approved
+  write path here; (2) expect to ask again immediately before every `gh
+  pr merge` call even in the same session, rather than batching multiple
+  merges under one earlier approval.
