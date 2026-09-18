@@ -4101,3 +4101,237 @@ the live re-run of M3.
 
 **Ran live:** migration not yet applied at time of writing — needs the
 owner's go-ahead per `CLAUDE.md`, same as every other migration.
+
+## Phase 83 (N1-N2) — llm/ map-reduce harness; strong-tier design dropped after a live spike (2026-09-18)
+
+**What prompted this.** A request to apply a map-reduce pattern (many
+cheap calls, one stronger call for the final decision, ground-truth
+verification against hallucination) to AI-assisted work in the app.
+Exploration found picks are deliberately deterministic, not LLM-driven
+(`ARCHITECTURE.md` Fork 10), and the only existing LLM call is the
+rumour-clustering path (`lib/llm.ts`) — so the pattern was redirected onto
+three real surfaces instead: rumours (retraction, N3), the `data_conflicts`
+queue (advisory proposals, N4), and a shadow-only scouting layer measured
+against the deterministic rule on Brier score (N5-N9), never assumed to
+replace it. Full plan and reasoning in `DECISIONS.md`'s N1 entry.
+
+**N1 — verification spike, live, before any code.** Re-measured Gemini's
+free tier 16 days after the original F1 measurement. The two-tier design
+(a cheap "map" model, a stronger "reduce" model) was dropped entirely: 4
+of 6 full-Flash calls returned `503 UNAVAILABLE`, latency was 9.7–19.3s
+vs ~0.9s for Flash Lite, and two trap-laden card-level consolidation
+tasks showed no reproducible quality gap between tiers. **Every call now
+goes to `gemini-3.5-flash-lite`.**
+
+The dashboard check that followed moved the real constraint: RPD sat at
+56/500 (11%), but **RPM was 14/15 (93%)** — production was already
+nearing the limit the strong tier's removal made irrelevant. The cause is
+structural (`runRumourScanJob.ts` issues one call per fight, serially,
+~1s apart, over a ~14-fight card) and pre-existing, not introduced by this
+work. Also confirmed live: `temperature: 0` + `topK: 1` give
+byte-identical repeats without breaking JSON parsing (every call before
+this ran at the default temperature of 1.0); no dated/pinnable model id
+exists, so a silent model swap can't be prevented, only made auditable via
+the response's own version field; RPD resets at midnight Pacific.
+
+**N2 — the harness.** `lib/llm.ts` split into `lib/llm/`: one wrapper
+(`geminiClient.ts`, the only file that knows the base URL/API key/model
+id), a generic `runMapReduce` orchestrator built to serve rumours,
+conflicts, and scouting from the same code with zero network/Supabase
+dependency of its own, a generalized claim verifier (`verifyClaims.ts`,
+generalizing what `parseClusterResponse.ts` already hand-rolled), and a
+Postgres-backed budget allocator.
+
+New migration `0047_llm_call_log.sql`: `llm_call_log` table plus
+`try_reserve_llm_call()`, a `security definer` function that atomically
+counts-and-inserts so two concurrent job runs can't both pass the daily
+cap or both fire inside the 4.2s minimum interval — advisory-locked per
+model id, since the RPM guard is global across every surface, matching how
+the provider itself enforces it. A cheap non-atomic per-surface soft
+ceiling is checked in TypeScript first, so one runaway surface can't eat
+another's budget even before the atomic check runs.
+
+`generateJson` preserved byte-for-byte — `scanFightForRumours.ts`'s
+`import { generateJson } from "../llm"` resolves unchanged to the new
+`llm/index.ts` (`moduleResolution: "bundler"`), verified with a real
+`npx tsx src/lib/rumours/runScheduledRumourJob.ts` run against production:
+13/13 fights via LLM, 0 heuristic fallback, 0 failed.
+
+65 new tests. Budget-policy cap exclusivity and `runMapReduce`'s
+budget-denied counting mutation-verified (reverting each fix reproduces
+exactly one failing test, confirmed, then restored). Full suite:
+892/892 passing, lint clean, build clean.
+
+**Migration applied 2026-09-18**, target ref confirmed as
+`vrwlfcywyfzfczajpdoh` before pushing (dry-run showed only `0047`
+pending). Verified live, not by the tracker alone: `llm_call_log` selects
+cleanly (0 rows, expected — nothing has used it yet); `try_reserve_llm_call`
+called with `p_cap=0` returned `null` (its denial branch, proven to run)
+while writing zero rows, the same "prove it runs via a guaranteed
+no-write guard clause" verification pattern Phase 79's `merge_fighters()`
+check used.
+
+**Next:** N3 — rumour flag retraction, the harness's first real caller
+and a genuine bug fix (nothing in `lib/rumours/` currently expires a
+flag once its rumour is retracted; a weight-cut concern from a week ago
+still feeds `flagPenalty()` at full strength today).
+
+## Phase 84 (N3) — Rumour flag retraction: the harness's first real caller, and a real bug fix (2026-09-18)
+
+**What.** Fixed a genuine pre-existing bug found while planning Phase N,
+not introduced by it: nothing in `lib/rumours/` has ever expired a flag
+once its rumour is retracted or resolved. `rumour_flags` only ever
+upserted on `(fight_id, fighter_id, category)` and bumped
+`last_corroborated_at`, so a weight-cut concern from a week ago kept
+feeding `flagPenalty()` at full strength into `estimated_probability`
+indefinitely.
+
+**New card-level retraction pass**, `proposeCardRetractions.ts`, wired
+into `runRumourScanJob.ts` right after the per-fight clustering loop.
+One `runMapReduce` call (Flash Lite) reviews every currently-open flag
+against every post collected across the whole card this run, and
+proposes `{flagId, action, supersededByUri, rationale}` per flag.
+Deliberately skipped entirely (spends nothing) when there are no open
+flags or no posts collected this run.
+
+**Ground-truth checks, none trusting the model's own framing**
+(`retractionChecks.ts`, test-first, 12 tests, mutation-verified): the
+flag is a real, still-open id; the superseding post is a real post from
+this run, never an invented uri; the post is **strictly newer** than
+every existing source already backing that flag — the exact-value case
+this whole feature exists for; and the post's own text actually names
+the flagged fighter (`findFighterMentionInText`, the same two-candidate-
+scoped matcher the clustering path already uses), independent of
+anything the model claims — the claim schema doesn't even carry a
+fighter field, on purpose.
+
+New migration `0048_rumour_flag_retraction.sql`: `retracted_at`,
+`retraction_reason`, `superseded_by_post_uri` on `rumour_flags`, plus a
+check constraint that all three are set together or none are. Nothing
+deleted — a wrong retraction is reversible by nulling three columns.
+`fetchFlagsForFights.ts` (the intern's read path) now excludes retracted
+flags — **correctness-critical**, test-first: the failing test first
+reproduced the real bug (a retracted flag still counted toward
+corroboration) against the *unpatched* code, then passed once the
+`.is("retracted_at", null)` filter was added.
+
+**Deliberately deferred, stated rather than silently dropped**: the
+plan's stretch goal of refactoring `parseClusterResponse.ts`'s hand-rolled
+checks into `ClaimCheck`s (matching `retractionChecks.ts`'s shape) was
+skipped. It's a working, already-tested, already-in-production path —
+the refactor would have been pure consistency, no new capability, and
+`retractionChecks.ts` already proves the harness's pattern generalizes
+for N4's conflict proposals. Revisit only if a real reason (a bug, a
+second caller that needs the same checks) comes up.
+
+**Verified, not assumed:**
+
+- `retractionChecks.ts`'s load-bearing "strictly newer" check mutation-
+  verified: reverting `>` to a version that ignores the comparison
+  reproduced exactly 2 failing tests (the two testing that logic),
+  restored to green.
+- `fetchFlagsForFights.ts`'s fix mutation-verified the honest way — the
+  test was written and run **against the unpatched code first**, and it
+  failed exactly as the real bug predicts (2 flags returned instead of
+  1), before the `.is()` filter was added.
+- Full suite: 892 → 916 passing (24 new), lint clean, build clean.
+- Migration `0048` applied to production (`vrwlfcywyfzfczajpdoh`,
+  confirmed before pushing; dry-run showed only `0048` pending). Verified
+  live: new columns readable; 84 pre-existing open flags unaffected; the
+  consistency constraint genuinely rejects an inconsistent write (tried
+  setting `retraction_reason` alone on a real row, got a real rejection,
+  confirmed the row was unchanged afterward).
+- **Ran the real job against production** (`npx tsx
+  runScheduledRumourJob.ts`): 13/13 fights clustered via LLM as before
+  (unchanged behaviour), then the new retraction pass made exactly one
+  real call (confirmed via `llm_call_log`, `status: ok`), proposing 0
+  retractions — correct, since nothing in this run's freshly-scraped
+  posts contradicted an existing flag. Real prompt size measured:
+  165,143 characters in one call (recorded in `PROJECT_FACTS.md` — this
+  prompt scales with card size × posts/fight, unlike the bounded
+  per-fight clustering prompt, so an unusually large card is worth
+  watching).
+
+**Next:** N4 — conflict proposals for the `/conflicts` queue, propose-only,
+never auto-apply.
+
+## Phase 85 (N4) — Advisory LLM proposals for Sherdog-match conflicts (2026-09-18)
+
+**What.** `/conflicts` cards for `low_confidence_sherdog_match` now show a
+pre-selected suggestion and a plain-language rationale, labeled "advisory
+only, not applied." The owner still has to click Confirm — the LLM never
+writes `fighters.sherdog_id` itself, the *existing* `resolveSherdogMatchAction`
+does, unchanged.
+
+**Scope note, written into `DECISIONS.md`.** The approved plan's own
+worked example (Renato Moicano = Sherdog's "Renato Carneiro") is about
+Sherdog identity *matching* — linking one fighter row to an external id.
+Its literal checks section named `checkMergeGuard`/`decideSameCardMerge`,
+which govern a different, higher-stakes action: *merging* two existing
+fighter rows via `merge_fighters()`, the exact function Phase M's own
+`0045`/`0046` migrations found subtly broken, live, before it ever ran
+safely. N4 built only the matching surface. `disputed_opponent`'s merge
+path stays manual-only, deliberately, not silently dropped.
+
+**Map — one Lite call per open conflict** (`buildSherdogProposalPrompt.ts`),
+genuinely decomposable unlike N3's card-level retraction pass, so this is
+`runMapReduce`'s real per-unit shape: each conflict's stored name, why it
+was queued, and its ranked Sherdog candidate list (already snapshotted at
+detection — no new fetch, no new Sherdog request). **Reduce — a pure
+function** (`reconcileSherdogProposals.ts`, test-first, mutation-verified):
+`fighters.sherdog_id` is unique, so if two different conflicts propose the
+same id, only the first is kept; the LLM never adjudicates this, code
+does, cheaply and deterministically.
+
+**Ground-truth checks** (`sherdogProposalChecks.ts`, test-first,
+mutation-verified): a cited candidate id must be real for *that specific
+conflict's own* candidate list, never merely present somewhere in the
+batch — checked and tested explicitly, since two conflicts commonly share
+overlapping candidate pools.
+
+**`runMapReduce.ts` gained real per-decision traceability**: `MappedUnit`
+now carries `callLogId` (the exact `llm_call_log` row a claim came from,
+null on a fallback), threaded through from the reservation. N2's own
+tests updated to match — a small, backward-compatible addition to
+already-shipped code, not a new file.
+
+New migration `0049_conflict_resolution_proposals.sql`
+(`conflict_id`/`proposed_action`/`rationale`/`llm_call_id`, one active
+proposal per conflict, same no-client-grant posture as `data_conflicts`
+itself). Runs as the **last step** of the existing `sherdog.yml` job —
+after `resolveOpenSherdogConflictsJob.ts`'s heuristic sweep — so it only
+ever spends a call on the real residual, not a conflict about to be
+auto-resolved moments later in the same run. No new cron schedule.
+
+**Deliberately deferred**: `low_confidence_fighter_match` (the
+API-Sports analogue of the same candidate-list shape) — same
+architecture would extend to it directly, skipped only to keep this pass
+to one clearly-verified surface.
+
+**Verified, not assumed:**
+
+- `reconcileSherdogProposals.ts`'s collision check mutation-verified:
+  removing it reproduced exactly 3 of 7 failing tests (the ones
+  exercising collisions), restored to green.
+- `sherdogProposalChecks.ts`'s candidate-reality check mutation-verified:
+  weakening it to always pass reproduced exactly 2 of 5 failing tests,
+  restored to green.
+- Full suite: 916 → 936 passing (20 new), lint clean, build clean.
+- Workflow YAML parsed with `js-yaml` to confirm validity and step order
+  (the new step genuinely last) before relying on GitHub's own parser to
+  catch a mistake.
+- Migration `0049` applied to production (`vrwlfcywyfzfczajpdoh`,
+  confirmed before pushing; dry-run showed only `0049` pending).
+- **Real end-to-end pipeline proof**: with zero real open
+  `low_confidence_sherdog_match` conflicts existing right now (M5's own
+  sweep already cleared the residual close to zero), a synthetic test
+  conflict was inserted, run through the real orchestrator (real
+  reservation, real Gemini call, real write) — the model correctly chose
+  the exact-name-match candidate over a deliberately-planted decoy,
+  `llm_call_id` populated correctly, `reduceMode: "pure"` as designed —
+  then the synthetic conflict and its proposal were deleted and
+  confirmed gone, zero residue left in production.
+
+**Next:** N5 — a pure refactor exposing `decideInternPick`'s per-signal
+breakdown, the prerequisite for N8's shadow-pick comparison being
+interpretable at all.

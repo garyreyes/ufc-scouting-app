@@ -312,3 +312,103 @@ scouting notes) instead of just re-filing it under a different id. Traced
 against the real production shape (Jose Delgado / Jose Miguel Delgado):
 the keeper-selection rule prefers `external_id`, so the Sherdog-linked
 identity is not reliably the side that survives.
+
+---
+
+## 2026-09-18 — N1: one model tier (Flash Lite), no strong-tier reducer
+
+**Decision.** Phase N's map-reduce harness runs **every call on Flash Lite**.
+There is no "strong tier" for the reduce step. The tiered design the phase
+was planned around — cheap models for map, a stronger model for the final
+decision — is dropped before it is built.
+
+**Why.** The N1 spike measured the strong tier live and it failed on both
+counts it was chosen for:
+
+- **Availability**: 4 of 6 full-Flash calls returned `503 UNAVAILABLE`
+  ("high demand"). `gemini-3.8-flash` and `gemini-3.7-flash` failed every
+  attempt; `gemini-flash-latest` succeeded once in three. Every Flash Lite
+  call in the same session succeeded.
+- **Quality**: no reproducible gap. Across two card-level consolidation
+  tasks with recency, attribution and relevance traps, Flash Lite scored
+  6/7 graded items and was 4/4 stable over three repeats on the harder
+  task. The strong tier completed only the 3-item task (3/3) and 503'd out
+  of the harder one. A one-item difference on a single task is not
+  evidence.
+- **Latency**: 9.7–19.3s vs ~0.9s for Lite.
+
+A reducer that is unavailable two-thirds of the time is not a reducer —
+the fallback would be the real code path.
+
+**Alternatives considered.**
+
+- **Strong tier as best-effort with Lite fallback.** Rejected: at a ~67%
+  failure rate most runs would be Lite anyway, so the shadow comparison
+  would silently mix two models' output across rows.
+- **Keep the planned two-tier design.** Rejected: it spends the phase's
+  hardest engineering — per-surface reservations, an RPM guard, an atomic
+  daily-cap reservation function — defending a 20/day ceiling that no
+  longer binds anything.
+
+**Consequence — simplification on the daily axis only.** The 20 RPD ceiling
+stops being the binding constraint; typical load is ~100 Lite calls/day
+against a 500/day budget, so per-surface daily reservations are no longer
+needed and the daily allocator collapses to a single counter.
+`llm_call_log` stays — it is what makes spend observable and replay
+possible, and Gemini exposes no `ratelimit-*` headers to read instead.
+
+**Amended same day, before any code was written.** The dashboard check that
+cleared the RPD gate also showed `gemini-3.5-flash-lite` peaking at
+**14/15 RPM** in production. **RPM, not RPD, is the real constraint**, and
+Flash Lite's 15 RPM is 3x the strong tier's 5 — which reinforces this
+decision rather than undermining it. But the "no RPM guard" clause above is
+wrong: **pacing is still required**, just against a different limit than
+the one originally designed for. See the N1 block in `PROJECT_FACTS.md`.
+
+**Revisit if** the real scouting prompt (N7/N8) is measured — with that
+prompt, not assumed — to need more than Lite delivers. The tier split can
+be reintroduced behind `models.ts` without touching feature code.
+
+---
+
+## 2026-09-18 — N4: conflict proposals scoped to Sherdog matching, not fighter merging
+
+**Decision.** N4's advisory LLM proposals target only `low_confidence_sherdog_match`
+conflicts. `disputed_opponent`'s optional merge path (`merge_fighters()`,
+`checkMergeGuard`) is deliberately out of scope, not just deferred.
+
+**Why.** The approved plan's own justification for N4 conflated two
+different mechanisms. Its worked example (Renato Moicano = Sherdog's
+"Renato Carneiro") and its "10/10 already auto-resolved by the heuristic"
+framing are both about `low_confidence_sherdog_match` — linking ONE
+existing fighter row to an external Sherdog id via
+`resolveSherdogMatchAction`. But the plan's literal checks section named
+`checkMergeGuard`/`decideSameCardMerge`, which govern a structurally
+different, higher-stakes action: merging TWO existing fighter rows into
+one via `merge_fighters()`, used by `disputed_opponent`'s same-card-variant
+resolution. A Sherdog match proposal's worst case is a fighter staying
+unmatched a while longer; a wrong merge proposal's worst case is
+irreversible data loss on the dropped row — exactly the failure mode
+Phase M's own `0045`/`0046` migrations found and fixed live, twice, before
+`merge_fighters()` ever ran safely.
+
+**Consequence.** `reconcileSherdogProposals.ts`'s pure reduce step is a
+uniqueness check on `fighters.sherdog_id` (real and schema-enforced), not
+the plan's more general "a fighter is both keeper and dropped" graph
+check — there is no keeper/dropped pair in this scope, only one fighter
+per conflict choosing among external candidates.
+
+**Alternatives considered.**
+
+- Building both kinds in N4 as originally read. Rejected: would have
+  meant designing a merge-proposal flow under real time pressure, on the
+  exact path Phase M's own history shows is easy to get subtly wrong.
+- `low_confidence_fighter_match` (the API-Sports analogue of the same
+  candidate-list shape). Deferred, not rejected — the same architecture
+  extends to it directly; skipped only to keep N4 to one clearly-verified
+  surface rather than two half-verified ones in the same pass.
+
+**Revisit if** `disputed_opponent` proposals are wanted later — that
+would be a new sub-phase with its own checks (verifying a proposed merge
+against `checkMergeGuard` for real, plus a graph check across the batch),
+not a trivial extension of this one.

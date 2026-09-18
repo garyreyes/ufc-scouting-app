@@ -51,3 +51,34 @@ export interface ClusteredFlag {
   summary: string;
   sources: CandidatePost[];
 }
+
+// Phase N3: shared shapes for the card-level retraction pass
+// (fetchOpenFlagsForRetraction.ts, buildRetractionPrompt.ts,
+// parseRetractionResponse.ts, retractionChecks.ts, proposeCardRetractions.ts).
+
+// One currently-open flag as retraction-checking needs it -- both
+// fighters (not just the flagged one) so a superseding post's text can be
+// checked against the SAME two-candidate scoping matchFighterMention.ts
+// already uses, never a name-match against the wider roster.
+export interface OpenFlagForRetraction {
+  id: string;
+  fightId: string;
+  fighterId: string;
+  fighter1: FighterCandidate;
+  fighter2: FighterCandidate;
+  category: RumourCategory;
+  summary: string;
+  // max(rumour_sources.post_created_at) across this flag's real sources --
+  // never first_detected_at/last_corroborated_at, which can move for
+  // reasons unrelated to when the evidence was actually posted.
+  mostRecentSourceAt: string;
+}
+
+// The model's per-flag decision, before any ground-truth check has run --
+// see retractionChecks.ts for what "real" means for each field.
+export interface RetractionClaim {
+  flagId: string;
+  action: "keep" | "retract";
+  supersededByUri: string | null;
+  rationale: string;
+}

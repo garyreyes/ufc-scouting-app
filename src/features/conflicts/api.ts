@@ -105,7 +105,7 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
     resolveLowConfidenceDisplays(admin, lowConfidence),
     resolveDisputedResultDisplays(admin, disputedResult),
     resolveFighterMatchDisplays(lowConfidenceFighter),
-    resolveSherdogMatchDisplays(lowConfidenceSherdog),
+    resolveSherdogMatchDisplays(admin, lowConfidenceSherdog),
   ]);
 
   // Restore detected_at order rather than the five-group split above.
@@ -239,8 +239,41 @@ function resolveFighterMatchDisplays(rows: ConflictRow[]): import("./types").Low
 }
 
 // Same plain reshape -- lib/sherdog snapshots storedName + the full
-// ranked candidate list into details at detection.
-function resolveSherdogMatchDisplays(rows: ConflictRow[]): import("./types").LowConfidenceSherdogMatchDisplay[] {
+// ranked candidate list into details at detection. N4: also attaches an
+// advisory LLM proposal, if one exists -- one extra query, not a query
+// per row, since conflict_resolution_proposals.conflict_id is queried
+// with a single .in() over every row in this batch.
+async function resolveSherdogMatchDisplays(
+  admin: SupabaseClient,
+  rows: ConflictRow[],
+): Promise<import("./types").LowConfidenceSherdogMatchDisplay[]> {
+  if (rows.length === 0) return [];
+
+  // N4: still-live proposals only -- accepted_at/rejected_at is null.
+  // conflict_resolution_proposals has no client grant at all (0049), same
+  // posture as data_conflicts, so this admin-client read is the ONLY way
+  // to see a proposal -- matching this whole page's existing owner gate.
+  const { data: proposals, error: proposalsError } = await admin
+    .from("conflict_resolution_proposals")
+    .select("conflict_id, proposed_action, rationale")
+    .in(
+      "conflict_id",
+      rows.map((r) => r.id),
+    )
+    .is("accepted_at", null)
+    .is("rejected_at", null);
+  if (proposalsError) throw proposalsError;
+
+  const proposalByConflictId = new Map(
+    (proposals ?? []).map((p) => [
+      p.conflict_id as string,
+      {
+        chosenSherdogId: (p.proposed_action as { chosenSherdogId: number | null }).chosenSherdogId,
+        rationale: p.rationale as string,
+      },
+    ]),
+  );
+
   return rows.map((r) => {
     const details = r.details as LowConfidenceSherdogMatchDetails;
     return {
@@ -253,6 +286,7 @@ function resolveSherdogMatchDisplays(rows: ConflictRow[]): import("./types").Low
       reason: details.reason ?? "below_threshold",
       ...(details.guardMismatchPageName ? { guardMismatchPageName: details.guardMismatchPageName } : {}),
       candidates: details.candidates,
+      proposal: proposalByConflictId.get(r.id) ?? null,
     };
   });
 }
