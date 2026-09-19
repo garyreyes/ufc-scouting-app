@@ -4,6 +4,8 @@
 // deliberately NOT read here -- an amateur bout is not part of the pro
 // record Phase J imports.
 
+import { decodeHtmlEntities } from "../text/decodeHtmlEntities";
+
 export type SherdogFightResult = "win" | "loss" | "draw" | "nc" | "unknown";
 
 export interface SherdogHistoryFight {
@@ -29,13 +31,10 @@ const RESULT_CLASS: Record<string, SherdogFightResult> = {
 };
 
 function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
+  // RETROSPECTIVE.md entry #9: this used to only decode the DECIMAL
+  // numeric-entity apostrophe (`&#39;`), never the HEX form (`&#x27;`)
+  // Sherdog also emits -- opponentName came through here un-decoded.
+  return decodeHtmlEntities(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
 function trailingId(href: string): number | null {

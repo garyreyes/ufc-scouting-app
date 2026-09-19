@@ -341,6 +341,34 @@ each source to hand back plain text — a raw `&#x27;` in a stored name is
 the same class of bug as an unpaged `.select()`, just on the "did we
 sanitize input" axis instead of "did we read all the rows."
 
+**Follow-up (2026-09-20).** The HTML-entity corollary above sat
+unaddressed in code for a day — only the three known rows were hand-fixed
+live, nothing changed at the ingestion boundary itself — until a user
+spotted "Casey O&#x27;Neill" rendered literally on `/scoreboard`'s
+intern-picks table and asked for it to be checked before it happens
+again. Root cause, once traced: three separate hand-rolled Sherdog
+HTML-decoders (`parseFighterPage.ts`, `parseFightHistory.ts`,
+`parseSearch.ts`) each only matched the DECIMAL numeric-entity form of an
+apostrophe (`&#39;`/`&#039;`), never the HEX form (`&#x27;`) Sherdog also
+emits — so the "corollary" identified the right *shape* of fix but the
+actual gap was one regex character class away from what anyone had
+written. Fixed with one shared `decodeHtmlEntities.ts`
+(`src/lib/text/`), wired into `upsertFighter.ts`'s single choke point
+(decoding `fighter.name` before ANY read or write in that function, so
+matching queries see it too, not just the final insert) and into all
+three Sherdog parsers. A guarded one-time backfill
+(`npm run fighters:fix-name-entities`) found and fixed the one row still
+polluted in production. A `reviewer` pass on the backfill script itself
+caught a real gap before it shipped: the collision check (does renaming
+create a duplicate?) compared a candidate's decoded name against every
+OTHER row's *raw* name, which would miss two still-polluted duplicates
+that decode to the same name via different encodings (hex vs. decimal
+apostrophe for the same person) — fixed to compare decoded-vs-decoded
+throughout. Reinforces the entry above's own point one level deeper:
+identifying the right *principle* to fix ("decode once, at the
+boundary") is not the same as having actually fixed it — verify the
+fix against the real failing input, not just against the principle.
+
 ---
 
 # Part 4 — recommendations for the skill set

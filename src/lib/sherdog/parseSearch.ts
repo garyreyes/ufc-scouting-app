@@ -6,6 +6,8 @@
 // conflict with the whole list -- the same auto-match / review-queue
 // shape matchFighterCandidate.ts already uses for API-Sports.
 
+import { decodeHtmlEntities } from "../text/decodeHtmlEntities";
+
 export interface SherdogSearchCandidate {
   sherdogId: number;
   name: string;
@@ -18,13 +20,10 @@ export interface SherdogSearchCandidate {
 }
 
 function clean(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
+  // RETROSPECTIVE.md entry #9: this used to only decode the DECIMAL
+  // numeric-entity apostrophe (`&#39;`), never the HEX form (`&#x27;`)
+  // Sherdog also emits.
+  return decodeHtmlEntities(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
 function trailingId(href: string): number | null {

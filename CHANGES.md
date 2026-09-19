@@ -4909,3 +4909,43 @@ cheaply (reusing `computeCalibrationBuckets.ts`'s bucket pattern) once
 
 **Verified.** 1056 tests (136 files, up from 1051) passing, lint clean,
 `tsc --noEmit` clean, production build clean.
+
+## Phase 96 — Fixed HTML entities leaking into fighter names at the ingestion boundary (2026-09-20)
+
+**What.** A user spotted "Casey O&#x27;Neill" rendered literally on
+`/scoreboard`'s intern-picks table (`RETROSPECTIVE.md` entry #9 had
+already named this bug class the day before, but no code fix had landed
+for it yet — only three known rows were hand-fixed live). Root cause:
+three separate hand-rolled Sherdog HTML-decoders
+(`parseFighterPage.ts`, `parseFightHistory.ts`, `parseSearch.ts`) each
+only matched the DECIMAL numeric-entity form of an apostrophe
+(`&#39;`/`&#039;`), never the HEX form (`&#x27;`) Sherdog also emits.
+
+New shared `decodeHtmlEntities.ts` (`src/lib/text/`) — a single-regex-
+pass decoder (numeric decimal, numeric hex, and the 6 basic named
+entities), safe against double-decoding an already-escaped entity and
+against throwing on a lone UTF-16 surrogate code point. Wired into
+`upsertFighter.ts`'s single choke point: `fighter.name` is decoded once,
+before every read (the exact-match query, the alias fold-match, the
+`namesLikelySamePerson` fold scan) and write (insert/update) in that
+function, not just before the final insert. All three Sherdog parsers
+now delegate to it instead of their own incomplete regex.
+
+New guarded one-time backfill, `npm run fighters:fix-name-entities`
+(`--dry-run` by default, matching this project's own bulk-mutation
+convention): `planFighterNameEntityFixes.ts` (pure) flags any fighter
+whose name decodes to something different, and separately flags a
+collision when renaming would produce a duplicate of another existing
+row's name — that pair is reported for a manual `merge_fighters()`
+review, never silently renamed. Ran live: 837 fighters read, exactly the
+one known-polluted row found, 0 collisions, renamed.
+
+**Verified.** `reviewer` pass on the backfill script caught a real gap
+before it shipped: the collision check compared a candidate's decoded
+name against every OTHER row's *raw* name, which would miss two
+still-polluted duplicates that decode to the same name via different
+encodings (hex vs. decimal apostrophe for the same person) — fixed to
+compare decoded-vs-decoded throughout, with a regression test for that
+exact shape. 1076 tests (138 files, up from 1056) passing, lint clean,
+`tsc --noEmit` clean, production build clean. Dry-run re-confirmed
+0 polluted names remain after the live write.

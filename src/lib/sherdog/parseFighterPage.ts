@@ -4,6 +4,8 @@
 // a Sherdog markup change breaks loudly instead of silently returning
 // nulls that a record derivation would treat as "no fights".
 
+import { decodeHtmlEntities } from "../text/decodeHtmlEntities";
+
 export interface SherdogBio {
   // The clean display name, no nickname -- <span class="fn">.
   name: string | null;
@@ -46,15 +48,11 @@ function firstMatch(html: string, re: RegExp): string | null {
 }
 
 function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  // RETROSPECTIVE.md entry #9: the old hand-rolled replace chain here only
+  // matched the DECIMAL numeric-entity form of an apostrophe (`&#39;`),
+  // never the HEX form (`&#x27;`) Sherdog also emits -- shared decoder
+  // covers both plus the named entities this file used to handle by hand.
+  return decodeHtmlEntities(s).replace(/\s+/g, " ").trim();
 }
 
 export function parseFighterName(html: string): string | null {

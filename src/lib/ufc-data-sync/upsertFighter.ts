@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripNullish } from "./stripNullish";
+import { decodeHtmlEntities } from "../text/decodeHtmlEntities";
 import { namesLikelySamePerson } from "../text/namesLikelySamePerson";
 import { normalizeName } from "../text/normalizeName";
 import { pickCanonicalFighter } from "./pickCanonicalFighter";
@@ -27,8 +28,16 @@ export interface FighterWrite {
 // other source already wrote.
 export async function upsertFighter(
   supabase: SupabaseClient,
-  fighter: FighterWrite,
+  rawFighter: FighterWrite,
 ): Promise<string> {
+  // RETROSPECTIVE.md entry #9: decode once, here, at the single choke
+  // point every source (Wikipedia, API-Sports, Sherdog) converges on --
+  // rather than trusting each scraper to hand back plain text. Every
+  // later read of `fighter.name` in this function (the ilike match, the
+  // fold-match comparison, the final insert) sees the decoded value, so
+  // this also fixes matching against an already-decoded existing row,
+  // not just display.
+  const fighter: FighterWrite = { ...rawFighter, name: decodeHtmlEntities(rawFighter.name) };
   const updatePayload = stripNullish(fighter);
 
   if (fighter.external_id) {

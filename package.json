@@ -24,6 +24,7 @@
     "fights:sweep-disputed-opponents": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runSweepLatentDisputedOpponents.ts",
     "events:merge-duplicates": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runMergeDuplicateSameDateEvents.ts",
     "fighters:resolve-same-card-variants": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runResolveSameCardNameVariantsJob.ts",
+    "fighters:fix-name-entities": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runFixFighterNameEntities.ts",
     "fights:backfill-history": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runFightHistoryBackfillJob.ts",
     "fights:backfill-wikipedia": "dotenv -e .env.local -- tsx src/lib/ufc-data-sync/runWikipediaHistoryBackfillJob.ts",
     "sherdog:resolve-identity": "dotenv -e .env.local -- tsx src/lib/sherdog/runResolveSherdogIdentityJob.ts",

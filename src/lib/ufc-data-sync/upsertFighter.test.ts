@@ -191,6 +191,29 @@ describe("upsertFighter", () => {
     expect(rows.find((r) => r.id === id)?.name).toBe("Brand New Fighter");
     expect(rows).toHaveLength(2);
   });
+
+  // RETROSPECTIVE.md entry #9: a scraped name arriving with a literal HTML
+  // entity (Sherdog's hex-encoded apostrophe was the real case found live)
+  // must be decoded before it's ever written or matched against.
+  it("decodes an HTML entity in an incoming name before inserting a new fighter", async () => {
+    const { client, rows } = fakeSupabase([]);
+
+    const id = await upsertFighter(client, { name: "Casey O&#x27;Neill" });
+
+    expect(rows.find((r) => r.id === id)?.name).toBe("Casey O'Neill");
+  });
+
+  it("decodes an HTML entity before the exact-name match, so it correctly matches an already-clean existing row instead of inserting a duplicate", async () => {
+    const { client, rows, updates } = fakeSupabase([
+      { id: padId(1), name: "Casey O'Neill", external_id: null },
+    ]);
+
+    const id = await upsertFighter(client, { name: "Casey O&#x27;Neill" });
+
+    expect(id).toBe(padId(1));
+    expect(rows).toHaveLength(1); // no duplicate inserted
+    expect(updates).toEqual([{ id: padId(1), payload: { name: "Casey O'Neill" } }]);
+  });
 });
 
 describe("upsertFighter -- alias resolution (M3)", () => {
