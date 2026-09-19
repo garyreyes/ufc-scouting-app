@@ -6,6 +6,7 @@ import { fetchNearestUpcomingEventId } from "../events/nearestUpcomingEvent";
 import { isPickLocked } from "../picks/pickLockOffsets";
 import { RECENT_BOUT_WINDOW } from "../scouting/types";
 import type { ScoutingOpenFlag, ScoutingRecentBout } from "../scouting/types";
+import { needsShadowPickRerun } from "./needsShadowPickRerun";
 import type { ShadowPickDossierFacts, ShadowPickFightFacts, ShadowPickFighterFacts } from "./types";
 
 interface EmbeddedFighter {
@@ -148,7 +149,15 @@ export async function fetchShadowPickCard(supabase: SupabaseClient): Promise<Sha
 
     const newestDossierAt = Math.max(dossier1.createdAtMs, dossier2.createdAtMs);
     const lastRunAtMs = lastRunByFightId.get(fight.id);
-    if (lastRunAtMs === undefined || newestDossierAt > lastRunAtMs) needsRun = true;
+    if (
+      needsShadowPickRerun({
+        newestDossierAtMs: newestDossierAt,
+        lastRunAtMs,
+        oddsTakenAtMs: odds?.takenAtMs ?? null,
+      })
+    ) {
+      needsRun = true;
+    }
 
     fightFacts.push({
       fightId: fight.id,
@@ -166,19 +175,26 @@ export async function fetchShadowPickCard(supabase: SupabaseClient): Promise<Sha
 async function fetchOdds(
   supabase: SupabaseClient,
   fightIds: string[],
-): Promise<Map<string, { fighter1Price: number; fighter2Price: number }>> {
+): Promise<Map<string, { fighter1Price: number; fighter2Price: number; takenAtMs: number }>> {
   if (fightIds.length === 0) return new Map();
 
+  // taken_at feeds needsShadowPickRerun.ts -- a price that lands after
+  // this fight's last shadow-pick run must trigger a fresh one, the same
+  // way a newer dossier already does.
   const { data, error } = await supabase
     .from("odds_snapshots")
-    .select("fight_id, fighter1_price, fighter2_price")
+    .select("fight_id, fighter1_price, fighter2_price, taken_at")
     .in("fight_id", fightIds);
   if (error) throw error;
 
   return new Map(
     (data ?? []).map((row) => [
       row.fight_id as string,
-      { fighter1Price: Number(row.fighter1_price), fighter2Price: Number(row.fighter2_price) },
+      {
+        fighter1Price: Number(row.fighter1_price),
+        fighter2Price: Number(row.fighter2_price),
+        takenAtMs: new Date(row.taken_at as string).getTime(),
+      },
     ]),
   );
 }

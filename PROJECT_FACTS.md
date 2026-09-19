@@ -709,6 +709,42 @@ Decided 2026-08-29, user-originated.
   confirmed by rewriting check 14 this way, which is what made the full
   file pass. Apply this shape to any future check in this file, rather
   than defaulting to `DO $$ ... $$` out of habit.
+- **`supabase db query --linked -f <file>` returned `401 Unauthorized` in
+  every attempt during the 2026-09-19 N9-planning session**, in this same
+  repo, even though `db push --linked` and `migration list --linked` both
+  authenticated fine in the identical session — not the blanket "genuinely
+  works" state recorded above from 2026-09-01. Not yet root-caused (a
+  token/environment difference between Claude Code sessions is suspected,
+  not confirmed). **Until this is understood, don't assume `db query -f`
+  works — check it fresh, and fall back to one of:** (1) a throwaway `tsx`
+  script against `getSupabaseAdmin()` for a read-only query, deleted
+  before committing; (2) for a REAL authenticated-owner RLS test (proving
+  a policy works for a real session, not just that the admin client
+  bypasses RLS, which proves nothing), generate a genuine owner session
+  via `admin.auth.admin.generateLink({type: "magiclink", email})` then
+  `client.auth.verifyOtp({type: "email", token_hash: <from the link>})` —
+  confirmed working live 2026-09-19 (verified `shadow_picks`' new
+  owner-read policy both directions: real owner session reads real rows,
+  same session still denied on insert). This is a more portable
+  alternative to the `set local role` + `request.jwt.claims` raw-SQL
+  technique used in earlier sessions (M3, D2), since it doesn't depend on
+  `db query -f` working at all.
+- **A "has anything changed, should this expensive call re-run" gate must
+  enumerate every real input the downstream call depends on, not just the
+  one the author had in mind when they wrote it.** Found live 2026-09-19:
+  N8's `fetchShadowPickCard.ts` gated re-running the shadow-picks LLM call
+  on dossier recency only. A fight priced *after* its first (necessarily
+  50/50, unpriced) shadow pick never triggered a re-run, so it stayed
+  anchored at an even 50% forever — unlike the real intern (Fork 10),
+  which re-picks every 2h and always reacts to a new price. Fixed by
+  extracting the decision into `needsShadowPickRerun.ts`, a pure function
+  taking every real input (dossier recency, price recency) explicitly,
+  rather than leaving it as an inline boolean easy to extend incompletely
+  next time. Worth checking for the same shape in any other cache/rerun
+  gate added to this project later (N7's dossier cache-by-hash is a
+  different, hash-based design and isn't subject to this specific gap,
+  but any *new* "only re-run if X changed" gate should be checked against
+  this pattern before shipping).
 - **A second Supabase project on the same account is named "GAMBLING
   TRACKER"** (`mbytqdkgwpzaensnphwd`, `ap-northeast-1`) — this is the exact
   project Phase 11 accidentally ran a migration against. It still exists.
