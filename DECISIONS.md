@@ -611,3 +611,51 @@ would be a one-off inconsistency across all three conflict kinds for no
 present analytics need. If a real need for the finer distinction shows
 up later, it's a small additive change (a new resolution string plus a
 migration of existing `"no_match"` rows), not a blocker to adding now.
+
+---
+
+## 2026-09-19 — Multi-free-LLM plan: Groq is per-item only, OpenRouter is best-effort only
+
+**Decision.** Of the two candidate second providers approved for the
+multi-free-LLM task-mapping plan (data-quality second opinions +
+shadow-pick ensembling), Groq is scoped to **single-item prompts only**
+(one fighter, one fight) — never the existing whole-card shadow-picks
+prompt as-is. OpenRouter free models are scoped to **optional,
+best-effort signals with a fallback**, never a required dependency.
+
+**Why.** The Phase 0 spike (`PROJECT_FACTS.md`, "Groq and OpenRouter free
+tiers, measured live 2026-09-19") measured both live, same methodology as
+N1:
+
+- **Groq's real free-tier limit is 8000 tokens/minute per model** (read
+  off its own `x-ratelimit-*` headers, which Gemini doesn't expose at
+  all). That's far below Gemini's 250K TPM. A full-card shadow-picks
+  prompt bundles every fighter's Elo/reach/height/age/record/dossier/
+  rumour-flags for an entire ~14-fight card in one call — it will not fit
+  in 8000 tokens. Reliability was otherwise perfect (10/10 calls across
+  two models, valid JSON, correct fact restatement every time), so the
+  constraint is capacity, not availability.
+- **OpenRouter's free models draw from a pool shared across all of
+  OpenRouter's free-tier users, not a per-key quota** — `google/gemma-4-
+  31b-it:free` failed 5/5 with a 429 explicitly citing the shared pool;
+  `nvidia/nemotron-3-super-120b-a12b:free` did better (4/5) but still hit
+  one live 503. This is the same failure shape N1 found for Gemini's
+  strong tier: not broken, just not dependable enough to be a required
+  step in any pipeline.
+
+**Consequence for the plan's Phase 3 (shadow pick ensemble).** Running
+Groq through the *existing* `buildShadowPicksPrompt.ts` card-level prompt
+is not viable as designed. Either (a) give Groq a per-fight variant of the
+prompt (more calls, each small enough to fit 8000 TPM, paced against its
+1000-request-per-period budget), or (b) don't include Groq in Track B and
+keep it to Track A's naturally single-item conflict second-opinion check.
+Re-measure with the real per-fight prompt size before committing to (a).
+
+**Consequence for Phase 2 (data-quality second opinion).** No change —
+`conflictProposals`' second-opinion check is already single-conflict,
+single-call, well inside Groq's token budget.
+
+**Revisit if** Groq's published free-tier limits change, or if a future
+session needs OpenRouter to be load-bearing rather than optional — at
+that point, re-spike rather than assuming today's numbers still hold
+(matching N1's own "revisit if measured, not assumed" clause).

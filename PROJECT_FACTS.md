@@ -632,6 +632,55 @@ Decided 2026-08-29, user-originated.
       - Two jobs overlapping (GitHub Actions scheduling drift is real
         and documented in `settle.yml`) share the same per-model RPM
         bucket, so per-process pacing is necessary but not sufficient.
+  - **Groq and OpenRouter free tiers, measured live 2026-09-19** (spike for
+    the multi-free-LLM task-mapping plan — cross-provider second opinions
+    and shadow-pick ensembling, not a Gemini reducer tier). Same
+    methodology as N1: live calls, not vendor docs, with a JSON-forcing
+    prompt shaped like the real shadow-picks contract (verbatim numeric
+    restatement + a bounded free probability).
+    - **Groq's model catalog has moved on from Llama entirely.** Guessing
+      `llama-3.3-70b-versatile` from training data returned `404
+      model_not_found` on every attempt — `GET /openai/v1/models` is the
+      only reliable source. Current general-purpose options: `openai/gpt-oss-20b`,
+      `openai/gpt-oss-120b`, `qwen/qwen3.8-27b` (`groq/compound` and
+      `-compound-mini` are Groq's own agentic wrapper, not a plain chat
+      model; the rest of the catalog is TTS/whisper/prompt-guard).
+    - **Groq: 10/10 calls succeeded** across `gpt-oss-20b` (5) and
+      `qwen3.8-27b` (5) — valid JSON every time, facts restated correctly
+      every time, no fences needed. `qwen3.8-27b` was consistently faster
+      (~350-440ms vs. `gpt-oss-20b`'s ~800-1000ms, the latter also
+      returning a large unused `reasoning` field alongside `content`).
+    - **Groq DOES expose real `x-ratelimit-*` response headers** (Gemini
+      exposes none — see above), and the numbers resolve cleanly: the
+      `reset-requests` value grows by exactly 86.4s per call (1000 req
+      limit ÷ 86400s/day = 86.4s per request consumed), so the request cap
+      is **1000 RPD**, not per-minute. `reset-tokens` matches
+      `(tokens_used ÷ 8000) × 60s` exactly, so the token cap is **8000
+      TPM**. RPM itself was never hit in this spike (5 calls in under 5s
+      all succeeded), so it isn't the binding constraint. **8000 TPM is
+      the binding constraint** for this app — small enough that a
+      full-card shadow-picks prompt (many fighters' Elo/reach/dossiers/
+      rumours in one call) will likely not fit, unlike Gemini's 250K TPM.
+      **Groq is only viable per-item (single fighter/fight), not
+      per-card**, until proven otherwise with the real prompt.
+    - **OpenRouter free-tier models are unreliable, matching N1's exact
+      failure shape for a dependency.** `google/gemma-4-31b-it:free`
+      failed **5/5** with a `429` from the shared upstream pool ("...is
+      temporarily rate-limited upstream... add your own key to accumulate
+      your rate limits") — free OpenRouter models draw from a pool shared
+      across all of OpenRouter's free-tier users, not a per-key quota.
+      `nvidia/nemotron-3-super-120b-a12b:free` did better, **4/5**, with
+      one live `503 Upstream error from Nvidia: Service temporarily
+      overloaded` — successes had valid JSON and correct fact restatement.
+      **OpenRouter exposes no rate-limit headers** (same opacity as
+      Gemini). Treat any OpenRouter free model as best-effort only, never
+      the sole verifier for anything, exactly like N1's verdict on
+      Gemini's strong tier.
+    - **Net verdict**: Groq is a genuine second, independent, low-latency
+      provider — reliable so far, but scoped to single-item prompts by its
+      token budget. OpenRouter free models are not dependable enough to be
+      load-bearing; usable only as an optional best-effort third opinion
+      with a fallback path, never as the only check on anything.
   - **The Odds API**: covered earlier, B1/B5.
 - **API-Sports free tier also refuses any season before 2022 for
   fighter-scoped `/fights` queries — found live, G1b (2026-09-02),
