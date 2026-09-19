@@ -1,23 +1,15 @@
 import { requireEnv } from "../requireEnv";
 import { MODEL_ID } from "./models";
 import type { ModelRequest, ModelResponse } from "./types";
+import { LlmQuotaError } from "./errors";
 
 const BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
-/**
- * Thrown specifically on a 429, so callers (the budget allocator, a
- * fallback decision) can tell "out of quota" apart from "broken" --
- * ordinary `Error`s from this file mean something is actually wrong
- * (malformed response, dead model, network failure); an `LlmQuotaError`
- * means the request was well-formed and simply didn't fit this minute's
- * or today's allowance.
- */
-export class LlmQuotaError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "LlmQuotaError";
-  }
-}
+// Re-exported for back-compat -- every existing caller (index.ts,
+// geminiClient.test.ts) imports LlmQuotaError from this file. The class
+// itself now lives in errors.ts so groqClient.ts/openRouterClient.ts can
+// share it without importing from Gemini's own wrapper.
+export { LlmQuotaError };
 
 /**
  * The one wrapper CLAUDE.md's third-party-SDK rule requires -- the only

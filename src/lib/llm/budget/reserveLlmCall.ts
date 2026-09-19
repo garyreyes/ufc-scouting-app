@@ -22,11 +22,22 @@ import type { ReservationDecision } from "../types";
  * still counts as spent on the next query -- the correct bias is
  * under-spending, which degrades to a fallback, never over-spending,
  * which produces a real 429 against the provider.
+ *
+ * Defaults to Gemini's own model/cap/interval so every existing caller is
+ * unaffected. A second provider (createGroqMapReduceDeps.ts) passes its
+ * own `modelId`/`dailyCap`/`minIntervalMs` -- `try_reserve_llm_call`
+ * (0047_llm_call_log.sql) already keys its RPM lock and daily count purely
+ * off `model_id`, a free-text column, so this needed no schema change,
+ * only these three values becoming overridable instead of hardcoded.
  */
 export async function reserveLlmCall(
   supabase: SupabaseClient,
   surface: string,
+  opts: { modelId?: string; dailyCap?: number; minIntervalMs?: number } = {},
 ): Promise<ReservationDecision> {
+  const modelId = opts.modelId ?? MODEL_ID;
+  const dailyCap = opts.dailyCap ?? DAILY_CALL_CAP;
+  const minIntervalMs = opts.minIntervalMs ?? MIN_CALL_INTERVAL_MS;
   const today = new Date().toISOString().slice(0, 10);
 
   const { count: surfaceCountToday, error: countError } = await supabase
@@ -42,10 +53,10 @@ export async function reserveLlmCall(
 
   const { data, error } = await supabase.rpc("try_reserve_llm_call", {
     p_surface: surface,
-    p_model_id: MODEL_ID,
+    p_model_id: modelId,
     p_day: today,
-    p_cap: DAILY_CALL_CAP,
-    p_min_interval: `${MIN_CALL_INTERVAL_MS} milliseconds`,
+    p_cap: dailyCap,
+    p_min_interval: `${minIntervalMs} milliseconds`,
   });
   if (error) throw error;
 
