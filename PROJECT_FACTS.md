@@ -1284,7 +1284,15 @@ Decided 2026-08-29, user-originated.
   data — it's MMA folklore, contested in real research. Do not add a
   directional stance bump on that basis alone; wait for G3 calibration
   or a stance-specific accuracy breakdown to show a real, own-data
-  direction first.
+  direction first. **Re-checked 2026-09-19 (ROADMAP.md L3-stance):**
+  still premature — since the intern was scoped to nearest-card-only
+  (Phase L1), only one card has settled (~14 picks), an order of
+  magnitude below the app's own `SMALL_SAMPLE_THRESHOLD = 10` cards.
+  When the data exists, `computeCalibrationBuckets.ts`/
+  `computeBrierScore.ts` already take a generic
+  `{estimatedProbability, correct}[]` — bucketing by
+  `describeStanceMatchup()`'s output instead of a probability band is a
+  small, mechanical reuse, no new plumbing needed.
 - **Age is not in this app anywhere** — no `birth_date`/`age` column.
   **Correction (2026-09-12, L3-age verification spike):** the prior note
   here ("API-Sports' payload includes it, Phase I's own spike notes")

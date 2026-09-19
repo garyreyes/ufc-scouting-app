@@ -4861,3 +4861,51 @@ ids with a mismatched event's `cardDate` and silently baked wrong ages
 into the rebuilt prompt.
 
 **Closes Phase N** (N1-N9, all sub-phases done) — see `ROADMAP.md`.
+
+## Phase 95 — Resolved the three outstanding deferred/not-started items (2026-09-19)
+
+**What.** Three `Explore` agents independently investigated ROADMAP.md's
+remaining L3-stance, K1-followup, and L4-fix items to answer: still
+needed, or moot? Two got real fixes, one stays deferred with its
+investigation recorded so it doesn't need re-deriving next time.
+
+**L4-fix (real, live bug — fixed).** `generateInternPicks.ts`'s
+`isLockedError` only checked `err instanceof Error`, but this codebase
+never calls `.throwOnError()` on a Supabase query, so a failed
+`.upsert()` throws PostgREST's own plain `{message, code, details,
+hint}` object, never a real `Error` — confirmed by reading the installed
+`@supabase/postgrest-js` source. Every upsert failure, locked or not,
+was therefore miscounted as `failed` instead of `skippedLocked`. Fixed
+to read `.message` off any object that has one. Also moved
+`summary.betsPlaced++` to after a confirmed successful write — it
+previously incremented unconditionally right after `decideInternBet`,
+over-reporting bets on a run that failed or hit the lock. New
+`generateInternPicks.test.ts` (there was none before) exercises the real
+plain-object failure shape.
+
+**K1-followup (split verdict).** Confirmed the original K1 skip
+condition (a duplicate-event cluster blocked by FK-referencing rows) has
+fired exactly once, ever, before the `merged_into` filter existed, and
+never since — the `/conflicts`-queue UI surfacing the original note
+gestured at stays shelved, no evidence it's needed. But the
+investigation found `runScheduleSync` (`syncSchedule.ts`) was the one
+scheduled job never wrapped in `runWithTracking` — it wrote zero
+`job_runs` rows at all, skip or no skip, unlike every other scheduled
+job (odds, rumours, intern). Fixed cheaply, no schema: `runScheduleSync`
+now takes `supabase` and returns a `ScheduleSyncSummary` (including full
+`mergeSkipped` detail), with a `main()` wrapping it in
+`runWithTracking(supabase, "sync_schedule", ...)` — the same shape every
+other scheduled job already uses.
+
+**L3-stance (still deferred, correctly).** Real settled-pick volume is
+still nowhere near enough to check for a real stance-matchup direction —
+since the intern was scoped to nearest-card-only (Phase L1), only one
+card has settled (~14 picks), an order of magnitude below the app's own
+`SMALL_SAMPLE_THRESHOLD = 10` cards. No code change.
+`describeStanceMatchup.ts` stays display-only. Recorded in
+`PROJECT_FACTS.md`/`ROADMAP.md` exactly how to build the breakdown
+cheaply (reusing `computeCalibrationBuckets.ts`'s bucket pattern) once
+≥10 cards have settled, so the next session doesn't re-derive this.
+
+**Verified.** 1056 tests (136 files, up from 1051) passing, lint clean,
+`tsc --noEmit` clean, production build clean.

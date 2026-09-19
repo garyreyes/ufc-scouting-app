@@ -55,8 +55,17 @@ interface ExistingPick {
   signals: InternPickSignals | null;
 }
 
-function isLockedError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+// L4-fix (found live 2026-09-13, fixed 2026-09-19): this codebase never
+// calls `.throwOnError()` on a Supabase query, so a failed `.upsert()`
+// throws PostgREST's own plain `{ message, code, details, hint }` object,
+// never a real `Error` instance -- `err instanceof Error` was always
+// false here, so every upsert failure (locked or not) fell through to
+// `String(err)` ("[object Object]"), which can never contain "Picks are
+// locked". Reading `.message` off any object that has one (not just a
+// real Error) is what actually matches the real failure shape.
+export function isLockedError(err: unknown): boolean {
+  const message =
+    typeof err === "object" && err !== null && "message" in err ? String(err.message) : String(err);
   return message.includes("Picks are locked");
 }
 
@@ -200,8 +209,6 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       decision.confidence,
       odds,
     );
-    if (bet.betFighterId !== null) summary.betsPlaced++;
-
     // A third judgment alongside the pick and the bet -- how the fight
     // ends. Deterministic: the picked fighter's own Sherdog win split vs
     // the opponent's own loss split when both exist (L5), falling back to
@@ -244,6 +251,11 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       );
       if (error) throw error;
       summary.picksWritten++;
+      // L4-fix: counted here, after a confirmed successful write, not
+      // unconditionally right after decideInternBet -- a locked/failed
+      // upsert must never inflate this count with a bet that was never
+      // actually placed.
+      if (bet.betFighterId !== null) summary.betsPlaced++;
     } catch (err) {
       if (isLockedError(err)) {
         summary.skippedLocked++;
