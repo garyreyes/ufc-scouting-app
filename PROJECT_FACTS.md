@@ -1453,3 +1453,27 @@ Decided 2026-08-29, user-originated.
   write path here; (2) expect to ask again immediately before every `gh
   pr merge` call even in the same session, rather than batching multiple
   merges under one earlier approval.
+- **`supabase db push --linked` (via `npx supabase`, not a bare `supabase`
+  on PATH in this environment) does NOT wrap an entire migration file in
+  one transaction -- it's statement-by-statement with autocommit.**
+  Confirmed live 2026-09-19: a push that reported an overall error partway
+  through a file had already committed every statement before the failing
+  one. Consequence: after ANY failed push, check what's actually live
+  (`pg_get_functiondef`, a direct `select`) before assuming "it errored,
+  so nothing happened" -- and write data-migration statements idempotently
+  (guarded on `resolved_at is null` / exact current values) so a partial
+  apply followed by a retry is always safe to just re-run, not something
+  to reason about by hand.
+- **Never edit an already-applied migration file to fix a bug found in
+  it -- not even one applied moments ago in the same push.** If a push
+  partially applies a file before failing (see the fact above), that file
+  counts as applied the moment any of its statements committed. Confirmed
+  live 2026-09-19: restore the file to what's actually live and ship the
+  fix as a new, later-numbered migration instead. Relatedly: before
+  patching a long-lived SQL function across multiple migrations (this
+  project's `merge_fighters()` has been patched twice now -- 0046, 0057),
+  always check its CURRENT live definition (`select
+  pg_get_functiondef('fn(args)'::regprocedure)`) or the most recent
+  migration that touched it, not the migration that originally created
+  it -- copying an old definition as the base for a new patch silently
+  reverts every fix applied since.
