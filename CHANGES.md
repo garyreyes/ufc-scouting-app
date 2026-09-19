@@ -3283,9 +3283,9 @@ API-Sports' ~3-day window at best.
 **L2 — the fix:**
 
 - **`src/lib/ufc-data-sync/selectEventsNeedingResultRefresh.ts`** (pure,
-  +10 tests) — the queue: an event that is past + inside a 30-day window
-  + not merged + has a Wikipedia-title external_id + still has a fight
-  with no `wikipedia_reported_at`.
+  +10 tests) — the queue: an event that is past + inside a 30-day
+  window + not merged + has a Wikipedia-title external_id + still has a
+  fight with no `wikipedia_reported_at`.
 - **`refreshRecentEventResults.ts`** — re-runs `processScheduleEvent` for
   each such card (`upsertFight` matches the existing row and writes its
   per-source columns; never inserts a duplicate). Per-event try/catch.
@@ -3922,7 +3922,6 @@ cancels Vera.
 `npm run build`) / `eslint` / `npm run build` all green, route table
 unchanged.
 
-
 ## Phase 81 (M3) — Remembered dispute answers, aliases, fighter merge (2026-09-14)
 
 **What.** "Keep existing" on a `disputed_opponent` conflict recorded
@@ -4043,7 +4042,6 @@ gap this phase needs to close.
 `npm run build`) / `eslint` / `npm run build` all green, route table
 unchanged.
 
-
 ## Phase 82 (M3-fix) — merge_fighters() could never move an identity link (2026-09-18)
 
 **What.** New migration `0046_merge_fighters_unique_collision.sql`,
@@ -4061,7 +4059,7 @@ a move, not a copy. Everything else in the function is unchanged.
 `npm run fighters:resolve-same-card-variants` (2026-09-18, immediately
 after 0044/0045 were applied) failed on its very first merge:
 
-```
+```text
 23505 duplicate key value violates unique constraint "fighters_sherdog_id_key"
 Key (sherdog_id)=(307733) already exists.
 ```
@@ -4774,7 +4772,7 @@ applied in bulk since clicking through 24 identical judgment-free rows
 one at a time would be pure toil.
 
 **Correction to Phase 91's own framing.** The dry-run's actual names
-showed Phase 91's "regional/other-promotion fighters we don't track" 
+showed Phase 91's "regional/other-promotion fighters we don't track"
 explanation was only partly right. Most of these 24 are real UFC roster
 fighters who WERE on that exact card (Fiorot vs Grasso, Moreno vs
 Morales, Cortes-Acosta vs Blaydes, Dan Ige, ...) — their odds-provider
@@ -4797,3 +4795,69 @@ conflicts remain, two detected as recently as 2026-09-18. This is a
 genuinely different conflict kind (two data sources disagree about which
 bout a fight actually was) requiring the owner's own judgment per row,
 not something this pass touched or should auto-resolve.
+
+## Phase 94 — N9: replay + comparison readout, closing Phase N (2026-09-19)
+
+**What.** Two new correctness-critical pure functions, test-first:
+`selectLatestBeforeLock.ts` selects the latest `shadow_picks` row per
+`(fight_id, line)` created strictly before that fight's INTERN lock
+instant (`starts_at - INTERN_LOCK_OFFSET_HOURS`), never leaking
+post-lock information into a forward-only measurement; `scoreShadowLines.ts`
+scores the selected rows against real settled outcomes — accuracy, Brier,
+and (`LLM_ASSISTED` only) units computed through the exact same
+`decideInternBet`/`scoreBetPnl`/`priceForFighter` functions real INTERN
+picks settle through, never a synthetic flat bet. `LLM_ONLY` gets `units:
+null`, not zero — it has no `confidence` for `decideInternBet` to size a
+stake from.
+
+`getScoreboardData` (`features/scoreboard/api.ts`) gained
+`buildShadowComparison`: excludes cancelled fights and any fight whose
+card never got a confirmed `starts_at`, then restricts the deterministic
+INTERN line's own accuracy/Brier/units to the EXACT SAME fight population
+the two shadow lines were scored over — not the intern's whole settled
+history, which would not be apples-to-apples with a comparison that only
+exists for fights that ever got a shadow pick at all. New
+`ShadowComparisonTable` renders a three-row table (Deterministic /
+LLM-assisted / LLM-only) below `PickHistoryTable` on `/scoreboard`, with
+a null state and a small-sample notice (reusing the same 10-fight
+threshold N6's promotion rule uses).
+
+`buildFightFacts.ts` was extracted from `fetchShadowPickCard.ts`'s own
+private fact-building helpers, generalized to take explicit `fightIds` +
+a `cardDate` instead of only the nearest-upcoming-card scope —
+`fetchShadowPickCard.ts` itself now calls this instead of duplicating the
+logic, the exact "one rule, two implementations, only one kept current"
+shape `RETROSPECTIVE.md`'s entry #9 warns about, avoided here by
+construction rather than by discipline.
+
+New replay CLI (`npm run llm:replay -- --call-id=<uuid>`,
+`runLlmReplay.ts` + `replayLlmCall.ts`): re-runs the exact
+parse→verify→apply pipeline a live shadow-picks run uses
+(`parseShadowPicksResponse` → `verifyClaims`/`shadowPickClaimChecks` →
+`applyShadowPickClaims`) over a stored `llm_call_log.raw_output`, with
+zero network. Locates the call's fights from the raw output itself
+(`extractFightIdsFromRawOutput`, lenient JSON parsing) rather than from
+`shadow_picks` rows — the planning audit's own finding that the one call
+most worth replaying (a dropped-every-claim run) wrote zero rows there —
+with an `--event-id=` fallback for when even that fails. Rebuilds the
+original prompt and compares its hash against the stored `prompt_hash`,
+reporting a mismatch as "facts (or fight order) drifted," never as proof
+of a parser regression on its own.
+
+**Verified.** 1051 tests (135 files, up from 1023) passing, lint clean,
+`tsc --noEmit` clean, production build clean. `reviewer` pass (fresh
+eyes, ran the real lint/typecheck/test commands, traced every path by
+hand): confirmed `selectLatestBeforeLock`'s strict-`<` lock boundary,
+confirmed `LLM_ONLY`'s `units: null` is structurally enforced (not just
+skipped opportunistically) even inside the shared scoring helper,
+confirmed `buildShadowComparison`'s same-population restriction is real
+(re-derived from the code, not just the comments), confirmed the
+`fetchShadowPickCard.ts` refactor preserved the `needsRun` dossier-
+freshness gate exactly. Found and fixed one real bug before shipping: the
+replay CLI's `--event-id` fallback could silently override a correctly-
+extracted event id when both were present (rather than only firing when
+extraction found nothing), which would have paired the real call's fight
+ids with a mismatched event's `cardDate` and silently baked wrong ages
+into the rebuilt prompt.
+
+**Closes Phase N** (N1-N9, all sub-phases done) — see `ROADMAP.md`.

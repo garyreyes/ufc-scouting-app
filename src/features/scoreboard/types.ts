@@ -3,8 +3,9 @@ import type { AccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
 import type { CalibrationBucket } from "@/lib/scoring/computeCalibrationBuckets";
 import type { BrierScoreResult } from "@/lib/scoring/computeBrierScore";
 import type { PendingSummary, PendingSide } from "@/lib/scoring/summarizePendingPicks";
+import type { ShadowLineScore } from "@/lib/shadowPicks/scoreShadowLines";
 
-export type { UnitsLine, AccuracyLine, CalibrationBucket, BrierScoreResult, PendingSummary, PendingSide };
+export type { UnitsLine, AccuracyLine, CalibrationBucket, BrierScoreResult, PendingSummary, PendingSide, ShadowLineScore };
 
 // The intern's accuracy carries two numbers, not one (docs/PRD.md UC-4):
 // head-to-head on fights both the owner and the intern picked is the
@@ -92,4 +93,17 @@ export interface ScoreboardData {
     me: BrierScoreResult;
     intern: BrierScoreResult;
   };
+  // N9: null until at least one shadow-picks row has ever been scored --
+  // never an all-zero object, which would render as "0% accuracy" rather
+  // than "nothing to compare yet." `deterministic` is the intern's OWN
+  // real picks (Fork 10), restricted to exactly the same fights the two
+  // LLM lines were scored over (N9's own audit finding: comparing against
+  // the intern's whole settled history instead of the same scored
+  // population would not be apples-to-apples).
+  shadowComparison: {
+    scoredFightCount: number;
+    deterministic: { accuracy: AccuracyLine; brier: BrierScoreResult; units: UnitsLine };
+    llmAssisted: ShadowLineScore;
+    llmOnly: ShadowLineScore;
+  } | null;
 }

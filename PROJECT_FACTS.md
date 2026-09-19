@@ -709,6 +709,42 @@ Decided 2026-08-29, user-originated.
   confirmed by rewriting check 14 this way, which is what made the full
   file pass. Apply this shape to any future check in this file, rather
   than defaulting to `DO $$ ... $$` out of habit.
+- **`supabase db query --linked -f <file>` returned `401 Unauthorized` in
+  every attempt during the 2026-09-19 N9-planning session**, in this same
+  repo, even though `db push --linked` and `migration list --linked` both
+  authenticated fine in the identical session — not the blanket "genuinely
+  works" state recorded above from 2026-09-01. Not yet root-caused (a
+  token/environment difference between Claude Code sessions is suspected,
+  not confirmed). **Until this is understood, don't assume `db query -f`
+  works — check it fresh, and fall back to one of:** (1) a throwaway `tsx`
+  script against `getSupabaseAdmin()` for a read-only query, deleted
+  before committing; (2) for a REAL authenticated-owner RLS test (proving
+  a policy works for a real session, not just that the admin client
+  bypasses RLS, which proves nothing), generate a genuine owner session
+  via `admin.auth.admin.generateLink({type: "magiclink", email})` then
+  `client.auth.verifyOtp({type: "email", token_hash: <from the link>})` —
+  confirmed working live 2026-09-19 (verified `shadow_picks`' new
+  owner-read policy both directions: real owner session reads real rows,
+  same session still denied on insert). This is a more portable
+  alternative to the `set local role` + `request.jwt.claims` raw-SQL
+  technique used in earlier sessions (M3, D2), since it doesn't depend on
+  `db query -f` working at all.
+- **A "has anything changed, should this expensive call re-run" gate must
+  enumerate every real input the downstream call depends on, not just the
+  one the author had in mind when they wrote it.** Found live 2026-09-19:
+  N8's `fetchShadowPickCard.ts` gated re-running the shadow-picks LLM call
+  on dossier recency only. A fight priced *after* its first (necessarily
+  50/50, unpriced) shadow pick never triggered a re-run, so it stayed
+  anchored at an even 50% forever — unlike the real intern (Fork 10),
+  which re-picks every 2h and always reacts to a new price. Fixed by
+  extracting the decision into `needsShadowPickRerun.ts`, a pure function
+  taking every real input (dossier recency, price recency) explicitly,
+  rather than leaving it as an inline boolean easy to extend incompletely
+  next time. Worth checking for the same shape in any other cache/rerun
+  gate added to this project later (N7's dossier cache-by-hash is a
+  different, hash-based design and isn't subject to this specific gap,
+  but any *new* "only re-run if X changed" gate should be checked against
+  this pattern before shipping).
 - **A second Supabase project on the same account is named "GAMBLING
   TRACKER"** (`mbytqdkgwpzaensnphwd`, `ap-northeast-1`) — this is the exact
   project Phase 11 accidentally ran a migration against. It still exists.
@@ -1431,3 +1467,49 @@ Decided 2026-08-29, user-originated.
   list when nothing's pending) -- both are real, if indirect, schema-state
   confirmation. Use these two, not `db query`/`db dump`, for post-migration
   verification until the underlying auth/Docker gap is fixed.
+- **The `mcp__claude_ai_Supabase__execute_sql` MCP tool DOES work for
+  reads in this environment (2026-09-18/19), unlike the CLI paths above
+  -- use it for read-back verification instead of a one-off tsx script.**
+  Confirmed live, repeatedly: arbitrary `select` queries against project
+  `vrwlfcywyfzfczajpdoh` return real rows with no auth issue. It does
+  NOT work for writes, though -- see the next fact.
+- **Both direct production writes (a raw SQL `update`/`insert`, whether
+  via a local script or the Supabase MCP `execute_sql` tool) and `gh pr
+  merge` are blocked by the Claude Code auto-mode classifier**
+  ("Modify Shared Resources" / "Merge Without Review" respectively),
+  confirmed live 2026-09-18/19 -- and this is a policy-level gate, not
+  something a prior "yes, go ahead" earlier in the same conversation
+  clears. Each actual write and each actual merge needs the user's
+  explicit confirmation on that SPECIFIC action, in the moment it's
+  attempted. Two consequences for how to work in this repo: (1) route
+  production data writes through git-tracked migration files (the same
+  reviewed path `migration-runner` already establishes for schema
+  changes) instead of ad-hoc write scripts, even for a one-off data
+  correction with no schema change -- the migration IS the approved
+  write path here; (2) expect to ask again immediately before every `gh
+  pr merge` call even in the same session, rather than batching multiple
+  merges under one earlier approval.
+- **`supabase db push --linked` (via `npx supabase`, not a bare `supabase`
+  on PATH in this environment) does NOT wrap an entire migration file in
+  one transaction -- it's statement-by-statement with autocommit.**
+  Confirmed live 2026-09-19: a push that reported an overall error partway
+  through a file had already committed every statement before the failing
+  one. Consequence: after ANY failed push, check what's actually live
+  (`pg_get_functiondef`, a direct `select`) before assuming "it errored,
+  so nothing happened" -- and write data-migration statements idempotently
+  (guarded on `resolved_at is null` / exact current values) so a partial
+  apply followed by a retry is always safe to just re-run, not something
+  to reason about by hand.
+- **Never edit an already-applied migration file to fix a bug found in
+  it -- not even one applied moments ago in the same push.** If a push
+  partially applies a file before failing (see the fact above), that file
+  counts as applied the moment any of its statements committed. Confirmed
+  live 2026-09-19: restore the file to what's actually live and ship the
+  fix as a new, later-numbered migration instead. Relatedly: before
+  patching a long-lived SQL function across multiple migrations (this
+  project's `merge_fighters()` has been patched twice now -- 0046, 0057),
+  always check its CURRENT live definition (`select
+  pg_get_functiondef('fn(args)'::regprocedure)`) or the most recent
+  migration that touched it, not the migration that originally created
+  it -- copying an old definition as the base for a new patch silently
+  reverts every fix applied since.

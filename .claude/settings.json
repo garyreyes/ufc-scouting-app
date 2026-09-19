@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run sherdog:import-history*)",
+      "Bash(npm run intern:scheduled-job*)"
+    ]
+  }
+}

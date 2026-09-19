@@ -7,6 +7,7 @@ import { UnitsBoard } from "@/features/scoreboard/components/UnitsBoard";
 import { AccuracyBoard } from "@/features/scoreboard/components/AccuracyBoard";
 import { CalibrationTable } from "@/features/scoreboard/components/CalibrationTable";
 import { PickHistoryTable } from "@/features/scoreboard/components/PickHistoryTable";
+import { ShadowComparisonTable } from "@/features/scoreboard/components/ShadowComparisonTable";
 import { PendingSummary } from "@/features/scoreboard/components/PendingSummary";
 import styles from "./page.module.css";
 
@@ -74,6 +75,7 @@ export default async function ScoreboardPage() {
         <p className={styles.empty}>
           No picks have settled yet — the boards fill in as fights resolve.
         </p>
+        <ShadowComparisonTable data={data.shadowComparison} />
       </div>
     );
   }
@@ -108,6 +110,8 @@ export default async function ScoreboardPage() {
       <CalibrationTable me={data.calibration.me} intern={data.calibration.intern} brier={data.brier} />
 
       <PickHistoryTable rows={data.pickHistory} />
+
+      <ShadowComparisonTable data={data.shadowComparison} />
     </div>
   );
 }

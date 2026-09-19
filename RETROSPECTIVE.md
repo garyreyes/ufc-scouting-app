@@ -76,6 +76,7 @@ and was wrong. Every gate passed on all of these:
 | **`numeric` arrives as a string** (Phase 61) | `stake_units`/`pnl_units` were cast `as number` but PostgREST serialises `numeric` as strings. `netUnits += "1.56"` concatenates. Dormant only because nothing had settled yet. |
 | **Wrong column names** (Phase 58 work) | Querying `wikipedia_reported_winner_id` (real name: `wikipedia_winner_id`) or `fights.created_at` (doesn't exist) returns an error object — and `?? []` turned that into a confident "0 rows." |
 | **A dead branch in a heuristic** (Phase 62) | `predictInternMethod` could **never** return `SUBMISSION` for any input, and every heavyweight fight returned `KO_TKO` regardless of matchup. The tests passed because the lopsided case only asserted `.not.toBe("DECISION")`. Found by a reviewer brute-forcing the input space. |
+| **Duplicate identity rows keep recurring** (2026-09-19) | The scheduled sync job created a second `fighters` row for a person already in the table whenever the incoming name had a trailing suffix ("Michael Aswell Jr." vs. "Michael Aswell") or a reordered/unspaced variant ("Yoo Joo-sang" vs. "JooSang Yoo") — shapes `isSameCardNameVariant.ts` already has code to recognize, but that code only runs inside the `disputed_opponent` auto-merge sweep, never inside `upsertFighter.ts`'s own name-fold matching. Two duplicate fighters on the same card silently produced two `fights` rows for one real bout — the scoreboard rendered the same matchup twice. Compounding bug found the same day: three fighter names (`Sean O'Malley`, `Casey O'Neill`, `Don'Tale Mayes`) had an apostrophe stored as the literal string `&#x27;` — an HTML entity written to the database instead of decoded at ingestion, invisible to every gate because it's a valid string, just the wrong one. |
 
 **The pattern:** every one of these is a case where *wrong* and *right*
 produce identically-shaped output. TypeScript, lint, and build cannot
@@ -298,6 +299,47 @@ rather than discovered by hitting them.
 the statements, and the post-check. Distinct from `migrations/` (schema)
 and `tests/` (RLS). Next project: create that folder on day one, alongside
 the `CHANGES.md` / `PROJECT_FACTS.md` scaffold.
+
+## 9. A name-variant rule fixed in one place should be reused everywhere the same decision is made
+
+**The incident (2026-09-19).** Two more duplicate-fighter pairs appeared
+on the live scoreboard the day after a prior session had already fixed
+the same bug class for two other fighters (see the prior checkpoint's
+Casey O'Neill / Osman Diaz merges). Both new pairs — "Michael Aswell Jr."
+vs. "Michael Aswell", "Yoo Joo-sang" vs. "JooSang Yoo" — are *exactly* the
+suffix and reorder shapes `isSameCardNameVariant.ts` was written to catch,
+and "Michael Aswell Jr." / "Michael Aswell" is even hardcoded as the
+worked example in that file's own comment. But that function is only
+wired into `resolveSameCardNameVariants.ts`, which sweeps *existing*
+`disputed_opponent` conflict rows — it never runs inside
+`upsertFighter.ts`, the actual ingestion path that creates new fighter
+rows from the sync job. So the rule existed, was known correct, and still
+didn't prevent the row from being created in the first place. Recovery
+required a fresh live-DB session: merge both fighter pairs via
+`merge_fighters()`, discover that also produced a duplicate `fights` row
+(same event, same two fighters, sides swapped), enumerate what referenced
+each duplicate fight row (`picks`, `shadow_picks`, `rumour_flags`), and
+consolidate by hand.
+
+Two more mangled fighter names surfaced the same session
+(`Sean O&#x27;Malley` etc. — an HTML entity written to `fighters.name`
+literally instead of being decoded at ingestion), a second independent
+"gate can't see it, it's a valid string" bug found only because a user
+was looking at the actual rendered scoreboard, not because any check
+caught it.
+
+**The rule.** When a name-matching (or any classification) rule is
+written to fix one call site, ask *where else does this codebase make
+the same decision* before considering the fix done. Here that meant:
+`upsertFighter.ts`'s fold-match branch and `isSameCardNameVariant.ts`
+are both "are these two names the same fighter" — one rule, two
+implementations, only one kept current. A single shared function called
+from both the ingestion path and the conflict-sweep path would have
+prevented this from recurring at all. Corollary: HTML-entity-decode any
+scraped text field at the ingestion boundary, once, rather than trusting
+each source to hand back plain text — a raw `&#x27;` in a stored name is
+the same class of bug as an unpaged `.select()`, just on the "did we
+sanitize input" axis instead of "did we read all the rows."
 
 ---
 

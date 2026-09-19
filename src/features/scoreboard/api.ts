@@ -1,16 +1,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { selectAllPages } from "@/lib/supabase/selectAllPages";
+import { selectAllPagesByIds } from "@/lib/supabase/selectAllPagesByIds";
 import { summarizePendingPicks } from "@/lib/scoring/summarizePendingPicks";
 import { determineFavorite } from "@/lib/scoring/determineFavorite";
 import { scorePickCorrect } from "@/lib/scoring/scorePickCorrect";
 import { scoreBetPnl } from "@/lib/scoring/scoreBetPnl";
 import { aggregateUnitsLine } from "@/lib/scoring/aggregateUnitsLine";
-import type { BetResult } from "@/lib/scoring/aggregateUnitsLine";
+import type { BetResult, UnitsLine } from "@/lib/scoring/aggregateUnitsLine";
 import { aggregateAccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
+import type { AccuracyLine } from "@/lib/scoring/aggregateAccuracyLine";
 import { fightOutcomeFromSettledFight } from "@/lib/scoring/fightOutcomeFromSettledFight";
 import { describeStanceMatchup } from "@/lib/scoring/describeStanceMatchup";
 import { computeCalibrationBuckets } from "@/lib/scoring/computeCalibrationBuckets";
 import { computeBrierScore } from "@/lib/scoring/computeBrierScore";
+import type { BrierScoreResult } from "@/lib/scoring/computeBrierScore";
+import { INTERN_LOCK_OFFSET_HOURS } from "@/lib/picks/pickLockOffsets";
+import { selectLatestBeforeLock } from "@/lib/shadowPicks/selectLatestBeforeLock";
+import type { ShadowPickScoringRow } from "@/lib/shadowPicks/selectLatestBeforeLock";
+import { scoreShadowLines } from "@/lib/shadowPicks/scoreShadowLines";
+import type { ShadowScoredFight } from "@/lib/shadowPicks/scoreShadowLines";
 import type { ScoreboardData, PickTableRow } from "./types";
 
 /**
@@ -145,6 +153,8 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
 
   const pickHistory = await buildPickHistory(supabase, settledFights, mePicks, oddsByFightId);
 
+  const shadowComparison = await buildShadowComparison(supabase, settledFights, internPicks, oddsByFightId);
+
   const toCalibrationEntry = (p: SettledPickRow) => ({
     estimatedProbability: Number(p.estimated_probability),
     correct: p.pick_correct,
@@ -180,7 +190,107 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
       me: computeBrierScore(mePicks.map(toCalibrationEntry)),
       intern: computeBrierScore(internPicks.map(toCalibrationEntry)),
     },
+    shadowComparison,
   };
+}
+
+/**
+ * N9's readout: reads `shadow_picks` (N8, never client-readable directly
+ * -- 0059 only grants the owner a select, and this function always runs
+ * behind the session-aware client this whole page already uses once the
+ * owner gate above has passed) and scores both lines against the exact
+ * same settled fights `settledFights` already established, restricted to
+ * fights that were actually eligible for a shadow pick (`settled_from`
+ * not `'cancelled'`, and a confirmed `starts_at` to measure a lock
+ * instant against -- a card that never got a confirmed time never had a
+ * real lock either).
+ *
+ * `deterministic` reuses `internPicks` -- the SAME real Fork-10 picks the
+ * two boards above already show -- restricted to the identical fight
+ * population the two shadow lines were scored over, per N9's own
+ * confirmed scope: comparing against the intern's whole settled history
+ * would not be apples-to-apples with a comparison that only exists for
+ * fights that got a shadow pick at all.
+ */
+async function buildShadowComparison(
+  supabase: SupabaseClient,
+  settledFights: SettledFightRow[],
+  internPicks: SettledPickRow[],
+  oddsByFightId: Map<string, { fighter1_price: number; fighter2_price: number }>,
+): Promise<ScoreboardData["shadowComparison"]> {
+  const eligibleFights = settledFights.filter((f) => f.settled_from !== "cancelled");
+  if (eligibleFights.length === 0) return null;
+
+  const eventIds = [...new Set(eligibleFights.map((f) => f.event_id))];
+  const events = await selectAllPagesByIds<{ id: string; starts_at: string | null }>(
+    supabase,
+    "events",
+    "id, starts_at",
+    "id",
+    eventIds,
+  );
+  const startsAtByEventId = new Map(events.map((e) => [e.id, e.starts_at]));
+
+  const lockAtMsByFightId = new Map<string, number>();
+  const fightsById = new Map<string, ShadowScoredFight>();
+  for (const fight of eligibleFights) {
+    const startsAt = startsAtByEventId.get(fight.event_id);
+    if (!startsAt) continue; // no confirmed card time -- never had a real lock instant either
+    lockAtMsByFightId.set(fight.id, new Date(startsAt).getTime() - INTERN_LOCK_OFFSET_HOURS * 60 * 60 * 1000);
+    fightsById.set(fight.id, {
+      fighter1Id: fight.fighter1_id,
+      fighter2Id: fight.fighter2_id,
+      outcome: fightOutcomeFromSettledFight(fight.winner_id),
+      odds: oddsByFightId.get(fight.id) ?? null,
+    });
+  }
+  if (lockAtMsByFightId.size === 0) return null;
+
+  const shadowPickRows = await selectAllPagesByIds<{
+    id: string;
+    fight_id: string;
+    line: "LLM_ASSISTED" | "LLM_ONLY";
+    predicted_fighter_id: string;
+    probability: number;
+    confidence: number | null;
+    created_at: string;
+  }>(
+    supabase,
+    "shadow_picks",
+    "id, fight_id, line, predicted_fighter_id, probability, confidence, created_at",
+    "fight_id",
+    [...lockAtMsByFightId.keys()],
+  );
+  if (shadowPickRows.length === 0) return null;
+
+  const scoringRows: ShadowPickScoringRow[] = shadowPickRows.map((row) => ({
+    fightId: row.fight_id,
+    line: row.line,
+    predictedFighterId: row.predicted_fighter_id,
+    probability: Number(row.probability),
+    confidence: row.confidence,
+    createdAtMs: new Date(row.created_at).getTime(),
+  }));
+
+  const selected = selectLatestBeforeLock(scoringRows, lockAtMsByFightId);
+  if (selected.length === 0) return null;
+
+  const { llmAssisted, llmOnly } = scoreShadowLines(selected, fightsById);
+
+  const scoredFightIds = new Set(selected.map((r) => r.fightId));
+  const comparablePicks = internPicks.filter((p) => scoredFightIds.has(p.fight_id));
+  const deterministicUnitsBets: BetResult[] = comparablePicks
+    .filter((p) => p.pnl_units !== null)
+    .map((p) => ({ stakeUnits: Number(p.stake_units), pnlUnits: Number(p.pnl_units) }));
+  const deterministic: { accuracy: AccuracyLine; brier: BrierScoreResult; units: UnitsLine } = {
+    accuracy: aggregateAccuracyLine(comparablePicks.map((p) => p.pick_correct)),
+    brier: computeBrierScore(
+      comparablePicks.map((p) => ({ estimatedProbability: Number(p.estimated_probability), correct: p.pick_correct })),
+    ),
+    units: aggregateUnitsLine(deterministicUnitsBets),
+  };
+
+  return { scoredFightCount: scoredFightIds.size, deterministic, llmAssisted, llmOnly };
 }
 
 export interface SettledFightRow {

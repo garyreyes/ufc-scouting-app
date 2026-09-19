@@ -23,6 +23,7 @@ carried a date on 6/6 live pages checked, including two fighters API-Sports
 returned `null` for.
 
 **Alternatives considered.**
+
 - API-Sports — the field is present but empty; building on it ships a
   permanently null column.
 - Wikipedia infoboxes — not parsed per fighter today; a new scraper for data
@@ -62,6 +63,7 @@ edges and the half-weight are themselves unmeasured assumptions. It sits
 inside the existing `MAX_TOTAL_ADJUSTMENT = 0.25` shared ceiling, unchanged.
 
 **Alternatives considered.**
+
 - Simple younger-favored signal (mirrors `sizeAdjustment.ts`) — simpler, but
   directionally wrong at the young end.
 - Display-only, like stance (`L3-stance`) — the honest choice given no
@@ -89,6 +91,7 @@ prediction. Making it a shared enum value (not intern-only) keeps both
 authors comparable once method scoring is built (PRD Could-have).
 
 **Alternatives considered.**
+
 - Keep it 3-valued and force the closer of KO/SUB — rejected by the user;
   loses real information when the record genuinely doesn't favour a side.
 - Intern-only value, not on the human form — rejected: a future method-
@@ -142,6 +145,7 @@ both-sides population: new rule 74.1% exact-call accuracy vs the old rule's
 those (well above the 29.4% real base rate for "was it a finish at all").
 
 **Alternatives considered.**
+
 - Require both sides to have data for the finish-record signal to apply at
   all, otherwise fall back — **confirmed as the design**, not an
   alternative: partial data (one side linked) uses the old rule, never a
@@ -192,6 +196,7 @@ runs ~3h late live, compounding the existing 24h single-source wait (→ M4);
 history cross-check could resolve (→ M5). See `ROADMAP.md` Phase M.
 
 **Alternatives considered.**
+
 - Building a fresh Tapology scraper from scratch — rejected for the same
   ToS/anti-bot reason as the existing one, independent of code quality.
 - Wikidata's P2818 ("Sherdog fighter ID") property — not rejected, kept as
@@ -233,6 +238,7 @@ found fewer than half the card's existing bout count — each a sign the
 parse itself is unreliable, not evidence of a real cancellation.
 
 **Alternatives considered.**
+
 - Cancel on the first miss — rejected: indistinguishable from a transient
   parse failure or a mid-edit Wikipedia page, and a wrongly-cancelled fight
   voids a real pick with no easy undo path once picks have settled around
@@ -293,6 +299,7 @@ wrong, the fix is to correct that link first (at the Sherdog identity
 layer), not to force a fighter merge through it.
 
 **Alternatives considered.**
+
 - Normalize in SQL via a stored generated column or the `unaccent`
   extension (not currently installed) -- rejected: a second
   implementation of name-folding to keep aligned with the TS one, for no
