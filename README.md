@@ -132,3 +132,4 @@ Two structural rules the codebase actually holds to:
 | [`TECH.md`](TECH.md) | Plain-English walkthrough of how specific problems are solved |
 | [`docs/user-flows.md`](docs/user-flows.md) | Screens, transitions, auth gates, empty/error states |
 | [`HANDOFF.md`](HANDOFF.md) | v1-era status. **Partly superseded** — the PRD wins |
+
