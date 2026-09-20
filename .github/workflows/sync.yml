@@ -20,7 +20,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +51,31 @@ jobs:
       # to record nothing and the identical dispute to reopen next run.
       - name: Resolve same-card fighter name variants
         run: npx tsx src/lib/ufc-data-sync/runResolveSameCardNameVariantsJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # P7 (ROADMAP_V2.md Phase P): the SAME job sherdog.yml already runs
+      # once daily at 03:00 UTC, chained here too so a fighter created by
+      # either sync above is Sherdog-linked in the SAME cycle that creates
+      # them, not up to ~15h later on tomorrow's cron. That gap is what let
+      # the odds job (every 2h) act on a name-only, unresolved fighter
+      # first and produce the Choi Doo-ho duplicate this whole phase traces
+      # back to. Runs after the name-variant resolution above on purpose:
+      # a genuine duplicate that step already merges never reaches this job
+      # as two rows to begin with, so this only ever spends a Sherdog
+      # search on the real residual. No new API budget -- Sherdog is
+      # unmetered (sherdog.yml's own comment) -- just the same calls,
+      # earlier. sherdog.yml's own daily run stays as-is: with the queue
+      # already drained here most days, it's a fast, idempotent safety net
+      # for anything left over (a Sherdog outage during this run, a
+      # fighter created outside the normal sync flow), and it still feeds
+      # its own later steps (history import, refresh, proposals). job_runs:
+      # "sherdog_identity" (same job_name sherdog.yml uses -- job_runs is
+      # an append-only log, not a once-per-day record, so two rows a day
+      # for this job_name is expected, not a conflict).
+      - name: Resolve Sherdog identities
+        run: npx tsx src/lib/sherdog/runResolveSherdogIdentityJob.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

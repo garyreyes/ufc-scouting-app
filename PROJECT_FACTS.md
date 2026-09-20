@@ -349,6 +349,19 @@ Decided 2026-08-29, user-originated.
   import-history (new) → import-history `--refresh --batch=30` (cycles
   the linked roster ~every 4-5 days for post-fight freshness) →
   records:recompute. Sherdog is unmetered, so no quota scheduling.
+- **P7 (2026-09-20, ROADMAP_V2.md Phase P): identity resolution is now
+  ALSO chained directly into `sync.yml`**, right after its own two syncs
+  and the same-card name-variant resolution, so a fighter created by
+  either sync links in the same cycle it's created rather than waiting up
+  to ~15h for `sherdog.yml`'s next 03:00 UTC run — that gap is what let
+  the odds job (every 2h) act on an unresolved fighter first and produce
+  the Choi Doo-ho duplicate Phase P traces back to. `sherdog.yml`'s own
+  daily run is unchanged and still drives history import/refresh/
+  proposals; its own identity-resolution step is now usually a fast,
+  idempotent no-op (queue already drained by `sync.yml`), kept as a
+  safety net. `job_runs` gets two `sherdog_identity` rows most days now —
+  expected, not a bug (the table is an append-only log, not a once-daily
+  record).
 - **A linked fighter's record still lags a fight by up to ~4-5 days** —
   the `--refresh` cycle time. For *settlement* J7 closes this with a
   targeted re-import: `reimportSherdogForPendingFights` (settlement chain,
