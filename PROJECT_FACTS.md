@@ -1664,3 +1664,9 @@ still would not include the PH-facing book actually bet into. Its own site
 does not confirm MMA method markets either; the claim came from an LLM
 summary, not the vendor. `WalrusQuant/sports-leader-mcp` (free, no keys) was
 also checked: ESPN-sourced, moneyline/spreads/totals only, no method props.
+
+**Do not try to sign up for Odds-API.io's free tier.** It is advertised
+($0, 2 recreational bookmakers, 100 req/hour, 500/day) but the pricing page
+states alongside it: *"New free API keys are paused indefinitely."* So the
+option is closed on availability, not only on economics — there is nothing
+to evaluate even if the price were acceptable.
