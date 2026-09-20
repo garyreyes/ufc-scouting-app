@@ -923,3 +923,36 @@ backfilling historical tickets is a first-class use case, so a time lock
 would make the table useless for its purpose. The honest limitation is that
 slip records are self-reported; `bookmaker_bet_id` is what makes them
 auditable against a real ticket.
+
+---
+
+## 2026-09-21 — reintroduced, and refixed, the `current_user` vs `current_setting('role')` bug
+
+**What happened.** `0064`'s two new trigger functions gated settlement writes
+with `current_user = 'service_role'`, copied from `0022_dual_settlement.sql`'s
+ORIGINAL text. That check can never be true: `0023_fix_settlement_role_check.sql`
+already documented, live, that `current_user` inside a SECURITY DEFINER
+function reflects the function OWNER (`postgres`), not the caller — and
+fixed `check_pick_constraints` to use `current_setting('role', true)`
+instead. Reading `0022`'s file directly (rather than the live, since-corrected
+function) reintroduced the exact bug `0023` already retired. `0065` reapplies
+the same fix to `check_bet_slip_constraints`/`check_bet_leg_constraints`.
+
+**Caught before Q3's real backfill wrote anything** — a throwaway
+SECURITY DEFINER RPC, called via the real service-role admin client and
+dropped after, reproduced the failure directly: `current_user` returned
+`'postgres'`; `current_setting('role', true)` returned `'service_role'`.
+Re-verified post-fix the same way before the backfill was retried.
+
+**Why this is a DECISIONS.md entry, not just a bugfix commit.** The
+lesson generalizes past this one bug: a numbered migration file's inline
+comments describe the state AT THAT MIGRATION, not the CURRENT state — a
+later migration can `create or replace` the same function with different
+logic while the earlier file's prose stays exactly as first written.
+Trusting an early migration's comment about role-check mechanics (rather
+than the live `pg_get_functiondef` output, or a later migration that
+touches the same function) is what let this recur. Any future SECURITY
+DEFINER trigger doing a role check should copy `0023`'s live pattern
+(`current_setting('role', true) = 'service_role'`), or better, query
+`pg_get_functiondef` for the CURRENT version of the nearest analogous
+function before writing a new one.

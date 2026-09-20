@@ -5199,3 +5199,53 @@ expressions), `migration list --linked` reconciled to `0064` local+remote.
 **Not yet done:** Q3 (backfill) needs owner confirmation on three legs cut
 off in the screenshots — their prices are derivable from the product rule
 (2.15 Sola, 1.23 Martinez, 2.17 Elliott) but market and selection are not.
+
+## Phase 102 (ROADMAP_V2.md Phase Q / Q3) — backfilled the 16 real tickets; fixed a recurring role-check bug (2026-09-21)
+
+**What.** The 16 real bet slips are now recorded as `bet_slips`/`bet_legs`
+rows: 16 slips, 25 legs. Every fighter was resolved by NAME against a live
+query of the three real events, never by position — one ticket
+("Marquel Mederos vs Mason Jones", backing W1) stores its two fighters in
+the OPPOSITE order from the database's `fighter1`/`fighter2`, which a
+positional mapping would have silently gotten backwards.
+
+Three legs, cut off mid-screenshot, are recorded as `market = 'OTHER'`
+with a derived price and an honest "not legible" description rather than
+a guessed selection — each sits on a slip whose money outcome is already
+fully determined by its other legs (one already won with its payout
+already a fact; two already lost), so nothing about the bankroll numbers
+depends on knowing them.
+
+**User-confirmed scope change:** these 16 tickets are reference material
+for the archetype/INTERN comparison, not live bankroll history — they
+predate the journal existing. Slips and legs are written with their
+printed status/payout so `settleSlip`'s own math stays checkable against
+them, but **no `bankroll_ledger` row is written per slip**. The bankroll
+starts at a flat ₱10,000 opening deposit and will only move from bets
+recorded going forward.
+
+**A real bug, caught before it could write anything wrong.** `0064`'s two
+new trigger functions gated settlement writes with
+`current_user = 'service_role'` — copied from `0022_dual_settlement.sql`'s
+ORIGINAL text. That check can never be true:
+`current_user` inside a `SECURITY DEFINER` function reflects the function
+OWNER (`postgres`), not the caller. `0023_fix_settlement_role_check.sql`
+already discovered and fixed this exact bug, live, for `picks` — using
+`current_setting('role', true)` instead. Reading `0022`'s file directly
+rather than the live, corrected function reintroduced the bug it already
+fixed. Caught by a throwaway `SECURITY DEFINER` RPC (created, called via
+the real service-role client, dropped) that reproduced the failure
+directly before the real backfill wrote anything; `0065` reapplies `0023`'s
+fix to the two new trigger functions. Re-verified post-fix the same way.
+See `DECISIONS.md` for the generalized lesson (an early migration's
+comments describe that migration's state, not necessarily the current
+one).
+
+**Verified.** 1237/1237 tests still passing, lint clean, `tsc --noEmit`
+clean. Post-backfill read-back against production: 16 slips, 25 legs,
+exactly 1 `bankroll_ledger` row (the ₱10,000 opening deposit, balance
+confirmed `10000.00`), and `bet_slips.pnl_php`'s generated columns
+independently sum to +₱3,796.72 on ₱3,378.49 staked — matching the
+backfill script's own reconciliation, computed by Postgres rather than
+trusted from the script. `migration list --linked` reconciled through
+`0065` local+remote.
