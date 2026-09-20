@@ -1979,6 +1979,23 @@ unlike Phase M these are not independent parallel branches.
 
 ---
 
+## Phase O — Multi-free-LLM task mapping
+
+Prompted by the question of whether mapping different *free* LLMs to
+specific tasks (not just Gemini) could catch data-quality issues and
+sharpen pick predictions. Full plan kept outside the repo, same
+convention as Phase N (`lets-plan-out-the-indexed-comet.md`);
+`DECISIONS.md`'s 2026-09-19 entry has the Phase 0 spike's real numbers
+and the resulting scope decisions.
+
+| # | Sub-phase | Status |
+|---|---|---|
+| O0/O1 | Verification spike (live, against real Groq/OpenRouter endpoints — caught real model-id drift from training data before either provider was usable) + the provider wrappers (`groqClient.ts`, `openRouterClient.ts`, generalized `reserveLlmCall`). Found Groq's real free tier (8000 TPM) is too small for the existing whole-card shadow-picks prompt — scoped Groq to single-item prompts only; OpenRouter scoped to best-effort/optional only (shared free-tier pool, not dependable). | **done** (2026-09-20) — `DECISIONS.md`, PR #85 merged to `main`. |
+| O2 (Track A) | Data-quality second opinion — an independent Groq read alongside N4's existing Gemini proposal on every open `low_confidence_sherdog_match` conflict that already has a live primary proposal, recorded and shown to the reviewer as agree/disagree, never auto-applied. New `compareProposalAgreement.ts` (pure, test-first, 5/5 exact-value cases), `fetchSherdogConflictsWithPrimaryProposal.ts`, `proposeSherdogMatchesSecondOpinion.ts` (reuses N4's prompt/parser/checks unchanged), migration `0060_conflict_resolution_second_opinion.sql`. | **built, reviewed, gates green — not yet merged.** `CHANGES.md` Phase 97. Migration `0060` not yet applied to production; `GROQ_API_KEY` not yet added as a GitHub Actions secret, so the new `sherdog.yml` step won't run in CI until then. |
+| O3 (Track B) | Shadow-pick ensemble — not started. Design needs updating per the O0 spike finding: the existing whole-card shadow-picks prompt doesn't fit Groq's token budget, so this needs either a per-fight prompt variant for Groq or dropping Groq from this track entirely (re-measure before choosing). `shadow_picks` needs a `provider` column migration either way. Explicit non-goal, same as Phase N's shadow picks: never feeds real bets. |
+
+---
+
 ## Design cadence
 
 The visual world was decided in v1 and is already shipped (CSS Modules, custom

@@ -1570,3 +1570,11 @@ Decided 2026-08-29, user-originated.
   migration that touched it, not the migration that originally created
   it -- copying an old definition as the base for a new patch silently
   reverts every fix applied since.
+- **Outstanding manual setup gaps from the multi-free-LLM plan (Phase O),
+  as of 2026-09-20 — check whether these are still open before assuming
+  they are:** `.env.local.example` doesn't document `GROQ_API_KEY`/
+  `OPENROUTER_API_KEY` (blocked from editing `.env*` files in the session
+  that built O0/O1). `GROQ_API_KEY` was added as a GitHub Actions secret
+  and migration `0060_conflict_resolution_second_opinion.sql` (O2) was
+  applied to production (`vrwlfcywyfzfczajpdoh`) and confirmed via
+  `supabase migration list --linked` on 2026-09-20 — both resolved.

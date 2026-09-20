@@ -659,3 +659,25 @@ single-call, well inside Groq's token budget.
 session needs OpenRouter to be load-bearing rather than optional — at
 that point, re-spike rather than assuming today's numbers still hold
 (matching N1's own "revisit if measured, not assumed" clause).
+
+---
+
+## 2026-09-20 — Phase 2 (Track A): Groq second opinion only runs where Gemini already proposed
+
+**Decision.** `proposeSherdogMatchesSecondOpinion.ts` only evaluates
+`low_confidence_sherdog_match` conflicts that already have a live
+`conflict_resolution_proposals` row from N4's Gemini pass. It never runs
+independently on a conflict Gemini hasn't reached yet.
+
+**Why.** "Agreement" as a concept requires two real opinions to compare —
+running Groq independently would leave the agree/disagree badge undefined
+until both jobs happened to have run, and would race N4's own scheduled
+job for a conflict neither has looked at yet, with no benefit over just
+waiting one cycle. Scoping to "Gemini already proposed" keeps the
+comparison always meaningful the moment it appears.
+
+**Alternative considered.** Run Groq on every open conflict on its own
+schedule, independent of whether Gemini has weighed in. Rejected: adds a
+race condition for new conflicts and a permanent "second opinion pending"
+UI state for no real gain, since both jobs run on the same `sherdog.yml`
+schedule anyway.

@@ -92,3 +92,27 @@
   color: var(--muted);
   font-style: italic;
 }
+
+/* Phase 2 (Track A): a second, independent read. Agreement stays as
+   quiet as .proposalLabel -- it's confirming, not new information.
+   Disagreement reuses .error's --accent treatment: it's the one state
+   that should actually catch the reviewer's eye before they click
+   Confirm. */
+.secondOpinionLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.secondOpinionLabelDisagree {
+  composes: secondOpinionLabel;
+  color: var(--accent);
+}
+
+.secondOpinionRationale {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-style: italic;
+}

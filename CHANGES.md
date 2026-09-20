@@ -4949,3 +4949,51 @@ compare decoded-vs-decoded throughout, with a regression test for that
 exact shape. 1076 tests (138 files, up from 1056) passing, lint clean,
 `tsc --noEmit` clean, production build clean. Dry-run re-confirmed
 0 polluted names remain after the live write.
+
+## Phase 97 (Multi-free-LLM plan, Phase 2 / Track A) — Groq second opinion on Sherdog-identity proposals, advisory only (2026-09-20)
+
+**What.** N4 (Phase 85) already proposes a Sherdog-identity match for
+every open `low_confidence_sherdog_match` conflict via Gemini, advisory
+only. This adds an independent second read from Groq on the same
+evidence, for any conflict that already has a live primary proposal —
+never ahead of it (`DECISIONS.md`, 2026-09-20) — and shows a human
+reviewer on `/conflicts` whether the two agree or disagree, alongside
+the second model's own rationale. Nothing is auto-applied; Confirm still
+requires the owner's click, unchanged.
+
+New `compareProposalAgreement.ts` (pure, test-first: 5/5 exact-value
+cases covering the full reachable space of two nullable ids compared for
+equality). New `fetchSherdogConflictsWithPrimaryProposal.ts` (inner-join
+filtered to conflicts with a live, unaccepted/unrejected primary
+proposal) and `proposeSherdogMatchesSecondOpinion.ts`, reusing N4's
+existing prompt/parser/ground-truth-checks unchanged — only the model
+backend (Groq via `createGroqMapReduceDeps`) differs. Its reduce step is
+a plain pass-through, not `reconcileSherdogProposals.ts`'s uniqueness
+check: a second opinion never writes `fighters.sherdog_id`, so there's
+no cross-claim collision to resolve. New migration `0060_conflict_
+resolution_second_opinion.sql` extends `conflict_resolution_proposals`
+with `second_opinion_action`/`second_opinion_rationale`/
+`second_opinion_llm_call_id` — not yet applied to production.
+
+Scheduled as a new step in `sherdog.yml`, immediately after N4's own
+step, and a new `npm run conflicts:propose-sherdog-matches-second-
+opinion` script for local runs.
+
+**Verified.** `reviewer` pass confirmed the Supabase inner-join/filter
+syntax is correct and can't fan out into duplicate rows
+(`conflict_resolution_proposals.conflict_id` is unique), the `.update()`
+write is safe given the fetch step's own guarantee, and all five
+reachable input combinations to `compareProposalAgreement` are tested.
+One pre-existing, non-blocking race noted (shared with N4, not new
+here): the write doesn't re-check `accepted_at`/`rejected_at` immediately
+before writing, so a proposal accepted mid-job could get a wasted second
+opinion written onto it — invisible to the reviewer, since the display
+query already filters resolved proposals out. 1094/1094 tests passing,
+lint clean, `tsc --noEmit` clean, production build clean.
+
+**Follow-up, same day:** migration `0060` applied to production
+(`vrwlfcywyfzfczajpdoh`, verified via `supabase migration list --linked`)
+and `GROQ_API_KEY` added as a GitHub Actions secret — the new
+`sherdog.yml` step can now run for real. `.env.local.example` still
+doesn't document `GROQ_API_KEY`/`OPENROUTER_API_KEY` (Phase 1's original
+gap, still open).

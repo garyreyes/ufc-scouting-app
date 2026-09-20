@@ -102,3 +102,16 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      # 6 (Phase 2, Track A). An independent Groq read on whatever conflict
+      #    step 5 just left with a live primary proposal -- deliberately
+      #    after it, never before (DECISIONS.md, 2026-09-20), so a second
+      #    opinion always has a real primary to compare against. Only
+      #    annotates conflict_resolution_proposals; fighters.sherdog_id is
+      #    never touched here either. job_runs: "conflict_proposals_second_opinion".
+      - name: Propose Sherdog match second opinion (advisory only)
+        run: npx tsx src/lib/conflictProposals/runScheduledConflictProposalSecondOpinionJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
