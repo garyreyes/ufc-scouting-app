@@ -8,6 +8,14 @@ on:
     # and its Sherdog height/weight, before API-Sports enrichment decides
     # what to fetch). Sherdog is unmetered, so unlike the API-Sports jobs
     # there is no quota to schedule around.
+    #
+    # P7 (ROADMAP_V2.md Phase P): identity resolution (step 1 below) is
+    # now ALSO chained directly into sync.yml, right after its own syncs,
+    # so a fighter links in the same cycle it's created rather than
+    # waiting for this run. This schedule stays as the daily driver for
+    # everything else here (history import/refresh, proposals) and as a
+    # fast, idempotent safety net for step 1's own queue, which is usually
+    # already empty by the time this fires.
     - cron: "0 3 * * *"
   workflow_dispatch: {}
 
