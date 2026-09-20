@@ -136,12 +136,34 @@ export interface LowConfidenceSherdogMatchConflict {
   details: LowConfidenceSherdogMatchDetails;
 }
 
+// P6 (ROADMAP_V2.md): fighters.sherdog_id is UNIQUE, so a resolved match
+// colliding with an already-claimed id is proof -- not a guess -- that two
+// fighter rows are one real person (or, more rarely, that the search
+// matched the wrong page). Snapshotted at detection (resolveSherdogIdentityJob.ts),
+// same "don't re-derive live" reasoning every other kind here documents.
+export interface SherdogIdCollisionDetails {
+  fighterId: string;
+  storedName: string;
+  sherdogId: number;
+  existingFighterId: string;
+  existingFighterName: string;
+}
+
+export interface SherdogIdCollisionConflict {
+  id: string;
+  kind: "sherdog_id_collision";
+  fightId: null;
+  detectedAt: string;
+  details: SherdogIdCollisionDetails;
+}
+
 export type Conflict =
   | DisputedOpponentConflict
   | LowConfidenceConflict
   | DisputedResultConflict
   | LowConfidenceFighterMatchConflict
-  | LowConfidenceSherdogMatchConflict;
+  | LowConfidenceSherdogMatchConflict
+  | SherdogIdCollisionConflict;
 
 // A fight in the same date window as a low-confidence conflict's odds
 // event -- the candidate pool the owner picks from, ranked by the
@@ -250,9 +272,23 @@ export interface LowConfidenceSherdogMatchDisplay {
   proposal: SherdogMatchProposal | null;
 }
 
+// P6: a plain reshape of details, same as LowConfidenceFighterMatchDisplay
+// -- everything the card needs (both fighters' names, the id itself) is
+// already snapshotted at detection, no extra fetch required.
+export interface SherdogIdCollisionDisplay {
+  id: string;
+  kind: "sherdog_id_collision";
+  detectedAt: string;
+  storedName: string;
+  sherdogId: number;
+  existingFighterId: string;
+  existingFighterName: string;
+}
+
 export type ConflictDisplay =
   | DisputedOpponentDisplay
   | LowConfidenceDisplay
   | DisputedResultDisplay
   | LowConfidenceFighterMatchDisplay
-  | LowConfidenceSherdogMatchDisplay;
+  | LowConfidenceSherdogMatchDisplay
+  | SherdogIdCollisionDisplay;

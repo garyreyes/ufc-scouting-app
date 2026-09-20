@@ -13,12 +13,15 @@ import { buildLowConfidenceResolution } from "./resolveLowConfidence";
 import type { LowConfidenceResolution } from "./resolveLowConfidence";
 import { buildFighterMatchResolution } from "./resolveFighterMatch";
 import { buildSherdogMatchResolution } from "./resolveSherdogMatch";
+import { buildSherdogIdCollisionResolution } from "./resolveSherdogIdCollision";
+import type { SherdogIdCollisionChoice } from "./resolveSherdogIdCollision";
 import { getOpenConflictCount } from "./api";
 import type {
   DisputedOpponentConflict,
   LowConfidenceConflict,
   LowConfidenceFighterMatchConflict,
   LowConfidenceSherdogMatchConflict,
+  SherdogIdCollisionConflict,
 } from "./types";
 
 /**
@@ -262,6 +265,73 @@ export async function resolveFighterMatchAction(
       .eq("id", conflict.details.fighterId);
     if (fightersError) throw fightersError;
   }
+
+  const { error: conflictError } = await admin
+    .from("data_conflicts")
+    .update(resolution.conflictUpdate)
+    .eq("id", conflictId);
+  if (conflictError) throw conflictError;
+
+  revalidatePath("/conflicts");
+}
+
+/**
+ * P6 (ROADMAP_V2.md): fighters.sherdog_id is UNIQUE, so this conflict
+ * means a write collided with an already-claimed id -- structural proof
+ * of a duplicate, not a name-similarity guess. "merge" asserts the two
+ * rows are the same real person and folds them via the same
+ * merge_fighters()/checkMergeGuard() path resolveDisputedOpponentAction's
+ * own "merge" choice uses above (`fighterId`, sherdog_id null, is always
+ * the row checkMergeGuard is free to drop or keep -- it never had a
+ * confirmed identity to conflict with `existingFighterId`'s).
+ * "not_same_person" means the search matched the wrong page; both rows
+ * are left untouched.
+ */
+export async function resolveSherdogIdCollisionAction(
+  conflictId: string,
+  choice: SherdogIdCollisionChoice,
+): Promise<void> {
+  await requireOwner();
+  const admin = getSupabaseAdmin();
+
+  const { data: row, error } = await admin
+    .from("data_conflicts")
+    .select("id, details")
+    .eq("id", conflictId)
+    .eq("kind", "sherdog_id_collision")
+    .is("resolved_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) throw new Error("Conflict not found or already resolved");
+
+  const conflict: SherdogIdCollisionConflict = {
+    id: row.id,
+    kind: "sherdog_id_collision",
+    fightId: null,
+    detectedAt: "", // unused by buildSherdogIdCollisionResolution
+    details: row.details as SherdogIdCollisionConflict["details"],
+  };
+
+  if (choice === "merge") {
+    const { data: fighterRows, error: fightersError } = await admin
+      .from("fighters")
+      .select("id, name, external_id, sherdog_id")
+      .in("id", [conflict.details.fighterId, conflict.details.existingFighterId]);
+    if (fightersError) throw fightersError;
+    if (!fighterRows || fighterRows.length !== 2) throw new Error("Could not load both fighters to merge");
+
+    const [fa, fb] = fighterRows as unknown as MergeCandidateFighter[];
+    const guard = checkMergeGuard(fa, fb);
+    if (!guard.allowed) {
+      throw new Error(
+        "These two fighters have different confirmed Sherdog identities and can't be merged automatically -- check /fighters for both before merging by hand.",
+      );
+    }
+
+    await mergeFighters(admin, guard.keepId, guard.dropId);
+  }
+
+  const resolution = buildSherdogIdCollisionResolution(choice);
 
   const { error: conflictError } = await admin
     .from("data_conflicts")

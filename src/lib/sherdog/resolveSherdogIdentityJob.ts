@@ -15,7 +15,12 @@ import {
 } from "./resolveSherdogIdentity";
 import { parseFightHistory, type SherdogHistoryFight } from "./parseFightHistory";
 import { sherdogNameMatchesExpected } from "./identityGuard";
-import { buildSherdogConflictInsert, buildSherdogIdentityUpdate } from "./buildSherdogIdentityWrites";
+import {
+  buildSherdogConflictInsert,
+  buildSherdogIdCollisionInsert,
+  buildSherdogIdentityUpdate,
+} from "./buildSherdogIdentityWrites";
+import { isSherdogIdCollisionError } from "./isSherdogIdCollisionError";
 import { historyCorroborates, type KnownOpponentBout } from "./historyCorroborates";
 import { fetchKnownOpponentBouts } from "./fetchKnownOpponentBouts";
 
@@ -26,6 +31,10 @@ export interface SherdogIdentitySummary {
   queued: number; // low_confidence_sherdog_match conflicts opened
   guardRejected: number; // search matched but the fetched page's name did not -- also queued
   noCandidates: number;
+  // P6: a match this run WOULD have written, but fighters.sherdog_id was
+  // already claimed by a different fighter row -- opened as a
+  // sherdog_id_collision review proposal instead of counted as `failed`.
+  collision: number;
   failed: number;
   dryRun: boolean;
 }
@@ -72,6 +81,7 @@ export async function resolveUpcomingCardSherdogIds(
     queued: 0,
     guardRejected: 0,
     noCandidates: 0,
+    collision: 0,
     failed: 0,
     dryRun,
   };
@@ -138,6 +148,13 @@ export async function resolveUpcomingCardSherdogIds(
         // case, no matter how correct the match actually is).
         const historyMatch = await tryHistoryCorroboration(supabase, fighter, candidates, fetchOpts);
         if (historyMatch) {
+          const outcome = await attemptSherdogWrite(supabase, fighter, historyMatch, checkedAt, dryRun);
+          if (outcome.kind === "collision") {
+            summary.collision++;
+            if (dryRun) logCollision(fighter.name, historyMatch, outcome);
+            if (!dryRun) await finalizeCollision(supabase, fighter, historyMatch, checkedAt, outcome);
+            continue;
+          }
           summary.matched++;
           summary.historyMatched++;
           if (dryRun) {
@@ -145,7 +162,6 @@ export async function resolveUpcomingCardSherdogIds(
               `  auto-match (history)  ${fighter.name} -> #${historyMatch} (${decision.reason})`,
             );
           }
-          if (!dryRun) await writeMatch(supabase, fighter.id, historyMatch, checkedAt);
           continue;
         }
       }
@@ -186,9 +202,15 @@ export async function resolveUpcomingCardSherdogIds(
           continue;
         }
 
+        const outcome = await attemptSherdogWrite(supabase, fighter, winner, checkedAt, dryRun);
+        if (outcome.kind === "collision") {
+          summary.collision++;
+          if (dryRun) logCollision(fighter.name, winner, outcome);
+          if (!dryRun) await finalizeCollision(supabase, fighter, winner, checkedAt, outcome);
+          continue;
+        }
         summary.matched++;
         if (dryRun) console.log(`  auto-match (tie-break)  ${fighter.name} -> #${winner}`);
-        if (!dryRun) await writeMatch(supabase, fighter.id, winner, checkedAt);
         continue;
       }
 
@@ -211,13 +233,19 @@ export async function resolveUpcomingCardSherdogIds(
         continue;
       }
 
+      const outcome = await attemptSherdogWrite(supabase, fighter, decision.sherdogId, checkedAt, dryRun);
+      if (outcome.kind === "collision") {
+        summary.collision++;
+        if (dryRun) logCollision(fighter.name, decision.sherdogId, outcome);
+        if (!dryRun) await finalizeCollision(supabase, fighter, decision.sherdogId, checkedAt, outcome);
+        continue;
+      }
       summary.matched++;
       if (dryRun) {
         console.log(
           `  auto-match          ${fighter.name} -> #${decision.sherdogId} "${facts.pageName}" @ ${decision.confidence.toFixed(2)}`,
         );
       }
-      if (!dryRun) await writeMatch(supabase, fighter.id, decision.sherdogId, checkedAt);
     } catch (err) {
       summary.failed++;
       console.error(`Sherdog identity failed for fighter ${fighter.id} (${fighter.name}):`, err);
@@ -320,6 +348,107 @@ async function writeMatch(
     .from("fighters")
     .update(buildSherdogIdentityUpdate(sherdogId, checkedAt))
     .eq("id", fighterId);
+  if (error) throw error;
+}
+
+interface ClaimantFighter {
+  id: string;
+  name: string;
+}
+
+type SherdogWriteOutcome = { kind: "written" } | { kind: "collision"; claimant: ClaimantFighter };
+
+async function findSherdogIdClaimant(
+  supabase: SupabaseClient,
+  sherdogId: number,
+  excludingFighterId: string,
+): Promise<ClaimantFighter | null> {
+  const { data, error } = await supabase
+    .from("fighters")
+    .select("id, name")
+    .eq("sherdog_id", sherdogId)
+    .neq("id", excludingFighterId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as ClaimantFighter | null) ?? null;
+}
+
+/**
+ * P6 (ROADMAP_V2.md): fighters.sherdog_id is UNIQUE (0036). A predictive
+ * read first, not just a try/catch -- it's what lets `dryRun` report a
+ * collision without ever attempting a write, matching this job's own
+ * "every read, every fetch, writes NOTHING" dry-run contract. The write
+ * itself is still wrapped in a fallback catch for the rare TOCTOU case
+ * (something else claims the id between the read above and the write) --
+ * without it, that race would still fall through to the job's generic
+ * catch block and be silently counted as `failed`, the exact loss this
+ * function exists to close.
+ */
+async function attemptSherdogWrite(
+  supabase: SupabaseClient,
+  fighter: { id: string; name: string },
+  sherdogId: number,
+  checkedAt: string,
+  dryRun: boolean,
+): Promise<SherdogWriteOutcome> {
+  const predictedClaimant = await findSherdogIdClaimant(supabase, sherdogId, fighter.id);
+  if (predictedClaimant) return { kind: "collision", claimant: predictedClaimant };
+
+  if (dryRun) return { kind: "written" };
+
+  try {
+    await writeMatch(supabase, fighter.id, sherdogId, checkedAt);
+    return { kind: "written" };
+  } catch (err) {
+    if (!isSherdogIdCollisionError(err)) throw err;
+    const raceClaimant = await findSherdogIdClaimant(supabase, sherdogId, fighter.id);
+    if (!raceClaimant) throw err; // genuinely unexplained -- surface the original error
+    return { kind: "collision", claimant: raceClaimant };
+  }
+}
+
+function logCollision(
+  name: string,
+  sherdogId: number,
+  outcome: Extract<SherdogWriteOutcome, { kind: "collision" }>,
+): void {
+  console.log(
+    `  sherdog id collision  ${name} -> #${sherdogId} already claimed by ` +
+      `"${outcome.claimant.name}" (${outcome.claimant.id})`,
+  );
+}
+
+async function finalizeCollision(
+  supabase: SupabaseClient,
+  fighter: { id: string; name: string },
+  sherdogId: number,
+  checkedAt: string,
+  outcome: Extract<SherdogWriteOutcome, { kind: "collision" }>,
+): Promise<void> {
+  await openSherdogIdCollisionConflict(supabase, fighter, sherdogId, outcome.claimant);
+  await markChecked(supabase, fighter.id, checkedAt);
+}
+
+async function openSherdogIdCollisionConflict(
+  supabase: SupabaseClient,
+  fighter: { id: string; name: string },
+  sherdogId: number,
+  claimant: ClaimantFighter,
+): Promise<void> {
+  // Same "don't stack a second row" guard openConflict below already uses.
+  const { data: existing, error: existingError } = await supabase
+    .from("data_conflicts")
+    .select("id")
+    .eq("kind", "sherdog_id_collision")
+    .is("resolved_at", null)
+    .eq("details->>fighterId", fighter.id)
+    .limit(1);
+  if (existingError) throw existingError;
+  if (existing && existing.length > 0) return;
+
+  const { error } = await supabase
+    .from("data_conflicts")
+    .insert(buildSherdogIdCollisionInsert(fighter.id, fighter.name, sherdogId, claimant.id, claimant.name));
   if (error) throw error;
 }
 

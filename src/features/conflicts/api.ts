@@ -9,6 +9,7 @@ import type {
   LowConfidenceDetails,
   LowConfidenceFighterMatchDetails,
   LowConfidenceSherdogMatchDetails,
+  SherdogIdCollisionDetails,
   ConflictDisplay,
 } from "./types";
 
@@ -65,14 +66,16 @@ interface ConflictRow {
     | "low_confidence_odds_match"
     | "disputed_result"
     | "low_confidence_fighter_match"
-    | "low_confidence_sherdog_match";
+    | "low_confidence_sherdog_match"
+    | "sherdog_id_collision";
   fight_id: string | null;
   details:
     | DisputedOpponentDetails
     | LowConfidenceDetails
     | DisputedResultDetails
     | LowConfidenceFighterMatchDetails
-    | LowConfidenceSherdogMatchDetails;
+    | LowConfidenceSherdogMatchDetails
+    | SherdogIdCollisionDetails;
   detected_at: string;
 }
 
@@ -94,6 +97,7 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
   const disputedResult = conflicts.filter((c) => c.kind === "disputed_result");
   const lowConfidenceFighter = conflicts.filter((c) => c.kind === "low_confidence_fighter_match");
   const lowConfidenceSherdog = conflicts.filter((c) => c.kind === "low_confidence_sherdog_match");
+  const sherdogIdCollision = conflicts.filter((c) => c.kind === "sherdog_id_collision");
 
   const [
     disputedOpponentDisplays,
@@ -101,15 +105,17 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
     disputedResultDisplays,
     lowConfidenceFighterDisplays,
     lowConfidenceSherdogDisplays,
+    sherdogIdCollisionDisplays,
   ] = await Promise.all([
     resolveDisputedDisplays(admin, disputedOpponent),
     resolveLowConfidenceDisplays(admin, lowConfidence),
     resolveDisputedResultDisplays(admin, disputedResult),
     resolveFighterMatchDisplays(lowConfidenceFighter),
     resolveSherdogMatchDisplays(admin, lowConfidenceSherdog),
+    resolveSherdogIdCollisionDisplays(sherdogIdCollision),
   ]);
 
-  // Restore detected_at order rather than the five-group split above.
+  // Restore detected_at order rather than the six-group split above.
   const byId = new Map(
     [
       ...disputedOpponentDisplays,
@@ -117,6 +123,7 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
       ...disputedResultDisplays,
       ...lowConfidenceFighterDisplays,
       ...lowConfidenceSherdogDisplays,
+      ...sherdogIdCollisionDisplays,
     ].map((d) => [d.id, d]),
   );
   return conflicts.map((c) => byId.get(c.id)).filter((d): d is ConflictDisplay => d !== undefined);
@@ -299,6 +306,26 @@ async function resolveSherdogMatchDisplays(
       ...(details.guardMismatchPageName ? { guardMismatchPageName: details.guardMismatchPageName } : {}),
       candidates: details.candidates,
       proposal: proposalByConflictId.get(r.id) ?? null,
+    };
+  });
+}
+
+// P6: plain reshape, same as resolveFighterMatchDisplays -- both fighters'
+// names and the id itself are already snapshotted into details at
+// detection (resolveSherdogIdentityJob.ts), no extra fetch needed.
+function resolveSherdogIdCollisionDisplays(
+  rows: ConflictRow[],
+): import("./types").SherdogIdCollisionDisplay[] {
+  return rows.map((r) => {
+    const details = r.details as SherdogIdCollisionDetails;
+    return {
+      id: r.id,
+      kind: "sherdog_id_collision" as const,
+      detectedAt: r.detected_at,
+      storedName: details.storedName,
+      sherdogId: details.sherdogId,
+      existingFighterId: details.existingFighterId,
+      existingFighterName: details.existingFighterName,
     };
   });
 }

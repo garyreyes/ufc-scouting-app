@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SherdogSearchCandidate } from "./parseSearch";
 import { rankSherdogCandidates } from "./resolveSherdogIdentity";
-import { buildSherdogConflictInsert, buildSherdogIdentityUpdate } from "./buildSherdogIdentityWrites";
+import {
+  buildSherdogConflictInsert,
+  buildSherdogIdCollisionInsert,
+  buildSherdogIdentityUpdate,
+} from "./buildSherdogIdentityWrites";
 
 describe("buildSherdogIdentityUpdate", () => {
   it("writes exactly sherdog_id and sherdog_checked_at, nothing else", () => {
@@ -89,6 +93,42 @@ describe("buildSherdogConflictInsert", () => {
       heightImperial: null,
       weightImperial: null,
       association: null,
+    });
+  });
+});
+
+// P6 (ROADMAP_V2.md): fighters.sherdog_id is UNIQUE -- a write colliding
+// with an already-claimed id is proof, not a guess, that this fighter and
+// the existing owner are one real person. This is the data_conflicts row
+// that turns that collision into a review proposal instead of a silently
+// discarded job failure.
+describe("buildSherdogIdCollisionInsert", () => {
+  it("is a sherdog_id_collision row with fight_id null", () => {
+    const row = buildSherdogIdCollisionInsert(
+      "fighter-uuid",
+      "Choi Doo-ho",
+      56689,
+      "existing-fighter-uuid",
+      "Dooho Choi",
+    );
+    expect(row.kind).toBe("sherdog_id_collision");
+    expect(row.fight_id).toBeNull();
+  });
+
+  it("snapshots both sides of the collision", () => {
+    const row = buildSherdogIdCollisionInsert(
+      "fighter-uuid",
+      "Choi Doo-ho",
+      56689,
+      "existing-fighter-uuid",
+      "Dooho Choi",
+    );
+    expect(row.details).toEqual({
+      fighterId: "fighter-uuid",
+      storedName: "Choi Doo-ho",
+      sherdogId: 56689,
+      existingFighterId: "existing-fighter-uuid",
+      existingFighterName: "Dooho Choi",
     });
   });
 });

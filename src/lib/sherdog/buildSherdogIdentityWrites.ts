@@ -49,6 +49,43 @@ export interface SherdogConflictInsert {
  * (nickname, listed height/weight, gym) in one snapshot -- the owner
  * needs those to tell two "Andre Lima"s apart. Ordered best-first.
  */
+export interface SherdogIdCollisionInsert {
+  kind: "sherdog_id_collision";
+  fight_id: null;
+  details: {
+    fighterId: string;
+    storedName: string;
+    sherdogId: number;
+    existingFighterId: string;
+    existingFighterName: string;
+  };
+}
+
+/**
+ * P6 (ROADMAP_V2.md): fighters.sherdog_id is UNIQUE (0036) -- a write
+ * colliding with an already-claimed id is proof, not a guess, that this
+ * fighter and the existing owner are one real person (or, more rarely,
+ * that this fighter's own search matched the wrong page). Structurally
+ * stronger than every other signal this job produces, since no name
+ * comparison is involved at all -- previously this just fell through to
+ * the job's generic catch block and was counted as a plain `failed`,
+ * discarding the strongest duplicate-detection signal the schema can
+ * produce. This is the review proposal that replaces that silent loss.
+ */
+export function buildSherdogIdCollisionInsert(
+  fighterId: string,
+  storedName: string,
+  sherdogId: number,
+  existingFighterId: string,
+  existingFighterName: string,
+): SherdogIdCollisionInsert {
+  return {
+    kind: "sherdog_id_collision",
+    fight_id: null,
+    details: { fighterId, storedName, sherdogId, existingFighterId, existingFighterName },
+  };
+}
+
 export function buildSherdogConflictInsert(
   fighterId: string,
   storedName: string,
