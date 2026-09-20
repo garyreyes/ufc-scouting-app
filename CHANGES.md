@@ -5104,3 +5104,44 @@ otherwise crash the job on the new unique index).
 **Verified.** 1150/1150 tests passing (25 new), lint clean, `tsc --noEmit`
 clean, production build clean, route table unchanged. Migration `0063`
 not yet applied to production.
+
+## Phase 100 — the underdog floor: at least one underdog pick/bet per card segment (2026-09-21)
+
+**What.** User-observed pattern, checked against real cards: a full
+favourites sweep essentially never happens — nearly every card has at
+least one underdog win in the main card and at least one in the
+prelims. `decideInternPick.ts` picks purely per-fight with no view of
+the rest of the card, so nothing stopped it from doing exactly that.
+
+Two new pure, tested modules in `src/lib/intern/`:
+
+- **`segmentCard.ts`** — splits a card into `main` (the 5 fights with the
+  lowest `bout_order`, 0 being the main event) and `prelims` (everything
+  else, including fights with no `bout_order` at all — they sort last
+  and land in prelims rather than being excluded).
+- **`applyUnderdogFloor.ts`** — runs on the whole card's picks/bets after
+  `decideInternPick`/`decideInternBet` have already formed their honest,
+  per-fight opinions. Per segment, independently: if every pick favours
+  the market favourite, flips the one with the biggest underdog price
+  (most plus-money) to the underdog; separately, if every *bet* INTERN
+  already placed in that segment backs the favourite, redirects the one
+  with the biggest underdog price onto the underdog, keeping the same
+  stake. Never invents a bet where INTERN saw no edge at all — only
+  redirects one it was already placing. "Favourite"/"underdog" is a
+  market concept (`determineFavorite.ts`'s own definition), not the
+  model's probability.
+
+`decideInternPick.ts`/`decideInternBet.ts` are untouched — the floor is
+a distinct, visible override layer applied afterward in
+`generateInternPicks.ts`, which changed from a single decide-and-write
+loop per fight to two phases: decide every fight first (nothing
+written), apply the floor across the full card, then write the final
+(possibly overridden) pick/bet, with `predictInternMethod` recomputed
+against the FINAL picked fighter and a "Card-sweep rule: ..." sentence
+appended to `reasoning` whenever either floor fires. See DECISIONS.md
+(2026-09-21) for why this sits outside the otherwise-honest model layer.
+
+**Verified.** 1174/1174 tests passing (15 new, table-driven), including
+`decideInternPick.characterization.test.ts`'s snapshot unchanged —
+confirming the model's own output was genuinely never touched. Lint
+clean, `tsc --noEmit` clean, production build clean.
