@@ -834,3 +834,125 @@ estimated_probability < 1`) and by `computeCalibrationBuckets.ts`, whose
 "Under 50%" bucket and comment ("nothing in the schema requires a pick's
 estimate to favour the fighter it names") anticipated exactly this case
 before this decision existed.
+
+---
+
+## 2026-09-21 — a slip/leg model beside `picks`, not bolted onto it
+
+**Decision.** Bet slips live in three new tables (`bankroll_ledger`,
+`bet_slips`, `bet_legs`, migration `0064`). `picks` is not extended and not
+altered.
+
+**Why.** `picks` (0019) is structurally incapable of holding a real slip:
+`unique (fight_id, author)` forbids a second bet on a fight, the bet is two
+welded-on columns, and `check_pick_constraints()` requires `bet_fighter_id`
+to be one of *that fight's two fighters* — so an accumulator and a
+method-of-victory market are not merely unbuilt, they are unrepresentable.
+Beyond that, `picks` is the calibration/scoreboard backbone; its INTERN and
+chalk unit series have been accumulating for months and must stay
+continuous.
+
+**Alternatives considered.** Widening `picks` (rejected — every constraint
+listed above would have to be dropped, which is precisely what makes the
+existing pick data trustworthy). A single `wagers` table with legs encoded
+as JSON (rejected — a leg needs its own FK to `fights` and its own result,
+and JSON would put both beyond the reach of a query).
+
+---
+
+## 2026-09-21 — a leg stores the price actually taken
+
+**Decision.** `bet_legs.price` is the price struck at the owner's book,
+stored on the leg. Payouts are computed from leg prices, never from the
+slip's displayed combined odds.
+
+**Why.** `picks` stores no price at all — `settlePicks.ts:103` re-derives
+one from `odds_snapshots` at settle time. The owner bets at a PH-facing
+book whose lines differ from the ingested BetOnline reference, so that
+approach would misprice essentially every slip. It is also the only thing
+that ever makes closing-line value computable.
+
+Computing from leg prices rather than the ticket's combined figure is not a
+preference: a real ticket displays combined odds of `4.475` on a ₱100 stake
+and paid **₱447.55**, which is `1.68 × 2.664` at full precision. Books
+round what they display; they do not round what they pay.
+
+**Consequence.** `combined_price` is still stored, as the record of what
+the ticket said, but it is never the basis of a payout.
+
+---
+
+## 2026-09-21 — settlement may never guess a method
+
+**Decision.** `normalizeFightMethod` returns `UNKNOWN` for absent or
+unrecognised method text, and `settleLeg` returns `undetermined` rather
+than a result whenever the outcome does not actually decide the leg.
+
+**Why.** 158 settled fights on production carry `method = null` — they
+settled from API-Sports, which never reports a method. A method leg on one
+of those genuinely cannot be resolved, and treating "I don't know" as a
+loss is how a journal quietly invents money. Those legs stay pending for
+manual settlement instead.
+
+One real refinement: the check for *"the backed fighter lost"* runs BEFORE
+the unknown-method guard, because a leg whose fighter lost is dead
+whatever the method was — which settles it even on a method-less fight.
+
+**Also load-bearing:** the free-text parser matches on the leading token
+only (everything before the first parenthesis). `"Draw (majority)"` and
+`"Decision (majority)"` share the word "majority", and a draw *pays* a
+Double Chance leg while a decision does not — a substring search would
+settle real money the wrong way.
+
+---
+
+## 2026-09-21 — `won/lost/void` are service-role-only, `cashed_out` is not
+
+**Decision.** `check_bet_slip_constraints()` lets only the settlement job
+assert `won`, `lost` or `void`. The owner may set `cashed_out` directly.
+
+**Why.** The first three are facts about how fights resolved; if a client
+could assert them, the archetype ROI board would be whatever the client
+felt like claiming. A cash-out is the deliberate exception — only the
+person who took it knows it happened or what it returned, and no job can
+ever derive it.
+
+**Related, and deliberately different from `picks`:** there is **no pick-lock
+equivalent** on slips. A slip records a wager already placed, and
+backfilling historical tickets is a first-class use case, so a time lock
+would make the table useless for its purpose. The honest limitation is that
+slip records are self-reported; `bookmaker_bet_id` is what makes them
+auditable against a real ticket.
+
+---
+
+## 2026-09-21 — reintroduced, and refixed, the `current_user` vs `current_setting('role')` bug
+
+**What happened.** `0064`'s two new trigger functions gated settlement writes
+with `current_user = 'service_role'`, copied from `0022_dual_settlement.sql`'s
+ORIGINAL text. That check can never be true: `0023_fix_settlement_role_check.sql`
+already documented, live, that `current_user` inside a SECURITY DEFINER
+function reflects the function OWNER (`postgres`), not the caller — and
+fixed `check_pick_constraints` to use `current_setting('role', true)`
+instead. Reading `0022`'s file directly (rather than the live, since-corrected
+function) reintroduced the exact bug `0023` already retired. `0065` reapplies
+the same fix to `check_bet_slip_constraints`/`check_bet_leg_constraints`.
+
+**Caught before Q3's real backfill wrote anything** — a throwaway
+SECURITY DEFINER RPC, called via the real service-role admin client and
+dropped after, reproduced the failure directly: `current_user` returned
+`'postgres'`; `current_setting('role', true)` returned `'service_role'`.
+Re-verified post-fix the same way before the backfill was retried.
+
+**Why this is a DECISIONS.md entry, not just a bugfix commit.** The
+lesson generalizes past this one bug: a numbered migration file's inline
+comments describe the state AT THAT MIGRATION, not the CURRENT state — a
+later migration can `create or replace` the same function with different
+logic while the earlier file's prose stays exactly as first written.
+Trusting an early migration's comment about role-check mechanics (rather
+than the live `pg_get_functiondef` output, or a later migration that
+touches the same function) is what let this recur. Any future SECURITY
+DEFINER trigger doing a role check should copy `0023`'s live pattern
+(`current_setting('role', true) = 'service_role'`), or better, query
+`pg_get_functiondef` for the CURRENT version of the nearest analogous
+function before writing a new one.

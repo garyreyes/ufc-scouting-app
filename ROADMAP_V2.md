@@ -222,3 +222,110 @@ is disposable without it.
   Barnett / Sean Sharaf row is a genuine booking change and exactly what
   the queue is for. The queue working correctly means a *small* queue, not
   an empty one.
+
+---
+
+## Phase Q — the betting journal
+
+### The trigger
+
+The app answers *"is this one moneyline price wrong?"* The owner bets a
+portfolio of slips per card: singles, accumulators, method-of-victory and
+double-chance, stakes from ₱74 to ₱500. `picks` cannot express any of it
+— `unique (fight_id, author)` forbids a second bet on a fight, and
+`check_pick_constraints()` requires `bet_fighter_id` to be one of *that
+fight's two fighters*, so no accumulator and no method market is even
+representable.
+
+### What 16 real tickets changed about the design
+
+Shapes here came from the owner's actual bet slips (2026-08-23 →
+2026-09-13), not from a guess at what a bet looks like:
+
+| Finding | Consequence |
+|---|---|
+| His book prices `Double Chance`, `Method Of Victory. Decision W1`, `W1 By KO/TKO/DQ`, `How The Bout Will Be Won` — all markets The Odds API does **not** serve (`h2h_3_way` → `422`, double-chance already rejected per `PROJECT_FACTS.md`) | Method bets run on **his entered price**. Phase R demoted to optional reference data. |
+| One accumulator parlays a **US Open tennis set** with a UFC moneyline; another is a **Road to UFC** bout | `bet_legs.fight_id` is **nullable**, with `external_description` as the fallback |
+| `How The Bout Will Be Won` names no fighter; `W1 By KO/TKO` does | `METHOD_FIGHT` and `METHOD_FIGHTER` are separate markets |
+| Every ticket carries a bookmaker number | `bookmaker_bet_id unique` — the backfill's idempotency key |
+| One ticket displays combined odds `4.475` but paid `447.55` on ₱100 — the full-precision product of `1.68 × 2.664` | Payout is computed from **leg prices**, never from displayed combined odds |
+| 158 settled production fights have `method = null` (API-Sports never reports one) | A method leg on those returns `undetermined`, never a guess |
+
+### Sub-phases
+
+| # | Sub-phase | Correctness class | Status |
+|---|---|---|---|
+| **Q1** | Schema: `bankroll_ledger`, `bet_slips`, `bet_legs`. RLS mirroring `picks`; `won/lost/void` gated to `service_role` while `cashed_out` stays owner-writable (only the person who took it knows it happened); an explicit DELETE policy, which `picks` deliberately lacks. `pnl_php`/`pnl_units` are **generated columns**, so payout and P&L cannot drift apart. | Correctness-critical | **done 2026-09-21** — migration `0064` applied to `vrwlfcywyfzfczajpdoh`, verified by read-back |
+| **Q2** | Settlement engine: `normalizeFightMethod` (free-text Wikipedia prose → a settleable method), `settleLeg` (5 markets), `settleSlip` (roll-up, void-leg repricing). | **Correctness-critical — test first** | **done 2026-09-21** — 63 tests, red before green; all 16 real tickets reproduce their printed payout |
+| **Q3** | Backfill the 16 tickets, keyed on `bookmaker_bet_id`. Three legs were cut off in the screenshots; owner confirmed treating them as unresolved `OTHER` legs is fine since each sits on a slip whose money is already determined by its other legs — no confirmation was needed after all. Owner also confirmed the backfill is **reference material only**: slip/leg rows are written, but no `bankroll_ledger` row per slip — the bankroll starts at a flat opening deposit, untouched by history that predates the journal. | Bulk mutation — **dry-run mandatory** | **done 2026-09-21** — 16 slips / 25 legs / 1 ledger row (₱10,000 opening deposit only), verified by read-back. See the role-check bugfix below. |
+| **Q4** | UI: record a slip (archetype, legs, taken prices, stake, book), list open slips, settle / cash-out. | Judgment | not started |
+| **Q5** | Per-archetype units/ROI line + bankroll curve, and the INTERN-vs-owner head-to-head the tickets already support — Elliott, Bukauskas, Hooker and Rahiki all overlap fights INTERN priced. | Judgment | not started |
+
+### Baseline the journal starts from
+
+16 slips, **9W–7L**, ₱3,378.49 staked, ₱7,175.21 returned, **+₱3,796.72
+net (ROI +112%)**. Caveat stated up front: **₱2,095 of that is a single
+slip.** Sixteen tickets settle nothing — the point of Q5 is to find out
+which archetypes actually earn, not to celebrate this number.
+
+### Explicit non-goals
+
+- **Not touching `picks`.** It is the calibration/scoreboard backbone and
+  its INTERN/chalk unit series must stay continuous.
+- **Not changing `decideInternBet`'s 0.5–3u ramp.** Kelly staking (Phase
+  S) applies to slips only; re-staking INTERN mid-series would break the
+  measured comparison it exists to provide.
+- **Not an LLM portfolio assembler.** Assembling a slate under exposure
+  and correlation constraints has a right answer — it is a deterministic
+  reduce, for the same reason `decideInternPick` is deterministic.
+
+---
+
+## Phase R — market data beyond the moneyline
+
+### R1 — verification spike (done 2026-09-21)
+
+**Question:** can the app ingest method-of-victory odds (by KO/TKO, by
+submission, by decision) so INTERN can price the markets the owner
+actually bets?
+
+**Answer: no, and it is not a coverage gap.** Every method market key
+returns `422 INVALID_MARKET` from The Odds API — `method_of_victory`,
+`fight_method`, `to_win_by_ko`, `to_win_by_submission`,
+`to_win_by_decision`, `go_the_distance`, `round_betting`, `total_rounds`.
+Those keys do not exist in the provider's schema for MMA. **Method prices
+stay manual entry**, which is what `bet_legs.price` was built for.
+
+**But the spike found something free that is not being used:** `totals` —
+over/under ROUNDS — is live, with 3 books (`betonlineag`, `betus`,
+`bovada`). It is the closest legitimate proxy to method betting available
+at zero cost: under 1.5 ≈ a finish, over 2.5 ≈ goes the distance. And
+`predictInternMethod` already produces exactly the read needed to price it.
+
+Two methodology notes worth keeping, both in `PROJECT_FACTS.md`: additional
+markets are served **only** by the per-event endpoint, and a
+"market returns no books" result is meaningless without an `h2h` control on
+the same event — the first event probed returned zero books for `totals`
+and would have been wrongly written off. Cost: **5 credits** (373 → 368).
+
+**Paid alternatives priced and rejected.** Odds-API.io starts at **$65/mo
+≈ ₱3,700**; the owner's 16 recorded tickets netted +₱3,796.72 over three
+weeks, so the cheapest tier would consume ~97% of the profit from that
+period — and its 2 bookmakers still would not include the PH-facing book
+actually bet into.
+
+### Sub-phases
+
+| # | Sub-phase | Correctness class | Status |
+|---|---|---|---|
+| **R1** | Verification spike: which markets does the provider actually serve? | Spike | **done 2026-09-21** |
+| **R2** | `round_totals` ingestion: new table (not `odds_snapshots`, whose `unique (fight_id)` and immutability triggers cannot hold a second market), fetched **once per card** — never the 2h cadence, which would blow the 500-credit tier. | Correctness-critical | not started |
+| **R3** | Price the totals line against `predictInternMethod`'s existing finish-vs-decision read, and surface an edge where one exists. | Correctness-critical — test first | not started |
+
+### Explicit non-goals
+
+- **Not buying a method-odds feed.** Rejected on arithmetic, not taste —
+  see above. Revisit only if the bankroll changes by an order of magnitude.
+- **Not treating provider prices as bettable.** The owner bets a PH-facing
+  book with different lines and richer markets. Everything ingested here is
+  a **reference line for finding edges**, never the price actually struck.

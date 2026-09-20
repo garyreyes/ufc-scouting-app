@@ -1616,3 +1616,57 @@ Decided 2026-08-29, user-originated.
   setting change) and don't treat the first denial as failure to report;
   just surface it and wait for an explicit go-ahead, then retry the exact
   same command.
+
+## The Odds API has no method-of-victory markets, but does have `totals` (verified live 2026-09-21)
+
+Phase R1's verification spike, run against the real API (scratchpad script,
+one market per request so a bad key in a batch couldn't mask a good one).
+
+- **Method-of-victory markets do not exist for MMA on The Odds API.** Every
+  candidate key returns `422 INVALID_MARKET`: `method_of_victory`,
+  `fight_method`, `method`, `to_win_by_ko`, `to_win_by_submission`,
+  `to_win_by_decision`, `go_the_distance`, `fight_to_go_the_distance`,
+  `round_betting`, `total_rounds`. This is a schema-level absence, not a
+  bookmaker coverage gap — so by-KO / by-submission / by-decision prices
+  can only ever be entered by hand.
+- **`totals` IS available and we do not use it.** Confirmed live on Ailin
+  Perez vs Norma Dumont: 3 books (`betonlineag`, `betus`, `bovada`). In MMA
+  this is over/under ROUNDS — the closest legitimate proxy to method
+  betting available for free (under 1.5 ≈ a finish, over 2.5 ≈ goes the
+  distance), and `predictInternMethod` already produces the read needed to
+  price it.
+- **A control test was necessary and nearly changed the conclusion.** On
+  the first event probed, `totals` returned zero bookmakers and would have
+  been written off. Re-probing with `h2h` as a control showed that event
+  was simply thinly priced (1 book on h2h). Any "market returns no books"
+  finding here is meaningless without an h2h control on the same event.
+- **Additional markets are served only by the PER-EVENT endpoint**
+  (`/v4/sports/{sport}/events/{id}/odds`), never the general `/odds` one.
+  This refines — does not contradict — the 2026-08-29 `h2h_3_way` note
+  above: on the per-event endpoint the key is ACCEPTED (`200`), it just
+  returns zero bookmakers for US region / BetOnline. The earlier `422` was
+  the general endpoint rejecting a non-featured market key outright.
+- `h2h_3_way`, `spreads` and `double_chance` are all valid keys that
+  return **zero bookmakers** for MMA across the three nearest events. The
+  2026-08-29 rejection of double chance stands untouched regardless — it
+  was a strategy decision (a wrapper bet shortens every price to insure a
+  sub-1% event), not a claim about data availability.
+- **Probe cost: 5 credits total** (373 → 368 remaining). Invalid markets
+  bill 0, as does a valid market that returns no bookmakers — only the
+  requests that returned real books were charged.
+
+**Paid alternatives were priced and rejected (2026-09-21).** Odds-API.io
+(the one provider found claiming UFC props, via `odds-api-io/odds-api-mcp-server`)
+starts at **$65/mo ≈ ₱3,700**. The owner's 16 recorded tickets span
+2026-08-23 → 09-13 and netted **+₱3,796.72** — the cheapest tier would have
+consumed ~97% of the profit from exactly that period, and its 2 bookmakers
+still would not include the PH-facing book actually bet into. Its own site
+does not confirm MMA method markets either; the claim came from an LLM
+summary, not the vendor. `WalrusQuant/sports-leader-mcp` (free, no keys) was
+also checked: ESPN-sourced, moneyline/spreads/totals only, no method props.
+
+**Do not try to sign up for Odds-API.io's free tier.** It is advertised
+($0, 2 recreational bookmakers, 100 req/hour, 500/day) but the pricing page
+states alongside it: *"New free API keys are paused indefinitely."* So the
+option is closed on availability, not only on economics — there is nothing
+to evaluate even if the price were acceptable.

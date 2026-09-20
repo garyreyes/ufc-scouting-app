@@ -5145,3 +5145,107 @@ appended to `reasoning` whenever either floor fires. See DECISIONS.md
 `decideInternPick.characterization.test.ts`'s snapshot unchanged —
 confirming the model's own output was genuinely never touched. Lint
 clean, `tsc --noEmit` clean, production build clean.
+
+## Phase 101 (ROADMAP_V2.md Phase Q / Q1+Q2) — the betting journal: slips, legs, bankroll, and settlement (2026-09-21)
+
+**What.** The app modelled a bet as one optional moneyline wager welded to
+one pick on one fight, capped at 3u. The owner actually bets a portfolio of
+slips per card — singles, accumulators, method-of-victory, double-chance,
+₱74 to ₱500 a ticket. `picks` cannot express that and was left untouched.
+
+**Q1, migration `0064`:** `bankroll_ledger` (signed movements; balance is
+always derived by summing, never stored), `bet_slips` (one row per ticket,
+`bookmaker_bet_id unique` as an idempotency key, `pnl_php`/`pnl_units` as
+**generated columns** so payout and P&L cannot drift apart), and `bet_legs`
+(one row per leg — a single is just a one-leg slip, so nothing downstream
+needs a special case). RLS mirrors `picks`, with two deliberate departures:
+a DELETE policy exists (a mis-typed slip must be removable, which `picks`
+has no path for), and there is **no pick-lock** (a slip records a wager
+already placed; backfilling history is the point).
+
+**Q2, the settlement engine:** `normalizeFightMethod` (free-text Wikipedia
+prose → a settleable method), `settleLeg` (moneyline, double-chance, and
+both method shapes), `settleSlip` (roll-up, dead-on-first-loss, void-leg
+repricing).
+
+**Six things the owner's 16 real tickets forced, that a guess would have
+got wrong:**
+
+- His book prices markets The Odds API does not serve, so method bets run
+  on **his entered price** — Phase R demoted to optional reference data.
+- A leg is not always a UFC fight: one accumulator parlays a **US Open
+  tennis set** with a UFC moneyline. `fight_id` is nullable.
+- `How The Bout Will Be Won` names no fighter while `W1 By KO/TKO` does —
+  two distinct markets, not one enum value.
+- A ticket showing combined odds `4.475` paid **₱447.55** on ₱100, the
+  full-precision `1.68 × 2.664`. Payouts come from leg prices, never from
+  the displayed combined odds.
+- **158 settled fights carry `method = null`** (API-Sports reports none),
+  so a method leg on those returns `undetermined` rather than a guess.
+- Draws and no-contests must be told apart: `"Draw (majority)"` *pays* a
+  Double Chance leg, `"NC (accidental eye poke)"` voids it. The parser
+  matches the leading token only, since `"Decision (majority)"` shares the
+  word "majority".
+
+**Verified.** 1237/1237 tests passing (63 new), written test-first and
+confirmed RED (`Cannot find module`) before any implementation existed.
+**All 16 real tickets reproduce their printed payout to the centavo**, and
+the portfolio reconciles to ₱3,378.49 staked / ₱7,175.21 returned /
+**+₱3,796.72 net**. Lint clean, `tsc --noEmit` clean. Migration `0064`
+applied to `vrwlfcywyfzfczajpdoh` and verified by read-back (3 tables, RLS
+on all, generated columns confirmed `ALWAYS` with the expected
+expressions), `migration list --linked` reconciled to `0064` local+remote.
+
+**Not yet done:** Q3 (backfill) needs owner confirmation on three legs cut
+off in the screenshots — their prices are derivable from the product rule
+(2.15 Sola, 1.23 Martinez, 2.17 Elliott) but market and selection are not.
+
+## Phase 102 (ROADMAP_V2.md Phase Q / Q3) — backfilled the 16 real tickets; fixed a recurring role-check bug (2026-09-21)
+
+**What.** The 16 real bet slips are now recorded as `bet_slips`/`bet_legs`
+rows: 16 slips, 25 legs. Every fighter was resolved by NAME against a live
+query of the three real events, never by position — one ticket
+("Marquel Mederos vs Mason Jones", backing W1) stores its two fighters in
+the OPPOSITE order from the database's `fighter1`/`fighter2`, which a
+positional mapping would have silently gotten backwards.
+
+Three legs, cut off mid-screenshot, are recorded as `market = 'OTHER'`
+with a derived price and an honest "not legible" description rather than
+a guessed selection — each sits on a slip whose money outcome is already
+fully determined by its other legs (one already won with its payout
+already a fact; two already lost), so nothing about the bankroll numbers
+depends on knowing them.
+
+**User-confirmed scope change:** these 16 tickets are reference material
+for the archetype/INTERN comparison, not live bankroll history — they
+predate the journal existing. Slips and legs are written with their
+printed status/payout so `settleSlip`'s own math stays checkable against
+them, but **no `bankroll_ledger` row is written per slip**. The bankroll
+starts at a flat ₱10,000 opening deposit and will only move from bets
+recorded going forward.
+
+**A real bug, caught before it could write anything wrong.** `0064`'s two
+new trigger functions gated settlement writes with
+`current_user = 'service_role'` — copied from `0022_dual_settlement.sql`'s
+ORIGINAL text. That check can never be true:
+`current_user` inside a `SECURITY DEFINER` function reflects the function
+OWNER (`postgres`), not the caller. `0023_fix_settlement_role_check.sql`
+already discovered and fixed this exact bug, live, for `picks` — using
+`current_setting('role', true)` instead. Reading `0022`'s file directly
+rather than the live, corrected function reintroduced the bug it already
+fixed. Caught by a throwaway `SECURITY DEFINER` RPC (created, called via
+the real service-role client, dropped) that reproduced the failure
+directly before the real backfill wrote anything; `0065` reapplies `0023`'s
+fix to the two new trigger functions. Re-verified post-fix the same way.
+See `DECISIONS.md` for the generalized lesson (an early migration's
+comments describe that migration's state, not necessarily the current
+one).
+
+**Verified.** 1237/1237 tests still passing, lint clean, `tsc --noEmit`
+clean. Post-backfill read-back against production: 16 slips, 25 legs,
+exactly 1 `bankroll_ledger` row (the ₱10,000 opening deposit, balance
+confirmed `10000.00`), and `bet_slips.pnl_php`'s generated columns
+independently sum to +₱3,796.72 on ₱3,378.49 staked — matching the
+backfill script's own reconciliation, computed by Postgres rather than
+trusted from the script. `migration list --linked` reconciled through
+`0065` local+remote.
