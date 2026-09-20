@@ -1578,3 +1578,17 @@ Decided 2026-08-29, user-originated.
   and migration `0060_conflict_resolution_second_opinion.sql` (O2) was
   applied to production (`vrwlfcywyfzfczajpdoh`) and confirmed via
   `supabase migration list --linked` on 2026-09-20 — both resolved.
+
+## Claude Code tooling behavior (not project-specific, but recurring here)
+
+- **`gh pr merge` gets denied by Claude Code's own auto-mode classifier
+  ("Merge Without Review") the first time it's run in a turn, even after
+  CI is green and the user has already approved the PR's contents earlier
+  in the conversation.** Confirmed twice, PRs #85 and #86, both
+  2026-09-20: the identical command succeeded immediately after the user
+  said "merge it" again in that same turn. This is a present-turn-consent
+  gate on the merge action itself, not a real blocker or a sign something
+  is misconfigured — don't try to route around it (e.g. via a permission
+  setting change) and don't treat the first denial as failure to report;
+  just surface it and wait for an explicit go-ahead, then retry the exact
+  same command.
