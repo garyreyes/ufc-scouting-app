@@ -278,3 +278,54 @@ which archetypes actually earn, not to celebrate this number.
 - **Not an LLM portfolio assembler.** Assembling a slate under exposure
   and correlation constraints has a right answer — it is a deterministic
   reduce, for the same reason `decideInternPick` is deterministic.
+
+---
+
+## Phase R — market data beyond the moneyline
+
+### R1 — verification spike (done 2026-09-21)
+
+**Question:** can the app ingest method-of-victory odds (by KO/TKO, by
+submission, by decision) so INTERN can price the markets the owner
+actually bets?
+
+**Answer: no, and it is not a coverage gap.** Every method market key
+returns `422 INVALID_MARKET` from The Odds API — `method_of_victory`,
+`fight_method`, `to_win_by_ko`, `to_win_by_submission`,
+`to_win_by_decision`, `go_the_distance`, `round_betting`, `total_rounds`.
+Those keys do not exist in the provider's schema for MMA. **Method prices
+stay manual entry**, which is what `bet_legs.price` was built for.
+
+**But the spike found something free that is not being used:** `totals` —
+over/under ROUNDS — is live, with 3 books (`betonlineag`, `betus`,
+`bovada`). It is the closest legitimate proxy to method betting available
+at zero cost: under 1.5 ≈ a finish, over 2.5 ≈ goes the distance. And
+`predictInternMethod` already produces exactly the read needed to price it.
+
+Two methodology notes worth keeping, both in `PROJECT_FACTS.md`: additional
+markets are served **only** by the per-event endpoint, and a
+"market returns no books" result is meaningless without an `h2h` control on
+the same event — the first event probed returned zero books for `totals`
+and would have been wrongly written off. Cost: **5 credits** (373 → 368).
+
+**Paid alternatives priced and rejected.** Odds-API.io starts at **$65/mo
+≈ ₱3,700**; the owner's 16 recorded tickets netted +₱3,796.72 over three
+weeks, so the cheapest tier would consume ~97% of the profit from that
+period — and its 2 bookmakers still would not include the PH-facing book
+actually bet into.
+
+### Sub-phases
+
+| # | Sub-phase | Correctness class | Status |
+|---|---|---|---|
+| **R1** | Verification spike: which markets does the provider actually serve? | Spike | **done 2026-09-21** |
+| **R2** | `round_totals` ingestion: new table (not `odds_snapshots`, whose `unique (fight_id)` and immutability triggers cannot hold a second market), fetched **once per card** — never the 2h cadence, which would blow the 500-credit tier. | Correctness-critical | not started |
+| **R3** | Price the totals line against `predictInternMethod`'s existing finish-vs-decision read, and surface an edge where one exists. | Correctness-critical — test first | not started |
+
+### Explicit non-goals
+
+- **Not buying a method-odds feed.** Rejected on arithmetic, not taste —
+  see above. Revisit only if the bankroll changes by an order of magnitude.
+- **Not treating provider prices as bettable.** The owner bets a PH-facing
+  book with different lines and richer markets. Everything ingested here is
+  a **reference line for finding edges**, never the price actually struck.
