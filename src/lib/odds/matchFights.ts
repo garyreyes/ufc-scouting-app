@@ -8,6 +8,16 @@ import type { FightForMatching, OddsEvent } from "./types";
 // on anything else -- once real cross-source name variance is observed.
 export const AUTO_MATCH_THRESHOLD = 0.85;
 
+// Below this, the "best" candidate isn't ambiguous -- it's noise. Real
+// production data 2026-09-20: one genuine match scored 0.816, the next
+// highest scored 0.231, an 0.585-wide empty gap. 0.50 sits mid-gap, far
+// from both, so it can't accidentally swallow a real ambiguous case while
+// still keeping every score below it out of the review queue (P2,
+// ROADMAP_V2.md). Below this floor, decideMatch reports no_candidates
+// instead of low_confidence -- "no plausible candidate" and "ambiguous
+// candidate" must not look the same to the review queue.
+export const MIN_REVIEW_THRESHOLD = 0.5;
+
 // commence_time must fall within this many hours of the local
 // event_date to even be considered a candidate. Chosen from the real
 // timezone gap already observed live: UFC 331's commence_time
@@ -144,5 +154,6 @@ export function decideMatch(oddsEvent: OddsEvent, candidates: FightForMatching[]
   if (scored.confidence >= AUTO_MATCH_THRESHOLD) {
     return { kind: "matched", fightId: scored.fightId, confidence: scored.confidence };
   }
+  if (scored.confidence < MIN_REVIEW_THRESHOLD) return { kind: "no_candidates" };
   return { kind: "low_confidence", fightId: scored.fightId, confidence: scored.confidence };
 }
