@@ -1,0 +1,55 @@
+name: Integrity sweep
+
+on:
+  schedule:
+    # Once daily, at 09:00 UTC -- a gap in the existing schedule
+    # (sherdog.yml 03:00, sync.yml 00:00/12:00), otherwise arbitrary: this
+    # job only ever reads fighters/fights/events and writes to
+    # data_conflicts/integrity_alerts, so it never collides with any of
+    # them and doesn't need a coordinated slot.
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}
+
+# Deliberately NOT in the shared "ufc-data-write" concurrency group
+# (sync.yml/settle.yml/sherdog.yml) -- this job never writes to fighters,
+# fights, or events, only data_conflicts and integrity_alerts, so it can't
+# race any of them and doesn't need to queue behind them.
+#
+# It DOES need its own group, though (reviewer finding): workflow_dispatch
+# is enabled for manual runs, and nothing else stops one overlapping the
+# scheduled run. Both the I1 dedupe guard and the I2/I3/I5 alert-open path
+# are check-then-insert with no upsert/catch around the insert -- two
+# concurrent passes could both see "not yet open" for the same row and
+# have the second insert crash on 0063's own unique constraint instead of
+# failing gracefully. Queuing rather than cancelling, so a manual run
+# never silently discards a scheduled one's progress.
+concurrency:
+  group: integrity-sweep
+  cancel-in-progress: false
+
+jobs:
+  integrity-sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # P8 (ROADMAP_V2.md Phase P, Tier 3): the daily standing-verification
+      # sweep -- asserts invariants I1-I6. I1 (structural duplicate
+      # fighters) opens a data_conflicts row for owner review; I4/I6 are
+      # auto-remediated with no row left behind; I2/I3/I5 open or close a
+      # lightweight integrity_alerts row with no owner action attached.
+      # Pure DB reads plus these writes -- no external API cost, no quota
+      # to schedule around. Recorded in job_runs as "integrity_sweep".
+      - name: Run integrity sweep
+        run: npx tsx src/lib/integrity/runIntegritySweep.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

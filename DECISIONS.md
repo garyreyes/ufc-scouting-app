@@ -724,3 +724,51 @@ would collide in that map and one would silently disappear from scoring.
 The dedup key must become `` `${fightId}:${line}:${provider}` `` as part
 of this phase, not deferred — this is what actually forces `provider`
 to be a real column on `shadow_picks`, not just a label.
+
+## 2026-09-20 — P8 (ROADMAP_V2.md Tier 3): three shapes for six invariants, not one
+
+**Decision.** The integrity sweep's six invariants (I1-I6) don't all get
+the same treatment. I1 (structural duplicate fighters) is a real owner
+judgment call — full `data_conflicts` treatment: new kind, review card,
+merge action, same pattern P6's `sherdog_id_collision` already
+established. I4 (stale `low_confidence_odds_match`) and I6 (duplicate
+open conflicts for the same bout) are purely mechanical — the sweep
+auto-remediates them directly, no conflict row, no owner action. I2
+(missing Sherdog check), I3 (unpriced+unconflicted near T-12h), and I5
+(conflict open >7 days) aren't disputes to resolve at all — a new
+lightweight `integrity_alerts` table, visibility-only, self-healing, no
+resolve action. Surfacing I2/I3/I5 nicely is explicitly P9's job, not
+P8's.
+
+**Why.** `ROADMAP_V2.md`'s own text ("Each violation opens exactly one
+deduped conflict/alert") is compatible with all three shapes, and
+literally treating every invariant as a `data_conflicts` row would mean
+building five more conflict-card UI variants for kinds where there is
+often nothing for an owner to actually decide — the `/conflicts` queue
+would fill with rows nobody can resolve, undermining the queue's own
+purpose (a small queue of genuine ambiguity, not a growing list of
+process noise).
+
+**Alternatives considered.** (a) Every invariant becomes a
+`data_conflicts` row — rejected for the reason above. (b) Route
+everything through job-health/`job_runs` summaries instead, including
+I1 — rejected because I1 needs a genuine merge UI a summary line can't
+provide; someone would have to fix a real duplicate-fighter finding by
+hand outside the app.
+
+**Real bug found during implementation, fixed before shipping (not a
+design change):** the initial I1 dedupe guard in
+`runIntegritySweepJob.ts`'s `openStructuralDuplicateConflict` only
+checked for an *open* `structural_duplicate_fighters` row for a given
+pair before deciding whether to insert a new one. Since I1 re-scans the
+WHOLE `fighters` table every run (not just new rows), an owner resolving
+a pair as `not_same_person` would see the identical pair reopen on the
+very next sweep — the guard saw no open row and inserted a fresh one,
+silently undoing the resolution forever. Caught by the mandatory
+`reviewer` pass, not by the original test suite (which only tested
+"doesn't stack while still open"). Fixed by widening the guard to check
+for ANY existing row for the pair, open or resolved — a merge
+resolution doesn't need separate handling, since merging removes one
+side of the pair from `fighters` entirely, so the pair stops being
+generated on future runs regardless. A regression test for the
+`not_same_person` case was added alongside the fix.

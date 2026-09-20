@@ -36,7 +36,8 @@
     "conflicts:propose-sherdog-matches": "dotenv -e .env.local -- tsx src/lib/conflictProposals/runScheduledConflictProposalJob.ts",
     "conflicts:propose-sherdog-matches-second-opinion": "dotenv -e .env.local -- tsx src/lib/conflictProposals/runScheduledConflictProposalSecondOpinionJob.ts",
     "scouting:generate-dossiers": "dotenv -e .env.local -- tsx src/lib/scouting/runScheduledScoutingJob.ts",
-    "llm:replay": "dotenv -e .env.local -- tsx src/lib/shadowPicks/runLlmReplay.ts"
+    "llm:replay": "dotenv -e .env.local -- tsx src/lib/shadowPicks/runLlmReplay.ts",
+    "integrity:sweep": "dotenv -e .env.local -- tsx src/lib/integrity/runIntegritySweep.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

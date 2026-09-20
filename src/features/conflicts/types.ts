@@ -157,13 +157,36 @@ export interface SherdogIdCollisionConflict {
   details: SherdogIdCollisionDetails;
 }
 
+// P8 (ROADMAP_V2.md, I1): two fighter rows fold to the same person under
+// namesLikelySamePerson.ts's existing structural rules (order swap,
+// missing internal space, diacritic/case/whitespace), found by the daily
+// integrity sweep walking the WHOLE fighters table -- not a live-write
+// detection like disputed_opponent, and not a name-similarity guess like
+// low_confidence_fighter_match. Both names are snapshotted at detection,
+// same "don't re-derive live" reasoning every other kind here documents.
+export interface StructuralDuplicateFightersDetails {
+  fighterAId: string;
+  fighterAName: string;
+  fighterBId: string;
+  fighterBName: string;
+}
+
+export interface StructuralDuplicateFightersConflict {
+  id: string;
+  kind: "structural_duplicate_fighters";
+  fightId: null;
+  detectedAt: string;
+  details: StructuralDuplicateFightersDetails;
+}
+
 export type Conflict =
   | DisputedOpponentConflict
   | LowConfidenceConflict
   | DisputedResultConflict
   | LowConfidenceFighterMatchConflict
   | LowConfidenceSherdogMatchConflict
-  | SherdogIdCollisionConflict;
+  | SherdogIdCollisionConflict
+  | StructuralDuplicateFightersConflict;
 
 // A fight in the same date window as a low-confidence conflict's odds
 // event -- the candidate pool the owner picks from, ranked by the
@@ -285,10 +308,23 @@ export interface SherdogIdCollisionDisplay {
   existingFighterName: string;
 }
 
+// P8: a plain reshape of details, same as SherdogIdCollisionDisplay --
+// both names are already snapshotted at detection, no extra fetch needed.
+export interface StructuralDuplicateFightersDisplay {
+  id: string;
+  kind: "structural_duplicate_fighters";
+  detectedAt: string;
+  fighterAId: string;
+  fighterAName: string;
+  fighterBId: string;
+  fighterBName: string;
+}
+
 export type ConflictDisplay =
   | DisputedOpponentDisplay
   | LowConfidenceDisplay
   | DisputedResultDisplay
   | LowConfidenceFighterMatchDisplay
   | LowConfidenceSherdogMatchDisplay
-  | SherdogIdCollisionDisplay;
+  | SherdogIdCollisionDisplay
+  | StructuralDuplicateFightersDisplay;

@@ -5,15 +5,16 @@ import { DisputedResultCard } from "./DisputedResultCard";
 import { LowConfidenceFighterMatchCard } from "./LowConfidenceFighterMatchCard";
 import { LowConfidenceSherdogMatchCard } from "./LowConfidenceSherdogMatchCard";
 import { SherdogIdCollisionCard } from "./SherdogIdCollisionCard";
+import { StructuralDuplicateFightersCard } from "./StructuralDuplicateFightersCard";
 
-// One queue, six kinds (ARCHITECTURE.md Fork 5, plus disputed_result
+// One queue, seven kinds (ARCHITECTURE.md Fork 5, plus disputed_result
 // from D1, low_confidence_fighter_match from I2, low_confidence_sherdog_
-// match from J3, sherdog_id_collision from P6) -- this is the single
-// dispatch point, so the page itself doesn't need to know the shapes
-// apart. Switched, not if/else-fallthrough: an unhandled kind is a
-// compile error here rather than silently rendering the wrong card's
-// shape (the exact risk a new kind landing without a matching UI branch
-// would otherwise create).
+// match from J3, sherdog_id_collision from P6, structural_duplicate_
+// fighters from P8) -- this is the single dispatch point, so the page
+// itself doesn't need to know the shapes apart. Switched, not
+// if/else-fallthrough: an unhandled kind is a compile error here rather
+// than silently rendering the wrong card's shape (the exact risk a new
+// kind landing without a matching UI branch would otherwise create).
 export function ConflictCard({ conflict }: { conflict: ConflictDisplay }) {
   switch (conflict.kind) {
     case "disputed_opponent":
@@ -28,6 +29,8 @@ export function ConflictCard({ conflict }: { conflict: ConflictDisplay }) {
       return <LowConfidenceSherdogMatchCard conflict={conflict} />;
     case "sherdog_id_collision":
       return <SherdogIdCollisionCard conflict={conflict} />;
+    case "structural_duplicate_fighters":
+      return <StructuralDuplicateFightersCard conflict={conflict} />;
     default: {
       // Compile-time exhaustiveness check, not just convention: adding a
       // new kind without a matching case above breaks this build, since
