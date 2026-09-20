@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { AccuracyLine, BrierScoreResult, ShadowLineScore, UnitsLine } from "../types";
 import styles from "./ShadowComparisonTable.module.css";
 
@@ -21,6 +22,15 @@ function formatUnits(units: UnitsLine | null): string {
   return `${sign}${units.netUnits.toFixed(2)}u (${units.betsPlaced} bet${units.betsPlaced === 1 ? "" : "s"})`;
 }
 
+// O3 (Track B): a short display label, not the raw provider string --
+// 'gemini'/'groq' are stable identifiers (matching shadow_picks.provider,
+// 0061), this is presentation only.
+function providerLabel(provider: string): string {
+  if (provider === "gemini") return "Gemini";
+  if (provider === "groq") return "Groq";
+  return provider;
+}
+
 /**
  * N9's readout: the deterministic rule (Fork 10) against N8's two shadow
  * lines, over the exact same scored population (`scoredFightCount`) --
@@ -42,8 +52,7 @@ export function ShadowComparisonTable({
   data: {
     scoredFightCount: number;
     deterministic: { accuracy: AccuracyLine; brier: BrierScoreResult; units: UnitsLine };
-    llmAssisted: ShadowLineScore;
-    llmOnly: ShadowLineScore;
+    providers: { provider: string; llmAssisted: ShadowLineScore; llmOnly: ShadowLineScore }[];
   } | null;
 }) {
   return (
@@ -80,18 +89,22 @@ export function ShadowComparisonTable({
                   <td>{formatBrier(data.deterministic.brier)}</td>
                   <td>{formatUnits(data.deterministic.units)}</td>
                 </tr>
-                <tr>
-                  <td>LLM-assisted</td>
-                  <td>{formatAccuracy(data.llmAssisted.accuracy)}</td>
-                  <td>{formatBrier(data.llmAssisted.brier)}</td>
-                  <td>{formatUnits(data.llmAssisted.units)}</td>
-                </tr>
-                <tr>
-                  <td>LLM-only</td>
-                  <td>{formatAccuracy(data.llmOnly.accuracy)}</td>
-                  <td>{formatBrier(data.llmOnly.brier)}</td>
-                  <td>{formatUnits(data.llmOnly.units)}</td>
-                </tr>
+                {data.providers.map(({ provider, llmAssisted, llmOnly }) => (
+                  <Fragment key={provider}>
+                    <tr>
+                      <td>LLM-assisted ({providerLabel(provider)})</td>
+                      <td>{formatAccuracy(llmAssisted.accuracy)}</td>
+                      <td>{formatBrier(llmAssisted.brier)}</td>
+                      <td>{formatUnits(llmAssisted.units)}</td>
+                    </tr>
+                    <tr>
+                      <td>LLM-only ({providerLabel(provider)})</td>
+                      <td>{formatAccuracy(llmOnly.accuracy)}</td>
+                      <td>{formatBrier(llmOnly.brier)}</td>
+                      <td>{formatUnits(llmOnly.units)}</td>
+                    </tr>
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>

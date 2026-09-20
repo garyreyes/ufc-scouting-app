@@ -71,7 +71,7 @@ function mapped(claims: ShadowPickClaim[], callLogId: string | null = "call-1"):
 
 describe("applyShadowPickClaims", () => {
   it("anchors at 0.5 on an unpriced fight, with zero deltas, and produces exactly a coinflip for both lines", () => {
-    const results = applyShadowPickClaims(mapped([claim()]), facts([fightFacts()]));
+    const results = applyShadowPickClaims(mapped([claim()]), facts([fightFacts()]), "gemini");
     const assisted = results.find((r) => r.line === "LLM_ASSISTED")!;
     const only = results.find((r) => r.line === "LLM_ONLY")!;
 
@@ -96,7 +96,7 @@ describe("applyShadowPickClaims", () => {
       restated: { ...claim().restated, fighter1Price: 1.5, fighter2Price: 3.0 },
       deltas: { rumours: 0.03, elo: 0.02, size: 0, age: 0 },
     });
-    const results = applyShadowPickClaims(mapped([c]), facts([fight]));
+    const results = applyShadowPickClaims(mapped([c]), facts([fight]), "gemini");
     const assisted = results.find((r) => r.line === "LLM_ASSISTED")!;
 
     const expectedProbability = 2 / 3 + 0.05;
@@ -111,7 +111,7 @@ describe("applyShadowPickClaims", () => {
     // -- this test proves the clamp is ALSO enforced here, defense-in-depth,
     // exactly mirroring decideInternPick.ts's own clamp line.
     const c = claim({ deltas: { rumours: 0.12, elo: 0.11, size: 0.02, age: 0.01 } });
-    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]));
+    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]), "gemini");
     const assisted = results.find((r) => r.line === "LLM_ASSISTED")!;
 
     expect(assisted.probability).toBe(0.75); // anchor 0.5 + clamped 0.25
@@ -120,7 +120,7 @@ describe("applyShadowPickClaims", () => {
 
   it("clamps a negative sum of deltas at exactly -MAX_TOTAL_ADJUSTMENT and picks fighter2", () => {
     const c = claim({ deltas: { rumours: -0.12, elo: -0.11, size: -0.02, age: -0.01 } });
-    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]));
+    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]), "gemini");
     const assisted = results.find((r) => r.line === "LLM_ASSISTED")!;
 
     expect(assisted.predictedFighterId).toBe("f2");
@@ -131,7 +131,7 @@ describe("applyShadowPickClaims", () => {
   it("bands LLM_ASSISTED confidence down for a thin rated-fight sample, same rule decideInternPick.ts applies", () => {
     const thin = fightFacts({ fighter2: fighterFacts({ fighterId: "f2", ratedFightCount: 2 }) });
     const c = claim({ deltas: { rumours: 0.12, elo: 0.1, size: 0, age: 0 } }); // sum 0.22 -> probability 0.72 -> base band 4
-    const results = applyShadowPickClaims(mapped([c]), facts([thin]));
+    const results = applyShadowPickClaims(mapped([c]), facts([thin]), "gemini");
     const assisted = results.find((r) => r.line === "LLM_ASSISTED")!;
 
     expect(assisted.probability).toBe(0.72);
@@ -140,7 +140,7 @@ describe("applyShadowPickClaims", () => {
 
   it("LLM_ONLY reads the model's free probability directly, independent of the assisted clamp", () => {
     const c = claim({ freeProbabilityFighter1: 0.91, deltas: { rumours: 0, elo: 0, size: 0, age: 0 } });
-    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]));
+    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]), "gemini");
     const only = results.find((r) => r.line === "LLM_ONLY")!;
 
     expect(only.probability).toBe(0.91);
@@ -149,7 +149,7 @@ describe("applyShadowPickClaims", () => {
 
   it("LLM_ONLY picks fighter2 and reports 1-p when the model's free probability favors fighter2", () => {
     const c = claim({ freeProbabilityFighter1: 0.2 });
-    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]));
+    const results = applyShadowPickClaims(mapped([c]), facts([fightFacts()]), "gemini");
     const only = results.find((r) => r.line === "LLM_ONLY")!;
 
     expect(only.probability).toBe(0.8);
@@ -157,7 +157,7 @@ describe("applyShadowPickClaims", () => {
   });
 
   it("carries the map call's callLogId onto both result lines for traceability", () => {
-    const results = applyShadowPickClaims(mapped([claim()], "call-xyz"), facts([fightFacts()]));
+    const results = applyShadowPickClaims(mapped([claim()], "call-xyz"), facts([fightFacts()]), "gemini");
     expect(results.every((r) => r.llmCallId === "call-xyz")).toBe(true);
   });
 
@@ -166,9 +166,21 @@ describe("applyShadowPickClaims", () => {
     const results = applyShadowPickClaims(
       mapped([claim(), c2]),
       facts([fightFacts(), fightFacts({ fightId: "fight-2" })]),
+      "gemini",
     );
     expect(results).toHaveLength(4);
     expect(results.filter((r) => r.line === "LLM_ASSISTED")).toHaveLength(2);
     expect(results.filter((r) => r.line === "LLM_ONLY")).toHaveLength(2);
+  });
+
+  // O3 (Track B): `provider` is stamped from the explicit argument, not
+  // inferred from anything about the claim -- this is the one new
+  // behavior this pure function gained this phase.
+  it("stamps every result row with the given provider, for either provider", () => {
+    const geminiResults = applyShadowPickClaims(mapped([claim()]), facts([fightFacts()]), "gemini");
+    expect(geminiResults.every((r) => r.provider === "gemini")).toBe(true);
+
+    const groqResults = applyShadowPickClaims(mapped([claim()]), facts([fightFacts()]), "groq");
+    expect(groqResults.every((r) => r.provider === "groq")).toBe(true);
   });
 });
