@@ -33,13 +33,24 @@ type EmbeddedFight = {
  * client -- fights, events, and odds_snapshots are all public-read
  * (0002_grants.sql, 0013_odds_snapshots.sql).
  */
-export async function fetchUnpricedFights(supabase: SupabaseClient): Promise<UnpricedFight[]> {
+/**
+ * Every fight_id that already has an odds_snapshots row -- shared by
+ * fetchUnpricedFights below and D3's stale-conflict auto-close
+ * (matchAndSnapshot.ts), which needs the same "is this fight priced yet"
+ * answer for a different purpose: closing a low_confidence_odds_match
+ * whose candidate fight got priced through some other path.
+ */
+export async function fetchPricedFightIds(supabase: SupabaseClient): Promise<Set<string>> {
   const alreadyPriced = await selectAllPages<{ id: string; fight_id: string }>(
     supabase,
     "odds_snapshots",
     "id, fight_id",
   );
-  const pricedIds = new Set(alreadyPriced.map((row) => row.fight_id));
+  return new Set(alreadyPriced.map((row) => row.fight_id));
+}
+
+export async function fetchUnpricedFights(supabase: SupabaseClient): Promise<UnpricedFight[]> {
+  const pricedIds = await fetchPricedFightIds(supabase);
 
   // Same PostgREST FK-embed pattern as features/fights/api.ts.
   //
