@@ -1,5 +1,8 @@
 import { supabase } from "@/lib/db";
-import { fetchEligibleUnpricedFights } from "@/lib/odds/eligibleUnpricedFights";
+import { fetchEligibleUnpricedFights, fetchPricedFightIds } from "@/lib/odds/eligibleUnpricedFights";
+import { fetchNearestUpcomingEventId } from "@/lib/events/nearestUpcomingEvent";
+import { getOpenDisputedFightIds, getOpenLowConfidenceCandidateFightIds } from "@/features/conflicts/api";
+import { buildCardReadiness, type CardReadiness } from "@/lib/cardReadiness/buildCardReadiness";
 import type { JobRunRow } from "@/shared/utils/evaluateJobHealth";
 
 // The two job_runs job_name values written by runScheduledOddsJob.ts
@@ -59,4 +62,67 @@ export async function getLatestJobRuns(): Promise<JobRunRow[]> {
 export async function getMissedSnapshotCount(now: Date = new Date()): Promise<number> {
   const fights = await fetchEligibleUnpricedFights(supabase, now);
   return fights.length;
+}
+
+/**
+ * P9 (ROADMAP_V2.md Phase P): the pre-card number, for the single
+ * nearest upcoming event -- extends this feature's existing job-health
+ * surface into a real data-integrity panel rather than a second parallel
+ * system. Returns null when there's no upcoming card at all (the "no
+ * card this week" empty state, docs/PRD.md) -- callers must not render a
+ * 0/0 panel in that case, since that reads as "nothing to worry about"
+ * rather than "nothing to show."
+ *
+ * events/fights/fighters are public-read (0002_grants.sql) so this uses
+ * the plain client for those; data_conflicts has no client grant at all,
+ * so the two conflict lookups go through conflicts/api.ts's admin-gated
+ * helpers instead (see that file's own docstring on why).
+ */
+export async function getCardReadiness(now: Date = new Date()): Promise<CardReadiness | null> {
+  const eventId = await fetchNearestUpcomingEventId(supabase);
+  if (!eventId) return null;
+
+  const { data: event, error: eventError } = await supabase
+    .from("events")
+    .select("name, event_date")
+    .eq("id", eventId)
+    .single();
+  if (eventError) throw eventError;
+
+  const { data: fights, error: fightsError } = await supabase
+    .from("fights")
+    .select("id, fighter1_id, fighter2_id")
+    .eq("event_id", eventId);
+  if (fightsError) throw fightsError;
+  const fightRows = fights ?? [];
+  const fightIds = fightRows.map((f) => f.id as string);
+  const fighterIds = [...new Set(fightRows.flatMap((f) => [f.fighter1_id, f.fighter2_id] as string[]))];
+
+  const [pricedFightIds, sherdogRows, disputedFightIds, lowConfidenceFightIds] = await Promise.all([
+    fetchPricedFightIds(supabase),
+    supabase.from("fighters").select("id, sherdog_checked_at").in("id", fighterIds).then(({ data, error }) => {
+      if (error) throw error;
+      return data ?? [];
+    }),
+    getOpenDisputedFightIds(fightIds),
+    getOpenLowConfidenceCandidateFightIds(fightIds),
+  ]);
+
+  const sherdogCheckedFighterIds = new Set(
+    sherdogRows.filter((f) => f.sherdog_checked_at !== null).map((f) => f.id as string),
+  );
+  const openConflictCount = new Set([...disputedFightIds, ...lowConfidenceFightIds]).size;
+
+  return buildCardReadiness(
+    {
+      eventName: event.name as string,
+      eventDate: event.event_date as string,
+      fightIds,
+      fighterIds,
+      pricedFightIds,
+      sherdogCheckedFighterIds,
+      openConflictCount,
+    },
+    now,
+  );
 }
