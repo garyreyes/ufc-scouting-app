@@ -1570,3 +1570,12 @@ Decided 2026-08-29, user-originated.
   migration that touched it, not the migration that originally created
   it -- copying an old definition as the base for a new patch silently
   reverts every fix applied since.
+- **Outstanding manual setup gaps from the multi-free-LLM plan (Phase O),
+  as of 2026-09-20 — check whether these are still open before assuming
+  they are:** (1) `.env.local.example` doesn't document `GROQ_API_KEY`/
+  `OPENROUTER_API_KEY` (blocked from editing `.env*` files in the session
+  that built O0/O1). (2) `GROQ_API_KEY` is not yet added as a GitHub
+  Actions secret, so `sherdog.yml`'s new "Propose Sherdog match second
+  opinion" step (O2) will fail in CI until it is. (3) Migration
+  `0060_conflict_resolution_second_opinion.sql` (O2) has not been applied
+  to production yet.

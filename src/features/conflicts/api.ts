@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { rankFightMatches } from "@/lib/odds/matchFights";
 import { fetchUnpricedFights } from "@/lib/odds/eligibleUnpricedFights";
+import { compareProposalAgreement } from "@/lib/conflictProposals/compareProposalAgreement";
 import type {
   DisputedOpponentDetails,
   DisputedResultDetails,
@@ -255,7 +256,7 @@ async function resolveSherdogMatchDisplays(
   // to see a proposal -- matching this whole page's existing owner gate.
   const { data: proposals, error: proposalsError } = await admin
     .from("conflict_resolution_proposals")
-    .select("conflict_id, proposed_action, rationale")
+    .select("conflict_id, proposed_action, rationale, second_opinion_action, second_opinion_rationale")
     .in(
       "conflict_id",
       rows.map((r) => r.id),
@@ -265,13 +266,24 @@ async function resolveSherdogMatchDisplays(
   if (proposalsError) throw proposalsError;
 
   const proposalByConflictId = new Map(
-    (proposals ?? []).map((p) => [
-      p.conflict_id as string,
-      {
-        chosenSherdogId: (p.proposed_action as { chosenSherdogId: number | null }).chosenSherdogId,
-        rationale: p.rationale as string,
-      },
-    ]),
+    (proposals ?? []).map((p) => {
+      const chosenSherdogId = (p.proposed_action as { chosenSherdogId: number | null }).chosenSherdogId;
+      const secondOpinionAction = p.second_opinion_action as { chosenSherdogId: number | null } | null;
+      return [
+        p.conflict_id as string,
+        {
+          chosenSherdogId,
+          rationale: p.rationale as string,
+          secondOpinion: secondOpinionAction
+            ? {
+                chosenSherdogId: secondOpinionAction.chosenSherdogId,
+                rationale: p.second_opinion_rationale as string,
+                agreement: compareProposalAgreement(chosenSherdogId, secondOpinionAction.chosenSherdogId),
+              }
+            : null,
+        },
+      ];
+    }),
   );
 
   return rows.map((r) => {

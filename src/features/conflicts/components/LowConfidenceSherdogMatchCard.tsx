@@ -82,6 +82,22 @@ export function LowConfidenceSherdogMatchCard({
         <div>
           <div className={styles.proposalLabel}>Suggested (advisory only, not applied)</div>
           <p className={styles.proposalRationale}>{conflict.proposal.rationale}</p>
+          {conflict.proposal.secondOpinion && (
+            <div>
+              <div
+                className={
+                  conflict.proposal.secondOpinion.agreement === "agree"
+                    ? styles.secondOpinionLabel
+                    : styles.secondOpinionLabelDisagree
+                }
+              >
+                {conflict.proposal.secondOpinion.agreement === "agree"
+                  ? "Second opinion agrees"
+                  : "Second opinion disagrees"}
+              </div>
+              <p className={styles.secondOpinionRationale}>{conflict.proposal.secondOpinion.rationale}</p>
+            </div>
+          )}
         </div>
       )}
       {conflict.candidates.length === 0 ? (

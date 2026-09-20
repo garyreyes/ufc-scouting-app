@@ -218,9 +218,22 @@ export interface LowConfidenceFighterMatchDisplay {
 // the model wasn't confident enough to suggest anything (a real,
 // distinct case from "no proposal exists" -- see the card component,
 // which shows the rationale either way when a proposal IS present).
+// Phase 2 (Track A): an independent Groq read on the same conflict,
+// present only once the second-opinion job has actually run for it (see
+// DECISIONS.md, 2026-09-20 -- it only runs once `proposal` above already
+// exists). `agreement` is derived (compareProposalAgreement.ts), never
+// stored -- always freshly computed from the two chosenSherdogId values
+// so it can never drift out of sync with them.
+export interface SherdogMatchSecondOpinion {
+  chosenSherdogId: number | null;
+  rationale: string;
+  agreement: "agree" | "disagree";
+}
+
 export interface SherdogMatchProposal {
   chosenSherdogId: number | null;
   rationale: string;
+  secondOpinion: SherdogMatchSecondOpinion | null;
 }
 
 // J3b: like LowConfidenceFighterMatchDisplay, a plain reshape of details
