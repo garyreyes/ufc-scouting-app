@@ -23,6 +23,7 @@ described in `HANDOFF.md` — it is cancelled permanently.
 | `ARCHITECTURE.md` | **The stack**, entities, schema decisions, layer boundaries |
 | `PROJECT_FACTS.md` | Durable decisions that shouldn't be re-litigated |
 | `CHANGES.md` | Dated log of what actually shipped, phase by phase |
+| `ROADMAP_V2.md` | **Current roadmap**, Phase P onward. `ROADMAP.md` (Phases A–O) is frozen history |
 | `HANDOFF.md` | v1-era status. **Partly superseded** — the PRD wins |
 
 ## Stop and ask — never proceed carefully

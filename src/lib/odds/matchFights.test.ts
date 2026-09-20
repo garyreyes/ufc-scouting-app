@@ -101,6 +101,26 @@ describe("decideMatch", () => {
     const decision = decideMatch(oddsEvent(), [fight({ eventDate: "2027-01-01" })]);
     expect(decision.kind).toBe("no_candidates");
   });
+
+  // P2, real production data 2026-09-20: 19 open low_confidence_odds_match
+  // rows, but only one (0.816) was a genuine match; the other 18 scored
+  // 0.231 or below -- noise from unrelated events sharing a date window,
+  // not an ambiguous real candidate. Below MIN_REVIEW_THRESHOLD there is no
+  // plausible candidate at all, so it must be indistinguishable from
+  // no_candidates -- not queued for a human to look at.
+  it("reports no_candidates, not low_confidence, when the best score is noise (below MIN_REVIEW_THRESHOLD)", () => {
+    const noiseEvent = oddsEvent({ home_team: "Completely Unrelated", away_team: "Fighter Pair" });
+    const realLocalFight = fight(); // shares no name tokens with noiseEvent
+    const decision = decideMatch(noiseEvent, [realLocalFight]);
+    expect(decision.kind).toBe("no_candidates");
+  });
+
+  it("still reports low_confidence for a genuinely ambiguous candidate at or above the floor", () => {
+    const rumouredEvent = oddsEvent({ home_team: "Justin Gaethje", away_team: "Ilia Topuria" });
+    const realLocalFight = fight({ fighter1Name: "Justin Gaethje", fighter2Name: "Arman Tsarukyan" });
+    const decision = decideMatch(rumouredEvent, [realLocalFight]);
+    expect(decision.kind).toBe("low_confidence");
+  });
 });
 
 // The inverse direction, built for B4: given one local fight, find its
