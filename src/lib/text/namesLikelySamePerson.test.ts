@@ -33,6 +33,15 @@ describe("namesLikelySamePerson", () => {
     expect(namesLikelySamePerson("Marcio Barbosa", "Barbosa Márcio")).toBe(true);
   });
 
+  // D1, real production case (ROADMAP_V2.md Phase P, 2026-09-20): these
+  // are the same person (Wikipedia's "Choi Doo-ho" vs API-Sports'
+  // "Dooho Choi"), and the existing name-order-swap rule was already
+  // meant to cover this shape -- it only missed because the hyphen
+  // wasn't folded before the token comparison.
+  it("matches a name-order swap where a hyphenated compound on one side is a single token on the other", () => {
+    expect(namesLikelySamePerson("Choi Doo-ho", "Dooho Choi")).toBe(true);
+  });
+
   it("does NOT match a nickname / short form", () => {
     expect(namesLikelySamePerson("Wes Schultz", "Wesley Schultz")).toBe(false);
     expect(namesLikelySamePerson("Stan Dorsainvil", "Stanley Dorsainvil")).toBe(false);
