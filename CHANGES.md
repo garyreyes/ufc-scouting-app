@@ -5045,6 +5045,7 @@ correctness issue, since each provider's own accuracy/brier stays scoped
 correctly. 1097/1097 tests passing, lint clean, `tsc --noEmit` clean,
 production build clean.
 
-**Not yet done:** migration `0061` needs to be applied to production;
+**Follow-up, same day:** migration `0061` applied to production
+(`vrwlfcywyfzfczajpdoh`, verified via `supabase migration list --linked`).
 `llm:replay` stays deliberately Gemini-scoped this pass (a `--provider`
 flag is a clean, small later add).
