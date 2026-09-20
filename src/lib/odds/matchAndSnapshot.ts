@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchEligibleUnpricedFights } from "./eligibleUnpricedFights";
+import { fetchEligibleUnpricedFights, fetchPricedFightIds } from "./eligibleUnpricedFights";
 import { decideMatch } from "./matchFights";
+import { buildOddsEventDedupeKey } from "./oddsEventDedupeKey";
 import { parseFighterPrices } from "./parseOutcomes";
+import { selectStaleLowConfidenceConflictIds } from "./selectStaleLowConfidenceConflicts";
 import type { OddsEvent } from "./types";
 
 export interface MatchAndSnapshotSummary {
@@ -10,6 +12,7 @@ export interface MatchAndSnapshotSummary {
   skippedNoPrice: number;
   skippedAlreadySnapshotted: number;
   noCandidates: number;
+  autoClosed: number;
 }
 
 /**
@@ -41,6 +44,7 @@ export async function matchAndSnapshot(
     skippedNoPrice: 0,
     skippedAlreadySnapshotted: 0,
     noCandidates: 0,
+    autoClosed: 0,
   };
 
   const candidates = await fetchEligibleUnpricedFights(supabase, now);
@@ -56,16 +60,43 @@ export async function matchAndSnapshot(
   // the owner decided it isn't a real tracked bout at all) -- re-queuing
   // it on the next run would just re-ask a question someone already
   // answered.
+  //
+  // D4: keyed on the bout's own identity (buildOddsEventDedupeKey), not
+  // oddsEvent.id -- the feed re-emitted the same bout under a NEW id with
+  // a spelling variant ("Łukasz Charzewski" vs "Lukasz Charzewski"), and
+  // an id-keyed dedup let both file separately.
   const { data: oddsConflicts, error: conflictsError } = await supabase
     .from("data_conflicts")
-    .select("details")
+    .select("id, details, resolved_at")
     .eq("kind", "low_confidence_odds_match");
   if (conflictsError) throw conflictsError;
-  const alreadyQueuedEventIds = new Set(
-    (oddsConflicts ?? [])
-      .map((row) => (row.details as { oddsEvent?: { id?: string } } | null)?.oddsEvent?.id)
-      .filter((id): id is string => Boolean(id)),
+  const conflictRows = (oddsConflicts ?? []) as {
+    id: string;
+    details: { oddsEvent?: OddsEvent; candidateFightId?: string | null };
+    resolved_at: string | null;
+  }[];
+  const alreadyQueuedKeys = new Set(
+    conflictRows.map((row) => row.details.oddsEvent).filter((e): e is OddsEvent => Boolean(e)).map(buildOddsEventDedupeKey),
   );
+
+  // D3: a low_confidence_odds_match's candidate fight can get priced
+  // through a path other than resolving that exact row -- a different,
+  // more confident odds event, or a manual resolution -- and the row
+  // would otherwise accrete forever (5 such rows found live, all
+  // `snaps = 1`, 2026-09-20).
+  const pricedFightIds = await fetchPricedFightIds(supabase);
+  const staleIds = selectStaleLowConfidenceConflictIds(
+    conflictRows.filter((row) => row.resolved_at === null),
+    pricedFightIds,
+  );
+  if (staleIds.length > 0) {
+    const { error } = await supabase
+      .from("data_conflicts")
+      .update({ resolved_at: now.toISOString(), resolution: "fight_priced_elsewhere" })
+      .in("id", staleIds);
+    if (error) throw error;
+    summary.autoClosed = staleIds.length;
+  }
 
   for (const oddsEvent of oddsEvents) {
     const decision = decideMatch(oddsEvent, candidates);
@@ -76,7 +107,8 @@ export async function matchAndSnapshot(
     }
 
     if (decision.kind === "low_confidence") {
-      if (alreadyQueuedEventIds.has(oddsEvent.id)) {
+      const key = buildOddsEventDedupeKey(oddsEvent);
+      if (alreadyQueuedKeys.has(key)) {
         summary.lowConfidence++;
         continue;
       }
@@ -93,7 +125,7 @@ export async function matchAndSnapshot(
         details: { oddsEvent, confidence: decision.confidence, candidateFightId: decision.fightId },
       });
       if (error) throw error;
-      alreadyQueuedEventIds.add(oddsEvent.id);
+      alreadyQueuedKeys.add(key);
       summary.lowConfidence++;
       continue;
     }
