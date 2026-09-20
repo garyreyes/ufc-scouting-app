@@ -47,7 +47,7 @@ function buildSpec(
     // reduceViaLlm: false posture N7's own dossiers use, for the same
     // reason: nothing here is a judgment call code can't already make.
     reduceViaLlm: false,
-    reduceFallback: (mapped, f) => applyShadowPickClaims(mapped, f),
+    reduceFallback: (mapped, f) => applyShadowPickClaims(mapped, f, "gemini"),
   };
 }
 
@@ -56,13 +56,15 @@ function buildSpec(
  * last run (`fetchShadowPickCard.ts`'s `needsRun`). Writes both shadow
  * lines (`LLM_ASSISTED`, `LLM_ONLY`) per verified fight claim to
  * `shadow_picks` -- append-only, never overwritten (DECISIONS.md,
- * 2026-09-18, "N8: shadow picks revise until card lock").
+ * 2026-09-18, "N8: shadow picks revise until card lock"). Gemini's own
+ * half of O3 (Track B)'s two providers -- see generateShadowPicksGroq.ts
+ * for the per-fight Groq counterpart.
  */
 export async function generateShadowPicks(
   supabase: SupabaseClient,
   deps: MapReduceDeps,
 ): Promise<GenerateShadowPicksSummary> {
-  const card = await fetchShadowPickCard(supabase);
+  const card = await fetchShadowPickCard(supabase, "gemini");
   if (card === null) {
     return { eligibleFights: 0, ran: false, shadowPicksWritten: 0, degradation: null };
   }
@@ -77,6 +79,7 @@ export async function generateShadowPicks(
     const { error } = await supabase.from("shadow_picks").insert({
       fight_id: result.fightId,
       line: result.line,
+      provider: result.provider,
       predicted_fighter_id: result.predictedFighterId,
       probability: result.probability,
       confidence: result.confidence,

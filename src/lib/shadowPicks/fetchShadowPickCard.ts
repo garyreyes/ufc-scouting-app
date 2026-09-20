@@ -29,8 +29,15 @@ export interface ShadowPickCard {
  * 6h for INTERN) already gates the whole card at once -- the identical
  * definition real picks use, not a re-derived one (DECISIONS.md,
  * 2026-09-18, "N8: shadow picks revise until card lock").
+ *
+ * `provider` scopes the needsRun gate's last-run lookup (O3, Track B) --
+ * each provider decides independently whether IT needs to rerun, off
+ * its OWN last write, never another provider's. Without this, one
+ * provider's job running first would make the other's job see a recent
+ * "last run" that was never actually its own, and skip a fight it has
+ * genuinely never covered.
  */
-export async function fetchShadowPickCard(supabase: SupabaseClient): Promise<ShadowPickCard | null> {
+export async function fetchShadowPickCard(supabase: SupabaseClient, provider: string): Promise<ShadowPickCard | null> {
   const eventId = await fetchNearestUpcomingEventId(supabase);
   if (eventId === null) return null;
 
@@ -60,7 +67,7 @@ export async function fetchShadowPickCard(supabase: SupabaseClient): Promise<Sha
 
   const [oddsByFightId, lastRunByFightId] = await Promise.all([
     fetchOdds(supabase, fightIds),
-    fetchLastShadowPickCreatedAt(supabase, fightIds),
+    fetchLastShadowPickCreatedAt(supabase, fightIds, provider),
   ]);
 
   const fightFacts: ShadowPickFightFacts[] = [];
@@ -119,6 +126,7 @@ async function fetchOdds(
 async function fetchLastShadowPickCreatedAt(
   supabase: SupabaseClient,
   fightIds: string[],
+  provider: string,
 ): Promise<Map<string, number>> {
   if (fightIds.length === 0) return new Map();
 
@@ -126,6 +134,7 @@ async function fetchLastShadowPickCreatedAt(
     .from("shadow_picks")
     .select("fight_id, created_at")
     .eq("line", "LLM_ASSISTED")
+    .eq("provider", provider)
     .in("fight_id", fightIds)
     .order("created_at", { ascending: false });
   if (error) throw error;

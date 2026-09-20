@@ -4997,3 +4997,55 @@ and `GROQ_API_KEY` added as a GitHub Actions secret — the new
 `sherdog.yml` step can now run for real. `.env.local.example` still
 doesn't document `GROQ_API_KEY`/`OPENROUTER_API_KEY` (Phase 1's original
 gap, still open).
+
+## Phase 98 (Multi-free-LLM plan, Phase O3 / Track B) — Groq shadow-pick ensemble, one call per fight (2026-09-20)
+
+**What.** N8 (Phases 89-90) already runs Gemini's shadow-picks pipeline —
+one whole-card call producing forward-only, measurement-only
+`LLM_ASSISTED`/`LLM_ONLY` predictions that never touch a real bet. This
+adds Groq as a second, independent provider. A live spike
+(`PROJECT_FACTS.md`, 2026-09-20) confirmed Groq's 8000 TPM free tier
+can't fit a whole-card prompt but easily fits a single-fight one (~2100
+tokens measured, ~4x headroom), so Groq runs one call PER FIGHT
+(~11-14/card), reusing `buildShadowPicksPrompt.ts` unchanged with a
+length-1 array — its response shape already tolerates any length.
+
+New `generateShadowPicksGroq.ts` + `runScheduledShadowPicksGroqJob.ts`
+(`job_runs: "shadow_picks_groq"`), a separate job from Gemini's on
+purpose (`DECISIONS.md`, 2026-09-20), added as a second step in
+`shadow-picks.yml`. New migration `0061_shadow_picks_provider.sql` adds
+`shadow_picks.provider` — not yet applied to production.
+
+**Found and fixed while planning, not yet in production:** N9's
+`selectLatestBeforeLock.ts` deduped shadow-pick rows by `fightId:line`
+only. Once a second provider writes rows, two providers' rows for the
+same fight/line would collide and one would silently vanish from
+scoring, with no error. Fixed test-first — a new test proving two
+providers' rows for the same fight/line no longer collide, confirmed to
+fail against the old two-field key before the fix. `fetchShadowPickCard`'s
+rerun gate is now also provider-scoped (each provider's own last write,
+never another provider's), and `applyShadowPickClaims` takes an explicit
+`provider` argument rather than inferring it.
+
+`/scoreboard`'s `ShadowComparisonTable` now shows a row pair per
+provider present (`features/scoreboard/api.ts` calls `scoreShadowLines`
+once per provider rather than reshaping it — each provider's rows are
+already at most one-per-fight-per-line coming out of the fixed dedup
+function, so no internal change to `scoreShadowLines` was needed).
+
+**Verified.** `reviewer` pass confirmed the dedup-bug diagnosis and fix
+are correct, found no other place in the codebase with the same latent
+`(fightId, line)`-only assumption, confirmed the per-fight map spec's
+failure isolation is real and intentional (one fight's map failure drops
+only that fight for Groq, vs. the whole card for Gemini's single-unit
+spec), and confirmed migration 0061's DDL is correct. One non-blocking
+nuance noted and documented inline: `scoredFightCount` on the scoreboard
+is a union across providers, not per-provider — a display detail, not a
+correctness issue, since each provider's own accuracy/brier stays scoped
+correctly. 1097/1097 tests passing, lint clean, `tsc --noEmit` clean,
+production build clean.
+
+**Follow-up, same day:** migration `0061` applied to production
+(`vrwlfcywyfzfczajpdoh`, verified via `supabase migration list --linked`).
+`llm:replay` stays deliberately Gemini-scoped this pass (a `--provider`
+flag is a clean, small later add).

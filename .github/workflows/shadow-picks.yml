@@ -35,3 +35,20 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      # O3 (Track B): Groq's independent second opinion, one call PER
+      # FIGHT (~11-14 calls/card, well within the 10-minute timeout at
+      # runMapReduce.ts's 4.2s pacing) since Groq's free tier can't fit a
+      # whole-card prompt. Separate SCRIPT from the Gemini one on purpose
+      # (DECISIONS.md, 2026-09-20) -- a Groq-specific issue can't corrupt
+      # Gemini's own logic or write path. Still a step in the same job,
+      # running after the Gemini step above: this ordering is what keeps
+      # a Groq failure from blocking it, not an inherent property of
+      # being a separate script -- reorder these two steps and that stops
+      # being true. Recorded in job_runs as "shadow_picks_groq".
+      - name: Generate shadow picks (Groq)
+        run: npx tsx src/lib/shadowPicks/runScheduledShadowPicksGroqJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

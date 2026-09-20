@@ -100,10 +100,16 @@ export interface ScoreboardData {
   // LLM lines were scored over (N9's own audit finding: comparing against
   // the intern's whole settled history instead of the same scored
   // population would not be apples-to-apples).
+  //
+  // O3 (Track B): `providers` is an array, not fixed `gemini`/`groq`
+  // fields, and only ever lists a provider that actually has a scored
+  // row right now -- Groq's job can lag or fail independently of
+  // Gemini's (DECISIONS.md, 2026-09-20: separate jobs on purpose), so
+  // the shape itself must tolerate "only one provider has data yet"
+  // rather than assuming both always do.
   shadowComparison: {
     scoredFightCount: number;
     deterministic: { accuracy: AccuracyLine; brier: BrierScoreResult; units: UnitsLine };
-    llmAssisted: ShadowLineScore;
-    llmOnly: ShadowLineScore;
+    providers: { provider: string; llmAssisted: ShadowLineScore; llmOnly: ShadowLineScore }[];
   } | null;
 }

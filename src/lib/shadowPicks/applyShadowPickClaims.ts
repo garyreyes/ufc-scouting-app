@@ -2,7 +2,7 @@ import { confidenceFor, MAX_TOTAL_ADJUSTMENT } from "../intern/decideInternPick"
 import { applyProbabilityDelta } from "../scoring/applyProbabilityDelta";
 import { devigTwoWay } from "../scoring/devigTwoWay";
 import type { MappedUnit } from "../llm/runMapReduce";
-import type { ShadowPickCardUnit, ShadowPickClaim, ShadowPickFacts, ShadowPickResult } from "./types";
+import type { ShadowPickClaim, ShadowPickFacts, ShadowPickResult } from "./types";
 
 /**
  * N8's `reduceFallback` (`reduceViaLlm: false` -- this is a PURE
@@ -24,10 +24,18 @@ import type { ShadowPickCardUnit, ShadowPickClaim, ShadowPickFacts, ShadowPickRe
  * market-anchored, has a confidence band) and `LLM_ONLY` (the model's own
  * unconstrained `freeProbabilityFighter1`, clamped only by
  * `shadowPickClaimChecks.ts`'s strict-(0,1) check, no confidence).
+ *
+ * `TUnit` is generic (O3, Track B): Gemini's map unit is the whole card
+ * (`ShadowPickCardUnit`), Groq's is one fight (`ShadowPickFightFacts`) --
+ * this function only ever reads `unit.claims`/`unit.callLogId`, never the
+ * unit's own shape, so it works unchanged for either caller. `provider`
+ * is stamped onto every result explicitly, not inferred, since nothing
+ * about a claim's own shape says which model produced it.
  */
-export function applyShadowPickClaims(
-  mapped: MappedUnit<ShadowPickCardUnit, ShadowPickClaim>[],
+export function applyShadowPickClaims<TUnit>(
+  mapped: MappedUnit<TUnit, ShadowPickClaim>[],
   facts: ShadowPickFacts,
+  provider: string,
 ): ShadowPickResult[] {
   const results: ShadowPickResult[] = [];
 
@@ -53,6 +61,7 @@ export function applyShadowPickClaims(
       results.push({
         fightId: claim.fightId,
         line: "LLM_ASSISTED",
+        provider,
         predictedFighterId: assistedPicksFighter1 ? fight.fighter1.fighterId : fight.fighter2.fighterId,
         probability: assistedProbability,
         confidence: confidenceFor(assistedProbability, minRatedFightCount),
@@ -66,6 +75,7 @@ export function applyShadowPickClaims(
       results.push({
         fightId: claim.fightId,
         line: "LLM_ONLY",
+        provider,
         predictedFighterId: onlyPicksFighter1 ? fight.fighter1.fighterId : fight.fighter2.fighterId,
         probability: onlyPicksFighter1 ? freeProbability1 : 1 - freeProbability1,
         confidence: null,

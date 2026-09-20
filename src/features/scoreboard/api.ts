@@ -250,6 +250,7 @@ async function buildShadowComparison(
     id: string;
     fight_id: string;
     line: "LLM_ASSISTED" | "LLM_ONLY";
+    provider: string;
     predicted_fighter_id: string;
     probability: number;
     confidence: number | null;
@@ -257,7 +258,7 @@ async function buildShadowComparison(
   }>(
     supabase,
     "shadow_picks",
-    "id, fight_id, line, predicted_fighter_id, probability, confidence, created_at",
+    "id, fight_id, line, provider, predicted_fighter_id, probability, confidence, created_at",
     "fight_id",
     [...lockAtMsByFightId.keys()],
   );
@@ -266,17 +267,37 @@ async function buildShadowComparison(
   const scoringRows: ShadowPickScoringRow[] = shadowPickRows.map((row) => ({
     fightId: row.fight_id,
     line: row.line,
+    provider: row.provider,
     predictedFighterId: row.predicted_fighter_id,
     probability: Number(row.probability),
     confidence: row.confidence,
     createdAtMs: new Date(row.created_at).getTime(),
   }));
 
+  // O3 (Track B): selectLatestBeforeLock's dedup key includes provider
+  // (0061, DECISIONS.md 2026-09-20), so `selected` can hold both
+  // providers' latest rows for the same fight/line side by side --
+  // scoreShadowLines must be called ONCE PER PROVIDER, never on the
+  // combined set, or two providers' numbers would silently average
+  // together into one shared line score.
   const selected = selectLatestBeforeLock(scoringRows, lockAtMsByFightId);
   if (selected.length === 0) return null;
 
-  const { llmAssisted, llmOnly } = scoreShadowLines(selected, fightsById);
+  const providersPresent = [...new Set(selected.map((r) => r.provider))].sort();
+  const providers = providersPresent.map((provider) => ({
+    provider,
+    ...scoreShadowLines(
+      selected.filter((r) => r.provider === provider),
+      fightsById,
+    ),
+  }));
 
+  // Union across every provider present, not per-provider -- if Gemini
+  // and Groq ever cover different fight subsets (their jobs degrade
+  // independently), this single count won't equal either provider's own
+  // denominator. A display nuance, not a correctness issue: each
+  // provider's own accuracy/brier above is still scoped correctly to
+  // that provider's own rows.
   const scoredFightIds = new Set(selected.map((r) => r.fightId));
   const comparablePicks = internPicks.filter((p) => scoredFightIds.has(p.fight_id));
   const deterministicUnitsBets: BetResult[] = comparablePicks
@@ -290,7 +311,7 @@ async function buildShadowComparison(
     units: aggregateUnitsLine(deterministicUnitsBets),
   };
 
-  return { scoredFightCount: scoredFightIds.size, deterministic, llmAssisted, llmOnly };
+  return { scoredFightCount: scoredFightIds.size, deterministic, providers };
 }
 
 export interface SettledFightRow {

@@ -108,6 +108,11 @@ export type ShadowPickLine = "LLM_ASSISTED" | "LLM_ONLY";
 export interface ShadowPickResult {
   fightId: string;
   line: ShadowPickLine;
+  // O3 (Track B): which model produced this row -- 'gemini' | 'groq',
+  // matching `shadow_picks.provider`'s own check constraint (0061) --
+  // same "small, explicit, checked set" convention this table's `line`
+  // column already uses, not `llm_call_log.model_id`'s free-text one.
+  provider: string;
   predictedFighterId: string;
   probability: number;
   // Only set on LLM_ASSISTED -- LLM_ONLY has no deterministic banding to

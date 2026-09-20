@@ -10,6 +10,7 @@ function row(overrides: Partial<ShadowPickScoringRow>): ShadowPickScoringRow {
   return {
     fightId: FIGHT_1,
     line: "LLM_ASSISTED",
+    provider: "gemini",
     predictedFighterId: FIGHTER_A,
     probability: 0.6,
     confidence: 3,
@@ -78,5 +79,37 @@ describe("selectLatestBeforeLock", () => {
 
   it("returns [] on no input", () => {
     expect(selectLatestBeforeLock([], new Map())).toEqual([]);
+  });
+
+  // O3 (Track B): DECISIONS.md, 2026-09-20 -- a real bug found while
+  // planning the second provider. Before provider joined the dedup key,
+  // two providers' rows for the same fight/line would collide and one
+  // would silently vanish from scoring, with no error anywhere.
+  it("tracks two providers' rows for the same fight and line independently -- never collides them", () => {
+    const lockAtMsByFightId = new Map([[FIGHT_1, 1000]]);
+    const rows = [
+      row({ provider: "gemini", createdAtMs: 200, probability: 0.6 }),
+      row({ provider: "groq", createdAtMs: 900, probability: 0.8 }),
+    ];
+
+    const result = selectLatestBeforeLock(rows, lockAtMsByFightId);
+
+    expect(result).toHaveLength(2);
+    const byProvider = new Map(result.map((r) => [r.provider, r]));
+    expect(byProvider.get("gemini")?.probability).toBe(0.6);
+    expect(byProvider.get("groq")?.probability).toBe(0.8);
+  });
+
+  it("still picks only the latest row within one provider when that provider has several", () => {
+    const lockAtMsByFightId = new Map([[FIGHT_1, 1000]]);
+    const rows = [
+      row({ provider: "groq", createdAtMs: 100, probability: 0.3 }),
+      row({ provider: "groq", createdAtMs: 500, probability: 0.7 }),
+    ];
+
+    const result = selectLatestBeforeLock(rows, lockAtMsByFightId);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].probability).toBe(0.7);
   });
 });

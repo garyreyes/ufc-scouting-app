@@ -681,3 +681,46 @@ schedule, independent of whether Gemini has weighed in. Rejected: adds a
 race condition for new conflicts and a permanent "second opinion pending"
 UI state for no real gain, since both jobs run on the same `sherdog.yml`
 schedule anyway.
+
+---
+
+## 2026-09-20 — O3 (Track B): per-fight Groq prompt confirmed viable; Groq shadow picks are a separate job
+
+**Decision 1 — per-fight prompt.** `buildShadowPicksPrompt.ts` is reused
+unchanged, called with a single-fight array, as the Groq map unit's
+prompt. Not a new prompt file.
+
+**Why.** A live spike (`PROJECT_FACTS.md`, 2026-09-20) against a real
+11-fight card measured ~2100 tokens total (prompt + output) for the
+richest fight tested — roughly 4x headroom under Groq's 8000 TPM cap.
+The 2026-09-19 entry's option (a) (a per-fight prompt variant) is
+confirmed, not option (b) (dropping Groq from Track B).
+
+**Decision 2 — separate job.** Groq's shadow-pick generation is a new
+`generateShadowPicksGroq.ts` + `runScheduledShadowPicksGroqJob.ts`
+(`job_runs: "shadow_picks_groq"`), not folded into the existing
+`generateShadowPicks.ts`. Both reuse `fetchShadowPickCard`,
+`applyShadowPickClaims`, and `shadowPickClaimChecks` unchanged; only the
+map spec's `units`/`buildMapPrompt`/deps differ (whole-card single call
+vs. per-fight fan-out, ~11-14 calls per card).
+
+**Why.** Matches this project's own established pattern (O2 mirrored N4
+the same way for conflict proposals) and keeps two providers with very
+different call shapes and budgets independently schedulable, testable,
+and gated in `job_runs`, rather than coupling their failure/retry
+behavior into one script.
+
+**Alternative considered.** One combined job looping over both
+providers. Rejected: fewer files, but couples Gemini's 1-call-per-run
+shape with Groq's ~11-14-call fan-out into a single script's error
+handling, and a Groq-specific budget/pacing issue would then also risk
+the Gemini line's own run in the same invocation.
+
+**Real bug found while planning, not yet in production**:
+`selectLatestBeforeLock.ts` dedupes shadow-pick rows by `` `${fightId}:${line}` ``
+only. Once a second provider writes `LLM_ASSISTED`/`LLM_ONLY` rows for
+the same fight, two different providers' rows for the same fight/line
+would collide in that map and one would silently disappear from scoring.
+The dedup key must become `` `${fightId}:${line}:${provider}` `` as part
+of this phase, not deferred — this is what actually forces `provider`
+to be a real column on `shadow_picks`, not just a label.

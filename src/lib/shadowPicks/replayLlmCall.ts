@@ -28,6 +28,10 @@ export interface ReplayLlmCallResult {
  * may legitimately differ from what the original call actually saw --
  * `runLlmReplay.ts`'s own prompt-hash comparison is what tells a caller
  * whether that happened, this function does not.
+ *
+ * O3 (Track B): deliberately stays Gemini-scoped for this pass -- a
+ * `--provider` flag on `runLlmReplay.ts` is a clean, small later add,
+ * not part of this phase (see the plan's own deferred-scope note).
  */
 export function replayLlmCall(
   rawOutput: string,
@@ -41,7 +45,7 @@ export function replayLlmCall(
   const mapped: MappedUnit<ShadowPickCardUnit, ShadowPickClaim>[] = [
     { unit: { eventId }, claims: verified.kept, source: "llm", callLogId },
   ];
-  const results = applyShadowPickClaims(mapped, facts);
+  const results = applyShadowPickClaims(mapped, facts, "gemini");
 
   return {
     results,

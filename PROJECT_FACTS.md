@@ -681,6 +681,17 @@ Decided 2026-08-29, user-originated.
       token budget. OpenRouter free models are not dependable enough to be
       load-bearing; usable only as an optional best-effort third opinion
       with a fallback path, never as the only check on anything.
+  - **O3 planning spike, 2026-09-20: a per-fight shadow-picks prompt
+    (`buildShadowPicksPrompt.ts` called with a single-fight array, reused
+    unchanged) fits Groq's 8000 TPM budget with wide margin.** Live
+    against a real 11-fight card, the two fights tested (the first fight,
+    and the fight with the most recent-bouts/open-flags combined — the
+    worst case for prompt size) both measured **~2100 tokens total
+    (prompt + output)**, roughly 4x headroom under the 8000 TPM cap.
+    Confirms Track B's per-fight variant (option (a) in `DECISIONS.md`'s
+    2026-09-19 entry) is viable without a redesign — no need to drop Groq
+    from Track B. Spike script was disposable, written directly under
+    `src/lib/shadowPicks/`, run once, and deleted before commit.
   - **The Odds API**: covered earlier, B1/B5.
 - **API-Sports free tier also refuses any season before 2022 for
   fighter-scoped `/fights` queries — found live, G1b (2026-09-02),
