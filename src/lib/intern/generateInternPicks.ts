@@ -3,12 +3,14 @@ import { DEFAULT_RATING } from "../elo/eloMath";
 import { fetchNearestUpcomingEventId } from "../events/nearestUpcomingEvent";
 import { fetchLatestEloRatings } from "../elo/fetchLatestEloRatings";
 import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
+import { applyUnderdogFloor } from "./applyUnderdogFloor";
+import type { FloorInput } from "./applyUnderdogFloor";
 import { decideInternBet } from "./decideInternBet";
-import type { InternBetDecision } from "./decideInternBet";
 import { decideInternPick } from "./decideInternPick";
 import { finishSplitFrom, predictInternMethod } from "./predictInternMethod";
 import type { InternMethodDecision } from "./predictInternMethod";
-import type { InternFlag, InternPickDecision, InternPickSignals } from "./types";
+import { segmentCard } from "./segmentCard";
+import type { InternFlag, InternPickSignals } from "./types";
 import { ageOnDate } from "../../shared/utils/ageOnDate";
 
 export interface InternPicksSummary {
@@ -39,6 +41,7 @@ interface EmbeddedFighter {
 interface EmbeddedFight {
   id: string;
   weight_class: string | null;
+  bout_order: number | null;
   fighter1: EmbeddedFighter;
   fighter2: EmbeddedFighter;
 }
@@ -98,6 +101,15 @@ export function isLockedError(err: unknown): boolean {
  * closed the service_role bypass that would previously have let this job
  * write straight past it) -- caught per fight and counted, never allowed
  * to abort the rest of the card.
+ *
+ * Two-phase (user-confirmed 2026-09-21): every fight's honest pick/bet is
+ * decided first, with nothing written yet, so applyUnderdogFloor.ts can
+ * see the WHOLE card's picks and bets before deciding whether either
+ * segment (main card / prelims) needs a forced underdog pick or bet --
+ * real UFC cards almost never sweep every favourite, and nothing in the
+ * old single-fight-at-a-time loop could ever have enforced that. The
+ * floor never touches decideInternPick/decideInternBet's own output --
+ * see applyUnderdogFloor.ts's docstring and DECISIONS.md (2026-09-21).
  */
 export async function generateInternPicks(supabase: SupabaseClient): Promise<InternPicksSummary> {
   const summary: InternPicksSummary = {
@@ -132,7 +144,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   const { data: rawFights, error: fightsError } = await supabase
     .from("fights")
     .select(
-      "id, weight_class, " +
+      "id, weight_class, bout_order, " +
         "fighter1:fighter1_id(id, name, reach_cm, height_cm, birth_date, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec), " +
         "fighter2:fighter2_id(id, name, reach_cm, height_cm, birth_date, sherdog_wins_by_ko, sherdog_wins_by_sub, sherdog_wins_by_dec, sherdog_losses_by_ko, sherdog_losses_by_sub, sherdog_losses_by_dec)",
     )
@@ -155,6 +167,16 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       fetchExistingInternPicks(supabase, fightIds),
       fetchLatestEloRatings(supabase, fighterIds),
     ]);
+
+  // Phase A: decide every fight's honest pick/bet, nothing written yet --
+  // applyUnderdogFloor.ts needs the whole card's picks and bets in hand
+  // before it can tell whether a segment swept every favourite.
+  const considered: {
+    fight: EmbeddedFight;
+    decision: ReturnType<typeof decideInternPick>;
+    bet: ReturnType<typeof decideInternBet>;
+    odds: { fighter1Price: number; fighter2Price: number } | null;
+  }[] = [];
 
   for (const fight of fights) {
     summary.fightsConsidered++;
@@ -200,7 +222,10 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     // UC-2's own rule -- pick and bet are two different judgments,
     // decided by two separate functions, only combined here at the I/O
     // layer for storage (0019_picks.sql has one reasoning column, not
-    // one each).
+    // one each). Deliberately computed on the ORIGINAL (pre-floor)
+    // pick -- the floor never invents a bet INTERN wouldn't otherwise
+    // place (user-confirmed 2026-09-21), so this must reflect the
+    // intern's real edge read, not a forced pick.
     const bet = decideInternBet(
       fight.fighter1.id,
       fight.fighter2.id,
@@ -209,25 +234,63 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       decision.confidence,
       odds,
     );
+
+    considered.push({ fight, decision, bet, odds });
+  }
+
+  // Card-sweep floor (DECISIONS.md 2026-09-21): guarantee at least one
+  // underdog pick, and separately one underdog bet among bets already
+  // placed, per segment (main card / prelims).
+  const segmented = segmentCard(considered.map((c) => ({ fightId: c.fight.id, boutOrder: c.fight.bout_order })));
+  const segmentByFightId = new Map(segmented.map((s) => [s.fightId, s.segment]));
+
+  const floorInputs: FloorInput[] = considered.map((c) => ({
+    fightId: c.fight.id,
+    segment: segmentByFightId.get(c.fight.id)!,
+    fighter1Id: c.fight.fighter1.id,
+    fighter2Id: c.fight.fighter2.id,
+    odds: c.odds,
+    pick: {
+      predictedFighterId: c.decision.predictedFighterId,
+      estimatedProbability: c.decision.estimatedProbability,
+      confidence: c.decision.confidence,
+    },
+    bet: { betFighterId: c.bet.betFighterId, stakeUnits: c.bet.stakeUnits },
+  }));
+  const floorByFightId = new Map(applyUnderdogFloor(floorInputs).map((r) => [r.fightId, r]));
+
+  // Phase B: write the final (possibly floor-overridden) pick/bet.
+  for (const { fight, decision, bet } of considered) {
+    const final = floorByFightId.get(fight.id)!;
+
     // A third judgment alongside the pick and the bet -- how the fight
     // ends. Deterministic: the picked fighter's own Sherdog win split vs
     // the opponent's own loss split when both exist (L5), falling back to
     // base-rate + lopsidedness + weight class when either side has no
-    // Sherdog history (predictInternMethod.ts).
-    const pickedIsFighter1 = decision.predictedFighterId === fight.fighter1.id;
+    // Sherdog history (predictInternMethod.ts). Uses the FINAL picked
+    // fighter -- if the floor forced an underdog pick, the method call
+    // must be about who INTERN is actually picking now, not its
+    // pre-floor read.
+    const pickedIsFighter1 = final.pick.predictedFighterId === fight.fighter1.id;
     const pickedFighter = pickedIsFighter1 ? fight.fighter1 : fight.fighter2;
     const opponentFighter = pickedIsFighter1 ? fight.fighter2 : fight.fighter1;
     const method = predictInternMethod(
-      decision.estimatedProbability,
+      final.pick.estimatedProbability,
       fight.weight_class,
       finishSplitFrom(pickedFighter),
       finishSplitFrom(opponentFighter),
     );
 
-    const reasoning = `${decision.reasoning} ${bet.note} ${method.note}`;
+    let reasoning = `${decision.reasoning} ${bet.note} ${method.note}`;
+    if (final.pick.overridden) {
+      reasoning += " Card-sweep rule: forced underdog pick -- this segment would otherwise sweep favourites.";
+    }
+    if (final.bet.overridden) {
+      reasoning += " Card-sweep rule: redirected an existing bet onto the underdog for the same reason.";
+    }
 
     const existing = existingByFightId.get(fight.id);
-    if (existing && isUnchanged(existing, decision, bet, method, reasoning)) {
+    if (existing && isUnchanged(existing, final, method, decision.signals, reasoning)) {
       summary.picksUnchanged++;
       continue;
     }
@@ -238,13 +301,13 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
           fight_id: fight.id,
           author: "INTERN",
           user_id: null,
-          predicted_fighter_id: decision.predictedFighterId,
-          estimated_probability: decision.estimatedProbability,
-          confidence: decision.confidence,
+          predicted_fighter_id: final.pick.predictedFighterId,
+          estimated_probability: final.pick.estimatedProbability,
+          confidence: final.pick.confidence,
           reasoning,
           predicted_method: method.method,
-          bet_fighter_id: bet.betFighterId,
-          stake_units: bet.stakeUnits,
+          bet_fighter_id: final.bet.betFighterId,
+          stake_units: final.bet.stakeUnits,
           signals: decision.signals,
         },
         { onConflict: "fight_id,author" },
@@ -255,7 +318,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       // unconditionally right after decideInternBet -- a locked/failed
       // upsert must never inflate this count with a bet that was never
       // actually placed.
-      if (bet.betFighterId !== null) summary.betsPlaced++;
+      if (final.bet.betFighterId !== null) summary.betsPlaced++;
     } catch (err) {
       if (isLockedError(err)) {
         summary.skippedLocked++;
@@ -271,32 +334,35 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
 
 function isUnchanged(
   existing: ExistingPick,
-  decision: InternPickDecision,
-  bet: InternBetDecision,
+  final: {
+    pick: { predictedFighterId: string; estimatedProbability: number; confidence: number };
+    bet: { betFighterId: string | null; stakeUnits: number | null };
+  },
   method: InternMethodDecision,
+  signals: InternPickSignals,
   reasoning: string,
 ): boolean {
   return (
-    existing.predictedFighterId === decision.predictedFighterId &&
+    existing.predictedFighterId === final.pick.predictedFighterId &&
     // numeric(5,4) round-trips to 4 decimal places, so compare at that
     // precision rather than by exact float equality.
-    Math.abs(existing.estimatedProbability - decision.estimatedProbability) < 0.00005 &&
-    existing.confidence === decision.confidence &&
+    Math.abs(existing.estimatedProbability - final.pick.estimatedProbability) < 0.00005 &&
+    existing.confidence === final.pick.confidence &&
     existing.reasoning === reasoning &&
     existing.predictedMethod === method.method &&
-    existing.betFighterId === bet.betFighterId &&
+    existing.betFighterId === final.bet.betFighterId &&
     // numeric(6,2) -- same precision reasoning as estimated_probability
     // above. Both null is the "no bet, still no bet" case.
-    (existing.stakeUnits === null && bet.stakeUnits === null
+    (existing.stakeUnits === null && final.bet.stakeUnits === null
       ? true
       : existing.stakeUnits !== null &&
-        bet.stakeUnits !== null &&
-        Math.abs(existing.stakeUnits - bet.stakeUnits) < 0.005) &&
+        final.bet.stakeUnits !== null &&
+        Math.abs(existing.stakeUnits - final.bet.stakeUnits) < 0.005) &&
     // N5: existing.signals is null for every pick written before this
     // migration -- treated as "changed" so a re-run backfills it once,
     // same as any other genuinely new value.
     existing.signals !== null &&
-    signalsEqual(existing.signals, decision.signals)
+    signalsEqual(existing.signals, signals)
   );
 }
 

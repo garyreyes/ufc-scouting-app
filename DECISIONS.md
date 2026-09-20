@@ -772,3 +772,65 @@ resolution doesn't need separate handling, since merging removes one
 side of the pair from `fighters` entirely, so the pair stops being
 generated on future runs regardless. A regression test for the
 `not_same_person` case was added alongside the fix.
+
+---
+
+## 2026-09-21 — the underdog floor overrides INTERN's pick/bet, not its model
+
+**Decision.** `decideInternPick.ts` and `decideInternBet.ts` stay exactly
+as they were: an honest, deterministic, market-anchored read of each
+fight in isolation — this is explicitly what makes G3's calibration
+check meaningful (`decideInternPick.ts`'s own docstring). The new "at
+least one underdog per segment" rule is built as a separate,
+post-processing override layer (`applyUnderdogFloor.ts`), applied in
+`generateInternPicks.ts` AFTER every fight's honest pick and bet have
+already been decided, never inside the two decision functions
+themselves.
+
+**Why.** User-observed, checked against real cards: a full favourites
+sweep essentially never happens on a real UFC card — every card checked
+had at least one underdog win in the main card and at least one in the
+prelims (the Pantoja/Van 2 card's prelims underdog cited as the concrete
+example). Nothing in the existing per-fight, card-blind design could
+ever reflect that. Baking the rule into `decideInternPick` itself would
+have corrupted the one property the project depends on for calibration
+tracking — that `estimated_probability` is the model's genuine belief,
+not a belief plus a card-level fudge. Keeping it as a separate, visibly
+labelled layer (a "Card-sweep rule: ..." sentence appended to
+`reasoning` whenever it fires) means the model's own honest read stays
+inspectable and its calibration metrics stay uncorrupted, while the
+floor's own cost is separately auditable.
+
+**Scope, all user-confirmed 2026-09-21:**
+- The pick floor and bet floor are independent. Forcing an underdog pick
+  never forces a bet on it.
+- The bet floor only redirects a bet INTERN was already going to place
+  (its own edge gate said yes) onto the underdog instead of the
+  favourite — it never invents a bet where INTERN saw no edge at all.
+- When a segment needs a forced flip, the fight chosen is the one with
+  the BIGGEST underdog price (most plus-money/"live"), not the one
+  closest to a toss-up — a deliberate choice over minimizing the
+  override's cost to the model's own read.
+- Main card = the 5 fights with the lowest `bout_order`; everything
+  else, including fights with no `bout_order` at all, is prelims. No
+  fight is excluded from either segment.
+- "Favourite"/"underdog" is a market concept (decimal price via the
+  existing `determineFavorite.ts`), not the model's own probability —
+  matches how the pattern was described (a sportsbook "underdog win").
+
+**Alternatives considered.** Baking the rule directly into
+`decideInternPick`'s own probability (rejected — corrupts calibration,
+see above). Forcing the bet whenever the pick is forced (rejected,
+user-confirmed — would mean INTERN knowingly stakes simulated money
+against its own edge read on a fight it never priced as +EV). Flipping
+the closest-to-toss-up favourite instead of the biggest underdog price
+(considered, user chose the latter).
+
+**Consequence.** `estimated_probability` on a floor-forced pick is
+recorded as the underdog's own true (sub-0.5) model probability, not
+massaged toward 0.5 — this is intentional and already fully supported by
+the existing schema (`0019_picks.sql`'s only constraint is `0 <
+estimated_probability < 1`) and by `computeCalibrationBuckets.ts`, whose
+"Under 50%" bucket and comment ("nothing in the schema requires a pick's
+estimate to favour the fighter it names") anticipated exactly this case
+before this decision existed.
