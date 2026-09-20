@@ -4991,7 +4991,9 @@ opinion written onto it — invisible to the reviewer, since the display
 query already filters resolved proposals out. 1094/1094 tests passing,
 lint clean, `tsc --noEmit` clean, production build clean.
 
-**Not yet done:** migration `0060` needs to be applied to production
-before this can run for real; `GROQ_API_KEY` needs to be added as a
-GitHub Actions secret for the new `sherdog.yml` step to run in CI (same
-gap already flagged for `.env.local.example` in Phase 1).
+**Follow-up, same day:** migration `0060` applied to production
+(`vrwlfcywyfzfczajpdoh`, verified via `supabase migration list --linked`)
+and `GROQ_API_KEY` added as a GitHub Actions secret — the new
+`sherdog.yml` step can now run for real. `.env.local.example` still
+doesn't document `GROQ_API_KEY`/`OPENROUTER_API_KEY` (Phase 1's original
+gap, still open).
