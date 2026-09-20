@@ -1,0 +1,51 @@
+/* Same neutral-surface convention as JobHealthBanner.module.css --
+   restrained-colour rule (docs/user-flows.md): no per-row warning colour,
+   the ⚠ glyph itself already carries the "needs a look" meaning inline
+   with the numbers, so a colored background would be decoration on top
+   of a signal that already reads on its own. */
+.panel {
+  margin-bottom: 24px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+}
+
+.eventName {
+  font-weight: 600;
+}
+
+.daysUntil {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  color: var(--muted);
+}
+
+.note {
+  color: var(--muted);
+}

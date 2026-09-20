@@ -60,6 +60,37 @@ export async function getOpenDisputedFightIds(fightIds: string[]): Promise<Set<s
   return new Set((data ?? []).map((row) => row.fight_id as string));
 }
 
+/**
+ * Which of the given fights are the candidate behind an open
+ * low_confidence_odds_match -- P9's card-readiness rollup needs this
+ * alongside getOpenDisputedFightIds to count "open conflicts" for one
+ * card. Unlike that function, candidateFightId lives in `details`
+ * (0014_data_conflicts.sql: fight_id is deliberately null on this kind),
+ * so this reads every open row of the kind and filters client-side
+ * against `fightIds` rather than filtering in the query -- data_conflicts
+ * is small (under 100 rows live, 2026-09-21), so this stays a single
+ * unpaged read rather than needing selectAllPages.
+ */
+export async function getOpenLowConfidenceCandidateFightIds(fightIds: string[]): Promise<Set<string>> {
+  if (fightIds.length === 0) return new Set();
+
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("data_conflicts")
+    .select("details")
+    .eq("kind", "low_confidence_odds_match")
+    .is("resolved_at", null);
+  if (error) throw error;
+
+  const wanted = new Set(fightIds);
+  return new Set(
+    (data ?? [])
+      .map((row) => (row.details as { candidateFightId?: string | null }).candidateFightId)
+      .filter((id): id is string => Boolean(id))
+      .filter((id) => wanted.has(id)),
+  );
+}
+
 interface ConflictRow {
   id: string;
   kind:
