@@ -71,27 +71,14 @@ export async function resolveUpcomingCardSherdogIds(
   supabase: SupabaseClient,
   opts: Options = {},
 ): Promise<SherdogIdentitySummary> {
-  const { batchSize = DEFAULT_BATCH_SIZE, dryRun = false, now = () => new Date() } = opts;
-  const fetchOpts: FetchOptions = { spacingMs: opts.spacingMs, fetchImpl: opts.fetchImpl };
+  const { batchSize = DEFAULT_BATCH_SIZE } = opts;
 
-  const summary: SherdogIdentitySummary = {
-    attempted: 0,
-    matched: 0,
-    historyMatched: 0,
-    queued: 0,
-    guardRejected: 0,
-    noCandidates: 0,
-    collision: 0,
-    failed: 0,
-    dryRun,
-  };
-
-  const today = now().toISOString().slice(0, 10);
+  const today = (opts.now ?? (() => new Date()))().toISOString().slice(0, 10);
 
   const events = await selectAllPages<{ id: string }>(supabase, "events", "id", (q) =>
     q.gte("event_date", today),
   );
-  if (events.length === 0) return summary;
+  if (events.length === 0) return emptySummary(opts.dryRun ?? false);
 
   const fights = await selectAllPagesByIds<{ id: string; fighter1_id: string; fighter2_id: string }>(
     supabase,
@@ -102,7 +89,7 @@ export async function resolveUpcomingCardSherdogIds(
   );
 
   const cardFighterIds = [...new Set(fights.flatMap((f) => [f.fighter1_id, f.fighter2_id]))];
-  if (cardFighterIds.length === 0) return summary;
+  if (cardFighterIds.length === 0) return emptySummary(opts.dryRun ?? false);
 
   const queue: Array<{ id: string; name: string }> = [];
   for (const idChunk of chunk(cardFighterIds, DEFAULT_CHUNK_SIZE)) {
@@ -117,6 +104,71 @@ export async function resolveUpcomingCardSherdogIds(
     if (queue.length >= batchSize) break;
   }
 
+  return resolveSherdogIdsForQueue(supabase, queue, opts);
+}
+
+/**
+ * P10 (ROADMAP_V2.md Phase P): the historical spine -- 694 fighters who
+ * have never been on an upcoming card and so were never reached by
+ * resolveUpcomingCardSherdogIds above. Deliberately last and lowest
+ * priority (they don't threaten the accuracy of any future pick), so this
+ * is throttled the same way (client.ts's 1.5s spacing) and expected to
+ * take many runs to clear, resuming naturally off sherdog_checked_at --
+ * ordering by `id` means a fighter marked checked this run simply drops
+ * out of the WHERE clause and the next `id` takes its place next run,
+ * with no separate cursor to track.
+ *
+ * Same "not resolved, not yet attempted" queue shape as the upcoming-card
+ * job, just without the events -> fights -> fighter_ids join that scopes
+ * that one to a card.
+ */
+export async function resolveHistoricalSherdogBacklog(
+  supabase: SupabaseClient,
+  opts: Options = {},
+): Promise<SherdogIdentitySummary> {
+  const { batchSize = DEFAULT_BATCH_SIZE } = opts;
+
+  const { data, error } = await supabase
+    .from("fighters")
+    .select("id, name")
+    .is("sherdog_id", null)
+    .is("sherdog_checked_at", null)
+    .order("id", { ascending: true })
+    .limit(batchSize);
+  if (error) throw error;
+
+  return resolveSherdogIdsForQueue(supabase, (data as Array<{ id: string; name: string }>) ?? [], opts);
+}
+
+function emptySummary(dryRun: boolean): SherdogIdentitySummary {
+  return {
+    attempted: 0,
+    matched: 0,
+    historyMatched: 0,
+    queued: 0,
+    guardRejected: 0,
+    noCandidates: 0,
+    collision: 0,
+    failed: 0,
+    dryRun,
+  };
+}
+
+/**
+ * The shared per-fighter resolution loop -- identical for the upcoming-
+ * card queue and the historical backlog queue above, which differ only
+ * in how `queue` gets built.
+ */
+async function resolveSherdogIdsForQueue(
+  supabase: SupabaseClient,
+  queue: Array<{ id: string; name: string }>,
+  opts: Options,
+): Promise<SherdogIdentitySummary> {
+  const { dryRun = false, now = () => new Date() } = opts;
+  const fetchOpts: FetchOptions = { spacingMs: opts.spacingMs, fetchImpl: opts.fetchImpl };
+
+  const summary = emptySummary(dryRun);
+
   // no_candidates fighters are held here, not marked checked inline: a
   // Sherdog results-table markup change makes EVERY search look empty,
   // and marking a whole batch "checked, not in Sherdog" would bury those
@@ -125,7 +177,7 @@ export async function resolveUpcomingCardSherdogIds(
   // a parser regression.
   const notFound: string[] = [];
 
-  for (const fighter of queue.slice(0, batchSize)) {
+  for (const fighter of queue) {
     summary.attempted++;
     const checkedAt = now().toISOString();
     try {

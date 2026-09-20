@@ -123,3 +123,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+      # 7 (P10, ROADMAP_V2.md Phase P). The historical spine -- 694
+      #    fighters who have never been on an upcoming card and so were
+      #    never reached by step 1's queue. Deliberately last and smallest
+      #    batch here: lowest priority (these fighters don't threaten the
+      #    accuracy of any future pick), so this is sized to fit inside
+      #    whatever time budget steps 1-6 left rather than competing with
+      #    them for it. Resumable via sherdog_checked_at, expected to take
+      #    many daily runs to clear. job_runs: "sherdog_backlog".
+      - name: Resolve Sherdog historical backlog (P10, low priority)
+        run: npx tsx src/lib/sherdog/runResolveSherdogBacklogJob.ts --batch=50
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
