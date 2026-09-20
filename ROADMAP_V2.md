@@ -222,3 +222,59 @@ is disposable without it.
   Barnett / Sean Sharaf row is a genuine booking change and exactly what
   the queue is for. The queue working correctly means a *small* queue, not
   an empty one.
+
+---
+
+## Phase Q — the betting journal
+
+### The trigger
+
+The app answers *"is this one moneyline price wrong?"* The owner bets a
+portfolio of slips per card: singles, accumulators, method-of-victory and
+double-chance, stakes from ₱74 to ₱500. `picks` cannot express any of it
+— `unique (fight_id, author)` forbids a second bet on a fight, and
+`check_pick_constraints()` requires `bet_fighter_id` to be one of *that
+fight's two fighters*, so no accumulator and no method market is even
+representable.
+
+### What 16 real tickets changed about the design
+
+Shapes here came from the owner's actual bet slips (2026-08-23 →
+2026-09-13), not from a guess at what a bet looks like:
+
+| Finding | Consequence |
+|---|---|
+| His book prices `Double Chance`, `Method Of Victory. Decision W1`, `W1 By KO/TKO/DQ`, `How The Bout Will Be Won` — all markets The Odds API does **not** serve (`h2h_3_way` → `422`, double-chance already rejected per `PROJECT_FACTS.md`) | Method bets run on **his entered price**. Phase R demoted to optional reference data. |
+| One accumulator parlays a **US Open tennis set** with a UFC moneyline; another is a **Road to UFC** bout | `bet_legs.fight_id` is **nullable**, with `external_description` as the fallback |
+| `How The Bout Will Be Won` names no fighter; `W1 By KO/TKO` does | `METHOD_FIGHT` and `METHOD_FIGHTER` are separate markets |
+| Every ticket carries a bookmaker number | `bookmaker_bet_id unique` — the backfill's idempotency key |
+| One ticket displays combined odds `4.475` but paid `447.55` on ₱100 — the full-precision product of `1.68 × 2.664` | Payout is computed from **leg prices**, never from displayed combined odds |
+| 158 settled production fights have `method = null` (API-Sports never reports one) | A method leg on those returns `undetermined`, never a guess |
+
+### Sub-phases
+
+| # | Sub-phase | Correctness class | Status |
+|---|---|---|---|
+| **Q1** | Schema: `bankroll_ledger`, `bet_slips`, `bet_legs`. RLS mirroring `picks`; `won/lost/void` gated to `service_role` while `cashed_out` stays owner-writable (only the person who took it knows it happened); an explicit DELETE policy, which `picks` deliberately lacks. `pnl_php`/`pnl_units` are **generated columns**, so payout and P&L cannot drift apart. | Correctness-critical | **done 2026-09-21** — migration `0064` applied to `vrwlfcywyfzfczajpdoh`, verified by read-back |
+| **Q2** | Settlement engine: `normalizeFightMethod` (free-text Wikipedia prose → a settleable method), `settleLeg` (5 markets), `settleSlip` (roll-up, void-leg repricing). | **Correctness-critical — test first** | **done 2026-09-21** — 63 tests, red before green; all 16 real tickets reproduce their printed payout |
+| **Q3** | Backfill the 16 tickets, keyed on `bookmaker_bet_id`. Three legs were cut off in the screenshots — their prices are derived from the product rule (2.15 Sola, 1.23 Martinez, 2.17 Elliott) but **market and selection need owner confirmation** before writing. | Bulk mutation — **dry-run mandatory** | not started |
+| **Q4** | UI: record a slip (archetype, legs, taken prices, stake, book), list open slips, settle / cash-out. | Judgment | not started |
+| **Q5** | Per-archetype units/ROI line + bankroll curve, and the INTERN-vs-owner head-to-head the tickets already support — Elliott, Bukauskas, Hooker and Rahiki all overlap fights INTERN priced. | Judgment | not started |
+
+### Baseline the journal starts from
+
+16 slips, **9W–7L**, ₱3,378.49 staked, ₱7,175.21 returned, **+₱3,796.72
+net (ROI +112%)**. Caveat stated up front: **₱2,095 of that is a single
+slip.** Sixteen tickets settle nothing — the point of Q5 is to find out
+which archetypes actually earn, not to celebrate this number.
+
+### Explicit non-goals
+
+- **Not touching `picks`.** It is the calibration/scoreboard backbone and
+  its INTERN/chalk unit series must stay continuous.
+- **Not changing `decideInternBet`'s 0.5–3u ramp.** Kelly staking (Phase
+  S) applies to slips only; re-staking INTERN mid-series would break the
+  measured comparison it exists to provide.
+- **Not an LLM portfolio assembler.** Assembling a slate under exposure
+  and correlation constraints has a right answer — it is a deterministic
+  reduce, for the same reason `decideInternPick` is deterministic.

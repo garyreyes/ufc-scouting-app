@@ -5145,3 +5145,57 @@ appended to `reasoning` whenever either floor fires. See DECISIONS.md
 `decideInternPick.characterization.test.ts`'s snapshot unchanged —
 confirming the model's own output was genuinely never touched. Lint
 clean, `tsc --noEmit` clean, production build clean.
+
+## Phase 101 (ROADMAP_V2.md Phase Q / Q1+Q2) — the betting journal: slips, legs, bankroll, and settlement (2026-09-21)
+
+**What.** The app modelled a bet as one optional moneyline wager welded to
+one pick on one fight, capped at 3u. The owner actually bets a portfolio of
+slips per card — singles, accumulators, method-of-victory, double-chance,
+₱74 to ₱500 a ticket. `picks` cannot express that and was left untouched.
+
+**Q1, migration `0064`:** `bankroll_ledger` (signed movements; balance is
+always derived by summing, never stored), `bet_slips` (one row per ticket,
+`bookmaker_bet_id unique` as an idempotency key, `pnl_php`/`pnl_units` as
+**generated columns** so payout and P&L cannot drift apart), and `bet_legs`
+(one row per leg — a single is just a one-leg slip, so nothing downstream
+needs a special case). RLS mirrors `picks`, with two deliberate departures:
+a DELETE policy exists (a mis-typed slip must be removable, which `picks`
+has no path for), and there is **no pick-lock** (a slip records a wager
+already placed; backfilling history is the point).
+
+**Q2, the settlement engine:** `normalizeFightMethod` (free-text Wikipedia
+prose → a settleable method), `settleLeg` (moneyline, double-chance, and
+both method shapes), `settleSlip` (roll-up, dead-on-first-loss, void-leg
+repricing).
+
+**Six things the owner's 16 real tickets forced, that a guess would have
+got wrong:**
+
+- His book prices markets The Odds API does not serve, so method bets run
+  on **his entered price** — Phase R demoted to optional reference data.
+- A leg is not always a UFC fight: one accumulator parlays a **US Open
+  tennis set** with a UFC moneyline. `fight_id` is nullable.
+- `How The Bout Will Be Won` names no fighter while `W1 By KO/TKO` does —
+  two distinct markets, not one enum value.
+- A ticket showing combined odds `4.475` paid **₱447.55** on ₱100, the
+  full-precision `1.68 × 2.664`. Payouts come from leg prices, never from
+  the displayed combined odds.
+- **158 settled fights carry `method = null`** (API-Sports reports none),
+  so a method leg on those returns `undetermined` rather than a guess.
+- Draws and no-contests must be told apart: `"Draw (majority)"` *pays* a
+  Double Chance leg, `"NC (accidental eye poke)"` voids it. The parser
+  matches the leading token only, since `"Decision (majority)"` shares the
+  word "majority".
+
+**Verified.** 1237/1237 tests passing (63 new), written test-first and
+confirmed RED (`Cannot find module`) before any implementation existed.
+**All 16 real tickets reproduce their printed payout to the centavo**, and
+the portfolio reconciles to ₱3,378.49 staked / ₱7,175.21 returned /
+**+₱3,796.72 net**. Lint clean, `tsc --noEmit` clean. Migration `0064`
+applied to `vrwlfcywyfzfczajpdoh` and verified by read-back (3 tables, RLS
+on all, generated columns confirmed `ALWAYS` with the expected
+expressions), `migration list --linked` reconciled to `0064` local+remote.
+
+**Not yet done:** Q3 (backfill) needs owner confirmation on three legs cut
+off in the screenshots — their prices are derivable from the product rule
+(2.15 Sola, 1.23 Martinez, 2.17 Elliott) but market and selection are not.
