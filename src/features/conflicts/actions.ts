@@ -15,6 +15,8 @@ import { buildFighterMatchResolution } from "./resolveFighterMatch";
 import { buildSherdogMatchResolution } from "./resolveSherdogMatch";
 import { buildSherdogIdCollisionResolution } from "./resolveSherdogIdCollision";
 import type { SherdogIdCollisionChoice } from "./resolveSherdogIdCollision";
+import { buildStructuralDuplicateResolution } from "./resolveStructuralDuplicate";
+import type { StructuralDuplicateChoice } from "./resolveStructuralDuplicate";
 import { getOpenConflictCount } from "./api";
 import type {
   DisputedOpponentConflict,
@@ -22,6 +24,7 @@ import type {
   LowConfidenceFighterMatchConflict,
   LowConfidenceSherdogMatchConflict,
   SherdogIdCollisionConflict,
+  StructuralDuplicateFightersConflict,
 } from "./types";
 
 /**
@@ -332,6 +335,73 @@ export async function resolveSherdogIdCollisionAction(
   }
 
   const resolution = buildSherdogIdCollisionResolution(choice);
+
+  const { error: conflictError } = await admin
+    .from("data_conflicts")
+    .update(resolution.conflictUpdate)
+    .eq("id", conflictId);
+  if (conflictError) throw conflictError;
+
+  revalidatePath("/conflicts");
+}
+
+/**
+ * P8 (ROADMAP_V2.md, I1): the daily integrity sweep found two fighter rows
+ * that fold to the same person under namesLikelySamePerson.ts's existing
+ * structural rules, walking the whole table rather than catching this at
+ * a live write. "merge" goes through the same
+ * checkMergeGuard()/mergeFighters() path resolveDisputedOpponentAction's
+ * and resolveSherdogIdCollisionAction's own "merge" choices already use --
+ * the guard's one hard block (two different confirmed Sherdog identities)
+ * still applies here exactly as it does everywhere else. "not_same_person"
+ * means the structural fold was a coincidence; both rows are left
+ * untouched.
+ */
+export async function resolveStructuralDuplicateAction(
+  conflictId: string,
+  choice: StructuralDuplicateChoice,
+): Promise<void> {
+  await requireOwner();
+  const admin = getSupabaseAdmin();
+
+  const { data: row, error } = await admin
+    .from("data_conflicts")
+    .select("id, details")
+    .eq("id", conflictId)
+    .eq("kind", "structural_duplicate_fighters")
+    .is("resolved_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) throw new Error("Conflict not found or already resolved");
+
+  const conflict: StructuralDuplicateFightersConflict = {
+    id: row.id,
+    kind: "structural_duplicate_fighters",
+    fightId: null,
+    detectedAt: "", // unused by buildStructuralDuplicateResolution
+    details: row.details as StructuralDuplicateFightersConflict["details"],
+  };
+
+  if (choice === "merge") {
+    const { data: fighterRows, error: fightersError } = await admin
+      .from("fighters")
+      .select("id, name, external_id, sherdog_id")
+      .in("id", [conflict.details.fighterAId, conflict.details.fighterBId]);
+    if (fightersError) throw fightersError;
+    if (!fighterRows || fighterRows.length !== 2) throw new Error("Could not load both fighters to merge");
+
+    const [fa, fb] = fighterRows as unknown as MergeCandidateFighter[];
+    const guard = checkMergeGuard(fa, fb);
+    if (!guard.allowed) {
+      throw new Error(
+        "These two fighters have different confirmed Sherdog identities and can't be merged automatically -- check /fighters for both before merging by hand.",
+      );
+    }
+
+    await mergeFighters(admin, guard.keepId, guard.dropId);
+  }
+
+  const resolution = buildStructuralDuplicateResolution(choice);
 
   const { error: conflictError } = await admin
     .from("data_conflicts")

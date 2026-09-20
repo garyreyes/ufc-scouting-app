@@ -5049,3 +5049,58 @@ production build clean.
 (`vrwlfcywyfzfczajpdoh`, verified via `supabase migration list --linked`).
 `llm:replay` stays deliberately Gemini-scoped this pass (a `--provider`
 flag is a clean, small later add).
+
+## Phase 99 (ROADMAP_V2.md P8) — the daily integrity sweep (2026-09-20)
+
+**What.** Phase P's Tier 1/2 fixes (P0-P7) repaired the existing conflict
+queue and prevented the next fighter from ingesting the same way broken —
+but left nothing checking that either stays true, the exact gap that let
+19 bad conflict rows and a stuck fight accumulate silently across days of
+green CI in the first place. P8 is a new daily job asserting six
+invariants (I1-I6, `ROADMAP_V2.md`), in three shapes rather than one
+(`DECISIONS.md`, 2026-09-20):
+
+- **I1** (two fighter rows fold to the same person under the existing
+  structural rules, `namesLikelySamePerson.ts`, walked over the WHOLE
+  `fighters` table for the first time) opens a real `data_conflicts` row
+  — new kind `structural_duplicate_fighters`, review card, merge action,
+  same pattern P6's `sherdog_id_collision` established.
+- **I4** (a `low_confidence_odds_match` whose candidate fight is already
+  priced) and **I6** (two open conflicts pointing at the same bout) are
+  auto-remediated directly — no row, no owner action. I4 reuses the
+  existing `selectStaleLowConfidenceConflictIds` as a safety net for
+  `matchAndSnapshot.ts`'s own instance of the same check.
+- **I2** (fighter on an upcoming card missing a Sherdog check), **I3**
+  (fight past its T-12h window, unpriced, and not already covered by any
+  open conflict), and **I5** (conflict open >7 days) open/self-close a
+  new, visibility-only `integrity_alerts` row (migration `0063`, RLS
+  enabled, no policies, partial unique index on `(invariant, dedupe_key)
+  where resolved_at is null`) — nothing to resolve, so no action UI.
+  Surfacing these is deferred to P9's job-health panel.
+
+New `src/lib/integrity/` folder: one pure detection function per
+invariant (each with a seeded-violation + clean-data test pair), an
+orchestrator (`runIntegritySweepJob.ts`) wiring them against real reads
+(`selectAllPages`/`selectAllPagesByIds` throughout — no raw `.select()`),
+and a `runWithTracking`-wrapped entry point (`job_runs: "integrity_sweep"`).
+New `.github/workflows/integrity.yml`, its own daily cron and its own
+concurrency group (not the shared `ufc-data-write` one — this job never
+touches `fighters`/`fights`/`events`).
+
+**Real bug caught by the mandatory `reviewer` pass, fixed before ship:**
+I1's dedupe guard only checked for an *open* row before deciding whether
+to insert a new conflict. Since I1 re-scans the whole `fighters` table
+every run, an owner resolving a pair as `not_same_person` would see it
+reopen on the very next sweep — the original test suite only covered
+"doesn't stack while still open," not "stays resolved after resolution."
+Fixed by widening the guard to check for any existing row for the pair,
+open or resolved; regression test added. The same pass also moved
+`diffAlerts`'s own read of `integrity_alerts` onto `selectAllPages` (was
+a raw `.select()`, low risk at today's row count but the same shape of
+bug M1 found once already) and added the workflow's concurrency group
+(a manual `workflow_dispatch` overlapping the scheduled run could
+otherwise crash the job on the new unique index).
+
+**Verified.** 1150/1150 tests passing (25 new), lint clean, `tsc --noEmit`
+clean, production build clean, route table unchanged. Migration `0063`
+not yet applied to production.

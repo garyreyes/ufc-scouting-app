@@ -10,6 +10,7 @@ import type {
   LowConfidenceFighterMatchDetails,
   LowConfidenceSherdogMatchDetails,
   SherdogIdCollisionDetails,
+  StructuralDuplicateFightersDetails,
   ConflictDisplay,
 } from "./types";
 
@@ -67,7 +68,8 @@ interface ConflictRow {
     | "disputed_result"
     | "low_confidence_fighter_match"
     | "low_confidence_sherdog_match"
-    | "sherdog_id_collision";
+    | "sherdog_id_collision"
+    | "structural_duplicate_fighters";
   fight_id: string | null;
   details:
     | DisputedOpponentDetails
@@ -75,7 +77,8 @@ interface ConflictRow {
     | DisputedResultDetails
     | LowConfidenceFighterMatchDetails
     | LowConfidenceSherdogMatchDetails
-    | SherdogIdCollisionDetails;
+    | SherdogIdCollisionDetails
+    | StructuralDuplicateFightersDetails;
   detected_at: string;
 }
 
@@ -98,6 +101,7 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
   const lowConfidenceFighter = conflicts.filter((c) => c.kind === "low_confidence_fighter_match");
   const lowConfidenceSherdog = conflicts.filter((c) => c.kind === "low_confidence_sherdog_match");
   const sherdogIdCollision = conflicts.filter((c) => c.kind === "sherdog_id_collision");
+  const structuralDuplicate = conflicts.filter((c) => c.kind === "structural_duplicate_fighters");
 
   const [
     disputedOpponentDisplays,
@@ -106,6 +110,7 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
     lowConfidenceFighterDisplays,
     lowConfidenceSherdogDisplays,
     sherdogIdCollisionDisplays,
+    structuralDuplicateDisplays,
   ] = await Promise.all([
     resolveDisputedDisplays(admin, disputedOpponent),
     resolveLowConfidenceDisplays(admin, lowConfidence),
@@ -113,9 +118,10 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
     resolveFighterMatchDisplays(lowConfidenceFighter),
     resolveSherdogMatchDisplays(admin, lowConfidenceSherdog),
     resolveSherdogIdCollisionDisplays(sherdogIdCollision),
+    resolveStructuralDuplicateDisplays(structuralDuplicate),
   ]);
 
-  // Restore detected_at order rather than the six-group split above.
+  // Restore detected_at order rather than the seven-group split above.
   const byId = new Map(
     [
       ...disputedOpponentDisplays,
@@ -124,6 +130,7 @@ export async function getOpenConflicts(): Promise<ConflictDisplay[]> {
       ...lowConfidenceFighterDisplays,
       ...lowConfidenceSherdogDisplays,
       ...sherdogIdCollisionDisplays,
+      ...structuralDuplicateDisplays,
     ].map((d) => [d.id, d]),
   );
   return conflicts.map((c) => byId.get(c.id)).filter((d): d is ConflictDisplay => d !== undefined);
@@ -326,6 +333,27 @@ function resolveSherdogIdCollisionDisplays(
       sherdogId: details.sherdogId,
       existingFighterId: details.existingFighterId,
       existingFighterName: details.existingFighterName,
+    };
+  });
+}
+
+// P8 (I1): plain reshape, same as resolveSherdogIdCollisionDisplays --
+// both fighters' names are already snapshotted into details at detection
+// (detectStructuralDuplicateFighters.ts via the sweep), no extra fetch
+// needed.
+function resolveStructuralDuplicateDisplays(
+  rows: ConflictRow[],
+): import("./types").StructuralDuplicateFightersDisplay[] {
+  return rows.map((r) => {
+    const details = r.details as StructuralDuplicateFightersDetails;
+    return {
+      id: r.id,
+      kind: "structural_duplicate_fighters" as const,
+      detectedAt: r.detected_at,
+      fighterAId: details.fighterAId,
+      fighterAName: details.fighterAName,
+      fighterBId: details.fighterBId,
+      fighterBName: details.fighterBName,
     };
   });
 }
