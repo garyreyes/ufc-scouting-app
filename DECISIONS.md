@@ -989,3 +989,65 @@ recorded via free-text `external_description` (no `fight_id`) stays
 `undetermined` forever by design (`settleLeg`'s own documented behavior for
 a leg this app has no fight row for), same as it already does for the 16
 backfilled tickets' non-UFC legs.
+
+---
+
+## 2026-09-22 — Q5: the report gets its own `/betting/report` page
+
+**Decision.** The per-archetype ROI board, bankroll curve, and Intern
+head-to-head live on a new `/betting/report` page rather than being appended
+to `/betting` itself or to `/scoreboard`.
+
+**Why.** `/betting` is record+settle (Q4's job — SlipForm/SlipList, a
+data-entry surface); folding a three-section report onto the same page mixes
+"do" and "review" the way `/scoreboard` already deliberately keeps separate
+from `/events`. Appending to `/scoreboard` was the other real option (it
+already has the Units/Accuracy board pattern this page's `ArchetypeRoiBoard`/
+`HeadToHeadBoard` reuse), but it mixes picks-based scoreboard data with
+slip-based betting-journal data on one screen — two different tables' worth
+of reporting under one URL. User-confirmed via AskUserQuestion.
+
+**Alternatives considered.** Append to `/betting` (simpler nav, but the page
+already has a form and a list and would get busy). Append to `/scoreboard`
+(reuses the board pattern most directly, but conflates two data sources).
+
+**Consequence.** `/betting` gets a one-line link to `/betting/report` and
+vice versa; no new Sidebar entry was added (kept nav minimal per this
+project's UX floor — one entry, "Betting Journal", still reaches both via
+the in-page link).
+
+---
+
+## 2026-09-22 — Q5: head-to-head restricted to single-leg MONEYLINE slips
+
+**Decision.** The INTERN-vs-owner head-to-head (`buildBettingHeadToHead.ts`)
+only pairs a fight when the owner's slip has **exactly one leg** and that
+leg's market is **MONEYLINE**. A multi-leg slip touching an overlapping
+fight, or a single-leg slip on a non-MONEYLINE market (e.g. Rahiki's
+`METHOD_FIGHTER` bet), is excluded.
+
+**Why.** `bet_slips.pnl_php`/`pnl_units` are SLIP-level generated columns
+(0064) — a parlay's payout is the product of every leg's price, so there is
+no way to attribute a fraction of a multi-leg slip's P&L back to one fight
+without fabricating a number. MONEYLINE-only keeps the comparison
+apples-to-apples: `picks` (and therefore every INTERN pick) has no market
+concept beyond a moneyline call, so a method or double-chance leg on the
+same fight isn't the bet INTERN is being judged against. Both confirmed via
+AskUserQuestion, then verified against the real seed data
+(`src/lib/betting/ownerSlipSeed.ts`): the Bukauskas and Hooker moneyline
+bets are each their own single-leg slip and pair cleanly; the other Elliott
+leg sits inside a 3-leg `LONGSHOT` parlay and is correctly excluded by this
+rule; Rahiki's `METHOD_FIGHTER` bet is correctly excluded by the
+MONEYLINE-only rule.
+
+**Alternatives considered.** Counting every leg market on an overlapping
+fight (broader coverage, but compares different markets side by side and
+still hits the same multi-leg attribution problem for any parlay leg).
+Apportioning a parlay's P&L evenly across its legs — rejected outright, not
+seriously considered: it would fabricate a number no real ticket ever
+produced, exactly the kind of silent wrongness this project's db-read-safety
+rules exist to prevent.
+
+**Consequence.** The head-to-head population stays small and precise rather
+than broad and approximate — a handful of real fights, not every fight the
+owner ever had *any* money on.
