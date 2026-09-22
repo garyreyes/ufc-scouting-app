@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { isOwner } from "@/lib/auth";
 import { describeOwnerConfigError } from "@/lib/describeOwnerConfigError";
@@ -51,6 +52,9 @@ export default async function BettingPage() {
   return (
     <div>
       <h1>Betting journal</h1>
+      <p>
+        <Link href="/betting/report">ROI by archetype, bankroll curve &amp; Intern head-to-head &rarr;</Link>
+      </p>
       <SlipForm events={events} />
       <SlipList slips={openSlips} />
     </div>

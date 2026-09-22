@@ -5303,3 +5303,52 @@ match against already-shipped, live-verified equivalents
 (`features/conflicts/api.ts`'s embed shape; 0064/0065's policies, already
 exercised by the Q3 backfill) rather than a live read-back — worth a
 live smoke test the first time a real slip is recorded.
+
+## Phase Q5 — betting report: archetype ROI, bankroll curve, Intern head-to-head (2026-09-22)
+
+**Added.** A new `/betting/report` page (linked both ways with `/betting`,
+own page rather than folded into `/betting` or `/scoreboard` --
+`DECISIONS.md`), reading `features/betting/reportApi.ts`'s
+`getBettingReportData` and rendering three sections:
+
+- `ArchetypeRoiBoard` — units staked/net PHP/net units/ROI% per
+  `bet_slips.archetype`, all six archetypes always rendered (matches
+  `UnitsBoard`'s own "a line that disappears reads as a bug" rule), fed
+  by a new `aggregateRoiLine` (`lib/scoring/`, same reduce shape as
+  `aggregateUnitsLine` but over slip-level PHP results with an ROI%
+  `picks` never needed).
+- `BankrollCurveChart` — a new bespoke inline SVG line chart (no chart
+  library exists in this codebase and a single series doesn't need one),
+  fed by a new `buildBankrollCurve`. `var(--accent)` single-hue line,
+  validated against both the light and dark surface via the dataviz
+  skill's `validate_palette.js` (both pass). Hover crosshair + tooltip.
+- `HeadToHeadBoard` — the owner's real betting P&L against Intern's
+  picks, restricted to fights where the owner has a **single-leg
+  MONEYLINE** slip (a parlay's slip-level `pnl_php` can't be attributed
+  to one leg's fight — `DECISIONS.md`), fed by a new
+  `buildBettingHeadToHead`. Verified against the real seed data
+  (`ownerSlipSeed.ts`): Bukauskas and Hooker's moneyline bets pair
+  cleanly; the other Elliott leg (inside a 3-leg `LONGSHOT` parlay) and
+  Rahiki's `METHOD_FIGHTER` bet are correctly excluded.
+
+**Caught by the mandatory `reviewer` pass, fixed before shipping:**
+`BankrollCurveChart`'s hover hit-rects used `WIDTH / points.length` for
+spacing/width, but the actual gap between adjacent points is
+`innerWidth / (points.length - 1)` — the two only converge at large N,
+so for realistic point counts the hit-rects left small dead zones (or
+slight overlap) between points. Fixed by computing one `stepWidth` and
+using it for both the point positions and the hover rects. Also fixed a
+stale comment in `buildBankrollCurve.ts` describing a DB-side
+`.order("occurred_at")` that isn't what `getBankrollLedger` actually
+does (a JS-side sort after `selectAllPages`, whose own cursor is `id`).
+
+**Verified.** 11 new tests across `aggregateRoiLine`, `buildBankrollCurve`,
+`buildBettingHeadToHead` (void-slip/void-entry classification, multi-leg
+exclusion, non-MONEYLINE exclusion, null-fightId exclusion, no-overlap).
+Full suite 1253/1253, lint clean, `tsc --noEmit` clean, `next build`
+clean (`/betting/report` compiles as a dynamic route). No live Supabase
+instance was available this session (same gap Q4 logged) — the new reads
+follow `getScoreboardData`'s already-live-verified trust model exactly
+(session-aware client, `is_owner()`-gated tables, public-read
+`fights`/`fighters`), but worth a live smoke test once real settled
+slips and Intern picks overlap in production.

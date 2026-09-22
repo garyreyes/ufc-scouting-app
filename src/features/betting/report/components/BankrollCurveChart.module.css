@@ -1,0 +1,64 @@
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.subtitle {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2px;
+}
+
+.zeroLine {
+  stroke: var(--border);
+  stroke-width: 1px;
+  stroke-dasharray: 4 4;
+}
+
+.crosshair {
+  stroke: var(--border);
+  stroke-width: 1px;
+}
+
+.dot {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2px;
+}
+
+.tooltip {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.tooltipValue {
+  font-weight: 700;
+  color: var(--foreground);
+}

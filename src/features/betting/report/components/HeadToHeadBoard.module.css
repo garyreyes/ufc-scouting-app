@@ -1,0 +1,46 @@
+.pairList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.pairRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 0.8rem;
+}
+
+.pairRow + .pairRow {
+  border-top: 1px solid var(--border);
+}
+
+.pairFight {
+  color: var(--muted);
+}
+
+.pairOwner {
+  font-weight: 600;
+  text-align: right;
+}
+
+.pairIntern {
+  color: var(--muted);
+  text-align: right;
+}
+
+@media (max-width: 480px) {
+  .pairRow {
+    grid-template-columns: 1fr;
+    text-align: left;
+    gap: 2px;
+  }
+
+  .pairOwner,
+  .pairIntern {
+    text-align: left;
+  }
+}
