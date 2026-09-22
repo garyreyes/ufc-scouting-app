@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/events/past", label: "Past Events", icon: "\u{1F551}" },
   { href: "/fighters", label: "Fighters", icon: "\u{1F94A}" },
   { href: "/scoreboard", label: "Scoreboard", icon: "\u{1F4CA}" },
+  { href: "/betting", label: "Betting Journal", icon: "\u{1F4B0}" },
 ] as const;
 
 export function Sidebar({ collapsed }: { collapsed: boolean }) {

@@ -20,8 +20,9 @@ export type SlipRollup =
   | { status: "void"; payoutPhp: number };
 
 // numeric(10,2) is the column's own precision, and pesos do not have
-// fractions of a centavo.
-function toCentavos(value: number): number {
+// fractions of a centavo. Exported for settleBetSlips.ts, which rounds
+// the same way when it derives a bankroll_ledger amount from a rollup.
+export function toCentavos(value: number): number {
   return Math.round(value * 100) / 100;
 }
 

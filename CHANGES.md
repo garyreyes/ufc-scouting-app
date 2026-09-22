@@ -5249,3 +5249,57 @@ independently sum to +₱3,796.72 on ₱3,378.49 staked — matching the
 backfill script's own reconciliation, computed by Postgres rather than
 trusted from the script. `migration list --linked` reconciled through
 `0065` local+remote.
+
+## Phase 103 (ROADMAP_V2.md Phase Q / Q4) — the betting journal's UI: record, list, auto-settle, cash out (2026-09-22)
+
+**What.** `src/features/betting/` (types, api, actions, `SlipForm`/
+`SlipList`/`SlipActions`) plus a new owner-gated `/betting` route, added
+to the sidebar. Records a slip (archetype, one or more legs — a UFC fight
+picked via event→fight→fighter dropdowns backed by the existing
+`fights/api.ts`, or free text for a leg this app has no fight row for —
+market, price, stake, book), lists open slips with each leg's live
+result, and lets the owner cash one out.
+
+Also ships `src/lib/betting/settleBetSlips.ts`, mirroring
+`settlePicks.ts`'s own shape, wired into `runSettlementJobsOnce.ts` right
+after `settlePicks` and riding `settle.yml`'s existing cron — no new
+workflow. Without this, every recorded slip would sit at `open` forever;
+`settleLeg`/`settleSlip` (Q2) had no caller reading real fight results
+until now. See `DECISIONS.md`, 2026-09-22, for why Q4 was scoped to
+include this rather than deferring it.
+
+**Two write paths, matching 0064's own trigger split.** `settleBetSlips`
+writes `won`/`lost`/`void` through the service-role admin client (the
+only role the trigger allows). `cashOutSlipAction` is the one
+client-writable exception — the slip's own status update runs through
+the caller's normal session (RLS already permits it), but the
+`bankroll_ledger` row it also writes does not: that table's insert policy
+only grants `kind in ('deposit','withdrawal','adjustment')` to
+`authenticated`, never `'slip_settlement'`, so that one write goes through
+the admin client after an explicit ownership refetch — same pattern
+`features/conflicts/actions.ts`'s `requireOwner()` already established.
+
+**Caught by the mandatory `reviewer` pass, fixed before shipping:**
+`SlipForm.tsx`'s external-leg mode (for a leg with no fight row, e.g. a
+non-UFC accumulator leg) let the market dropdown stay on any of the five
+markets, including `MONEYLINE` — its own default value for a new leg row.
+0064's own CHECK constraint requires a non-null `selection_fighter_id`
+for every market except `OTHER`/`METHOD_FIGHT`, and an external leg has
+no fighter row to select one from, so submitting with the default market
+untouched would always fail server-side, taking the whole slip (including
+any other correctly-filled legs) down with it. Fixed by restricting the
+market dropdown to `OTHER`/`METHOD_FIGHT` in external mode, resetting off
+an invalid market when switching modes, and adding the matching guard to
+`buildLegInputs`.
+
+**Verified.** `settleBetSlips.test.ts` (5 new tests: single-leg win,
+parlay dies on one lost leg, an undetermined-only slip stays open, an
+already-settled leg is read as-is without being rewritten, no-open-slips
+no-op). Full suite 1242/1242, lint clean, `tsc --noEmit` clean,
+`next build` clean (`/betting` compiles as a dynamic route). No live
+Supabase instance was available this session, so the PostgREST embed in
+`getOpenSlips` and the RLS policies themselves are verified by pattern
+match against already-shipped, live-verified equivalents
+(`features/conflicts/api.ts`'s embed shape; 0064/0065's policies, already
+exercised by the Q3 backfill) rather than a live read-back — worth a
+live smoke test the first time a real slip is recorded.

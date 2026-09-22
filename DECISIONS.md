@@ -956,3 +956,36 @@ DEFINER trigger doing a role check should copy `0023`'s live pattern
 (`current_setting('role', true) = 'service_role'`), or better, query
 `pg_get_functiondef` for the CURRENT version of the nearest analogous
 function before writing a new one.
+
+---
+
+## 2026-09-22 — Q4 includes `settleBetSlips.ts`, not just the recording UI
+
+**Decision.** Q4 builds both the client-facing UI (record a slip, list open
+slips, cash out) AND a new automated settlement job, `settleBetSlips.ts`,
+wired into `runSettlementJobsOnce.ts` (right after `settlePicks`) and riding
+the existing `settle.yml` cron — no new workflow file.
+
+**Why.** `0064`'s trigger (`check_bet_slip_constraints`/
+`check_bet_leg_constraints`) only lets the **service-role** connection write
+`won`/`lost`/`void` (see the 2026-09-21 "service-role-only" entry above) — a
+client action cannot write those statuses no matter how the UI is built.
+`ROADMAP_V2.md`'s own Q4 line ("list open slips, settle / cash-out") reads as
+one UI feature but is actually two different mechanisms in this codebase: a
+service-role batch job (`settlePicks.ts`'s own pattern) for real match
+outcomes, and an owner-writable client action for `cashed_out` only. Building
+just the UI half would ship a page where every slip sits at `open` forever,
+regardless of real results — `settleLeg`/`settleSlip` (Q2, already built and
+tested) would exist but never actually run against real data.
+
+**Alternatives considered.** UI-only this pass, deferring `settleBetSlips.ts`
+to a later sub-phase — rejected (user-confirmed): the settlement engine is
+the reason the journal exists, and a "record but never resolve" surface
+undersells what Q2 already built.
+
+**Consequence for scope.** Q4 needs `bet_legs.fight_id`/`bet_slips.event_id`
+resolved for every possible leg for auto-settlement to find them; a leg
+recorded via free-text `external_description` (no `fight_id`) stays
+`undetermined` forever by design (`settleLeg`'s own documented behavior for
+a leg this app has no fight row for), same as it already does for the 16
+backfilled tickets' non-UFC legs.

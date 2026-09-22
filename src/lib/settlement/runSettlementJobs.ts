@@ -23,9 +23,10 @@ function numericArg(prefix: string): number | undefined {
 async function main() {
   const sherdogReimportMaxFighters = numericArg("--sherdog-reimport-cap=");
   const supabase = getSupabaseAdmin();
-  const { sherdogReimport, sherdogResults, fights, picks, elo, records } = await runSettlementJobsOnce(supabase, {
-    sherdogReimportMaxFighters,
-  });
+  const { sherdogReimport, sherdogResults, fights, picks, betSlips, elo, records } = await runSettlementJobsOnce(
+    supabase,
+    { sherdogReimportMaxFighters },
+  );
 
   console.log(
     `Sherdog re-import: ${sherdogReimport.pendingFights} pending fights, ` +
@@ -42,6 +43,7 @@ async function main() {
       `${fights.stillWaiting} still waiting, ${fights.resultDisputesResolved} prior disputes auto-resolved.`,
   );
   console.log(`Pick settlement: ${picks.picksSettled} picks settled across ${picks.fightsProcessed} fights.`);
+  console.log(`Bet slip settlement: ${betSlips.slipsSettled} slips settled, ${betSlips.legsSettled} legs decided.`);
   console.log(
     `Elo recompute: ${elo.fightsProcessed} settled fights processed, ${elo.snapshotsWritten} rating snapshots written.`,
   );
