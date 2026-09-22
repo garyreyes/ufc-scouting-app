@@ -9,12 +9,14 @@ import {
 import { applySherdogResults, type ApplySherdogResultsSummary } from "../sherdog/applySherdogResults";
 import { settleFights, type SettleFightsSummary } from "./settleFights";
 import { settlePicks, type SettlePicksSummary } from "./settlePicks";
+import { settleBetSlips, type SettleBetSlipsSummary } from "../betting/settleBetSlips";
 
 export interface SettlementJobsSummary {
   sherdogReimport: ReimportPendingSummary;
   sherdogResults: ApplySherdogResultsSummary;
   fights: SettleFightsSummary;
   picks: SettlePicksSummary;
+  betSlips: SettleBetSlipsSummary;
   elo: RecomputeEloSummary;
   records: RecomputeRecordsSummary;
 }
@@ -103,9 +105,14 @@ export async function runSettlementJobsOnce(
   );
   const fights = await runWithTracking(supabase, "settle_fights", () => settleFights(supabase));
   const picks = await runWithTracking(supabase, "settle_picks", () => settlePicks(supabase));
+  // Reads the same freshly-settled `fights` rows `picks` just did -- runs
+  // right after for the same reason D2 runs right after D1 (comment
+  // above): "a new result was just discovered" is exactly the moment a
+  // bet slip resting on it can resolve too.
+  const betSlips = await runWithTracking(supabase, "settle_bet_slips", () => settleBetSlips(supabase));
   const elo = await runWithTracking(supabase, "recompute_elo", () => recomputeEloRatings(supabase));
   const records = await runWithTracking(supabase, "recompute_records", () =>
     recomputeFighterRecords(supabase),
   );
-  return { sherdogReimport, sherdogResults, fights, picks, elo, records };
+  return { sherdogReimport, sherdogResults, fights, picks, betSlips, elo, records };
 }
