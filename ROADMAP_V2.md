@@ -329,3 +329,102 @@ actually bet into.
 - **Not treating provider prices as bettable.** The owner bets a PH-facing
   book with different lines and richer markets. Everything ingested here is
   a **reference line for finding edges**, never the price actually struck.
+
+---
+
+## Phase S — the Intern is worse than the market
+
+### The trigger
+
+UFC Fight Night: Rosas Jr. vs. Barcelos (2026-09-26): picks 4/11, bets 1/4,
+−2.60u. The owner called it "utter bullshit." Measured across all four
+settled cards live against `vrwlfcywyfzfczajpdoh` on 2026-09-28, it was not
+variance:
+
+| | Intern v1 | Market favourite |
+|---|---|---|
+| Pick accuracy (49 fights with odds) | 28/49 (57%) | **31/49 (63%)** |
+| Brier | 0.237 | **0.226** |
+| Mean stated probability of the pick | 0.705 (up to 0.99) | 0.663 |
+| Bets | 25 bets, 11W, **−9.87u on 28.76u (−34%)** | — |
+| Bets priced ≥ 2.00 | **1W–10L, ≈ −8.1u** | — |
+| Bets priced < 2.00 | 10W–4L, ≈ −1.8u | — |
+
+It deviated from the favourite on 5 picks and hit 1. **None of the 25 bets
+came from the underdog floor** (checked via `reasoning`) — every loss is the
+model's own.
+
+### Root causes
+
+1. **Signals are too loud.** `p = marketNoVig + Σ adjustments`, Elo alone up
+   to ±0.15, total ±0.25, clamped to [0.01, 0.99]. Brito, Despaigne,
+   Belgaroui and Jauregui were all read at 0.99.
+2. **The bet gate selects for model error.** `edge = p × price − 1 ≥ 0.05`:
+   at a 5.20 price a one-point probability error clears it, so the gate
+   concentrates bets exactly where the model is most wrong.
+3. **Stakes ignore conviction.** Confidence-1 reads staked 0.97u and 1.2u.
+4. **Stale pick after an opponent swap.** Hernandez v Dumas holds an INTERN
+   pick on **Mickey Gall**, who is not in the bout.
+
+### Sub-phases
+
+| # | Sub-phase | Correctness class | Status |
+|---|---|---|---|
+| **S0** | Docs: this section, Phase T, `DECISIONS.md` entry overriding Phase Q's "don't touch `decideInternBet`" non-goal. | Docs | **done 2026-09-28** |
+| **S1** | Backtest harness: replay pick + bet logic over every settled fight with an `odds_snapshots` row, recovering the v1 delta as `stored p − de-vigged anchor`. Brier, log loss, accuracy, bets, units, ROI for v1 vs a grid of v2 settings. Conservative choice rule — 49 fights is a sanity check, not a fit. | Read-only; pure core tested | **done 2026-09-28** — `npm run intern:backtest`, 49 fights: market Brier 0.2264; v1 0.2369 (28/49, −9.87u recorded); **v2 @ 0.35: 0.2285, 31/49, 12 bets**; the v2 bet rule alone on v1 probabilities cuts −34% to −3.4% ROI. Every weight > 0 scores slightly worse than the market — the signals add no measurable information yet, so 0.35 was kept, not tuned. |
+| **S2** | v2 model: shrink toward market (`p = anchor + λ·delta`, λ = 0.35 unless S1 contradicts, clamp [0.03, 0.97]); bet gate = probability edge ≥ 0.03 **and** EV ≥ 0.03, price ≤ 3.50, confidence ≥ 2; quarter-Kelly stake on a 100u notional bankroll, [0.25u, 2u]; drop the bet-floor redirect (pick floor stays); `signals.modelVersion = "v2"`. | **Correctness-critical — test first** | **done 2026-09-28** — `internModel.ts` (versioned params, `CURRENT_INTERN_MODEL = INTERN_V2`), `decideInternBetV2.ts` (v1 kept untouched for `scoreShadowLines`), bet floor removed. `runScheduledInternJob.ts --dry-run` verified against UFC 332 (all 13 fights unpriced at the time: ~50%, no bets — correct). |
+| **S3** | Scoreboard v1/v2 split on `signals->>'modelVersion'` (absent = v1); re-pick pre-lock when `predicted_fighter_id` is outside the fight; integrity invariant **I7** for the same. | Split judgment; I7/re-pick test first | **done 2026-09-28** — scoreboard headline "Intern" = v2; "Intern v1 (retired)" shown alongside. **Deviation:** I7 was dropped — `integrity_alerts` has no UI, so an alert would be invisible. Fixed at the source instead: resolving a `disputed_opponent` with the candidate deletes unsettled picks whose predicted OR bet fighter left the bout (so the Intern re-picks pre-lock), and `settlePicks` skips such rows instead of throwing (the pick trigger rejects any write to them, which would have aborted all settlement). `reviewer` caught the bet-fighter half; fixed + regression test. Delete filter verified live with a read-only select. |
+
+### Explicit non-goals
+
+- **Not fitting λ to 49 fights.** The backtest can veto 0.35, not tune it
+  to three decimals.
+- **Not rewriting v1 history.** Settled v1 picks stay as recorded; the
+  scoreboard splits the series instead.
+
+---
+
+## Phase T — the Intern's slate
+
+### The trigger
+
+The owner bets a portfolio per card, not single moneylines: value underdog
+singles, a confident 2–4 leg parlay, a 5–10 leg longshot moneyline parlay,
+a 2–4 leg method parlay, a method single. The Intern should build the same
+slate, deterministically, against its **own ₱10,000 paper bankroll**, on a
+separate tab — leaving `/scoreboard` to pick accuracy and moneyline bets.
+
+### Owner-confirmed shape (2026-09-28)
+
+- **Method legs** are priced by estimate (`1 / (p_win · P(method|win) ·
+  1.20)`), labelled "est.", and the owner can overwrite any leg with the
+  real book price before the lock.
+- **Budget** ≈ 10% of the current INTERN balance per card.
+- **Roster** fixed: parlays and the method single every card; value singles
+  only when the v2 bet gate fires.
+
+| Archetype | Owner's name | Legs | Share of budget |
+|---|---|---|---|
+| `STRAIGHT_DOG` | Value bets | 1 each, 0–3 slips | 30% |
+| `SAFE_PARLAY` | Confident parlay | 2–4 | 30% |
+| `LONGSHOT` | Longshot moneylines | 5–10 | 12.5% |
+| `METHOD_PARLAY` | Longshot method of win | 2–4 | 12.5% |
+| `METHOD_SINGLE` | Single method bet | 1 | 15% |
+
+### Sub-phases
+
+| # | Sub-phase | Correctness class | Status |
+|---|---|---|---|
+| **T1** | Migration `0066`: `bankroll_ledger.author` + trigger tying a settlement row's author to its slip; ₱10,000 INTERN opening deposit; `METHOD_PARLAY`/`METHOD_SINGLE` archetypes; `bet_slips.generation_key unique`; `bet_legs.price_source`/`model_probability`. Author filters in `getOpenSlips`/`getBankrollLedger`, author routing in `settleBetSlips` — otherwise INTERN P&L lands in the owner's bankroll. | **Correctness-critical — test first** | **done 2026-09-28** — `0066` applied to `vrwlfcywyfzfczajpdoh` via `migration-runner` (ref verified), read back (columns, trigger, policy, archetype check, ledger USER ₱10,000 + INTERN ₱10,000), tracking row reconciled to version `0066`. |
+| **T2** | `predictInternMethod` exposes its `{dec, ko, sub}` distribution (label output unchanged, characterization snapshot guards it); calibration check in `methodBacktest`; `estimateMethodPrice`. | **Correctness-critical — test first** | **done 2026-09-28** — distribution = the three scores the label is chosen from (sum to 1), stored in `picks.signals.methodDistribution`; `methodBacktest` reports mean-predicted vs actual per method. |
+| **T3** | `assembleInternSlate` — pure, deterministic, ties by `fightId`, never two legs from one fight in a slip. | **Correctness-critical — test first** | **done 2026-09-28** — `slate/assembleInternSlate.ts` + `slateStaking.ts`; 22 exact-value tests. Replaying the 2026-09-26 card added two rules: method single ≥ 1.50 / method-parlay legs ≥ 1.30 (the top method leg was a 93% favourite "by finish" at 1.18), and confident-parlay gate conf ≥ 2 (prelim newcomers are Elo-capped at 2). |
+| **T4** | `generateInternSlate` job after the picks step in `intern.yml`: rebuild the nearest card's open INTERN slips until the pick lock, carry owner-entered prices over, freeze after. `--dry-run`, `job_runs: "intern_slate"`. | Bulk write — dry-run mandatory | **done 2026-09-28** — `slate/generateInternSlate.ts`, `npm run intern:slate [-- --dry-run]`, `intern.yml` step. Balance = INTERN ledger − stakes open on other cards. Dry run against production read ₱10,000 correctly (0 slips: UFC 332 unpriced, picks still v1). |
+| **T5** | `/intern-slips` tab: bankroll header + curve, the upcoming slate, past cards, per-archetype ROI, owner price override (owner-checked, admin client, pending legs on open INTERN slips pre-lock only). | Judgment; override guard test first | **done 2026-09-28** — `/intern-slips` + Sidebar item + event-page link; reuses `ArchetypeRoiBoard` (new optional `labels`) and `BankrollCurveChart`. Built on the existing visual system (no DESIGN.md; not re-rolled). Not yet smoke-tested live — needs an owner session. |
+
+### Explicit non-goals
+
+- **Not an LLM assembler** — same reason as Phase Q.
+- **Not reallocating an empty archetype's budget.** A card with no value
+  singles spends less, not the same amount on worse bets.
+- **Not touching the owner's ledger.** INTERN money and owner money never
+  share a balance.

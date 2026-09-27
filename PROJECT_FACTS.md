@@ -394,6 +394,40 @@ Decided 2026-08-29, user-originated.
 
 ## Odds
 
+- **ParlayAPI (`parlay-api.com`) was evaluated as a `method_of_victory` props
+  source and rejected — verified live, 2026-09-27, not just a docs gap.**
+  A pasted implementation doc assumed `method_of_victory` was a real MMA
+  market; the actual docs never mention it (only a baseball example
+  response). Live-tested anyway: `GET /v1/sports/mma_mixed_martial_arts/
+  props` (sport key confirmed correct and `active:true` via `GET
+  /v1/sports`) returned **NHL games** — Bruins, Flyers, Oilers, Rangers,
+  Canucks — under the MMA sport key, reproducibly across 3 separate calls,
+  zero MMA fighter names anywhere, all with `200 OK`. This is a live
+  sport-key-filtering bug, not a missing market — worse than a paywall
+  because it fails silently instead of erroring. Also: ~50% of calls
+  during the same session returned `503 props_temporarily_busy` ("board
+  being rebuilt under load"). **Do not re-propose ParlayAPI without
+  re-verifying the sport-key bug is fixed** — auth (`X-API-Key` header)
+  and the free-tier numbers (1,000 credits/mo, 3 credits/`/props` call)
+  did check out correctly, so the credential/pricing model isn't the
+  problem, the data integrity is.
+- **The Odds API itself (the project's existing, already-wired feed) has no
+  method-of-victory or any other MMA prop market — verified live,
+  2026-09-27.** Checked before evaluating a third vendor from scratch,
+  since `lib/odds/client.ts` already has a working `ODDS_API_KEY`. Their
+  own market-reference docs page lists MMA nowhere. Live-tested against a
+  real upcoming fight (`dos Anjos vs Hernandez`, per-event endpoint): every
+  plausible market-key guess (`method_of_victory`, `fight_result`,
+  `totals_rounds`, `round_betting`, `fighter_props`, `total_rounds`,
+  `win_method`, `fight_props`) returned `INVALID_MARKET`. Requesting
+  `h2h,totals,spreads` together returned **only `h2h`** — `totals` and
+  `spreads` were silently dropped, not errored — across all 5 bookmakers
+  pricing that fight (betonlineag, bovada, betrivers, betmgm,
+  draftkings). **h2h moneyline is the only market this vendor carries for
+  MMA, full stop** — this isn't a free-tier restriction like Cito or a
+  bug like ParlayAPI, it's the vendor's actual MMA coverage ceiling. A
+  method-of-victory feed needs a different vendor entirely; extending the
+  existing integration cannot get there.
 - **Bookmaker: BetOnline.ag (`betonlineag`), region `us`, decimal.** Switched
   2026-09-01 from the original choice, 1xBet — see below. Decimal is The
   Odds API's default format, so **no American-odds conversion exists
@@ -501,6 +535,31 @@ Decided 2026-08-29, user-originated.
   shared layout chrome (a banner, a header widget), diff `next build`'s
   route table — a regression here is silent and page-wide, not local to
   the file that changed.
+
+- **Cito API was evaluated as a `method_of_victory`/props source and rejected
+  on the free tier — verified live, 2026-09-22.** Marketing copy and the docs
+  page list `method_of_victory`/`exact_round`/`round_method`/`round_group`/
+  `fight_goes_distance`/`finish_only_moneyline` as UFC market names, but
+  neither the docs nor the OpenAPI spec (`https://citoapi.com/openapi.json`)
+  show a single example response — `OddsMarket`/`OddsOutcome` are fully
+  generic (`key`/`name` strings), so the real per-fighter-per-method
+  granularity was unverifiable from docs alone. Confirmed by a real call:
+  `GET /api/v1/ufc/events/{id}/odds` on a Free-tier key returns
+  `403 ODDS_ACCESS_REQUIRED` — **odds/betting markets are excluded from the
+  Free tier entirely** (event/fighter/stats endpoints work fine on Free;
+  odds requires Pro, $59/mo per `citoapi.com/pricing`, vs. the project's
+  hard $0/month ceiling). Non-odds endpoints were reachable and returned
+  real data (`/ufc/events` paginated correctly, live 2026 cards). **Do not
+  re-propose Cito for odds without a paid plan** — for non-odds UFC data
+  (event/fighter/stats lookups) it remains untested but reachable.
+- **Two documented auth methods conflict for Cito's API.** The OpenAPI spec
+  says the header is `x-api-key`; `citoapi.com/llms.txt` says
+  `Authorization: Bearer`. Live-tested: `x-api-key` is correct (confirmed by
+  the `MISSING_API_KEY` error text on requests missing it); `Bearer` and a
+  `?api_key=` query param both fail. **Also found live:** real issued keys
+  are prefixed `cito_live_...`, not just `cito_...` — a key missing the
+  `live_` segment fails with `Invalid API key format`, distinct from an
+  auth/permission error.
 
 ## Access control
 

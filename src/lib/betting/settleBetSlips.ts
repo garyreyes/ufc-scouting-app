@@ -15,6 +15,8 @@ export interface SettleBetSlipsSummary {
 interface SlipRow {
   id: string;
   stake_php: number;
+  // The ledger row is written into THIS author's bankroll (0066).
+  author: "USER" | "INTERN";
 }
 
 interface LegRow {
@@ -68,7 +70,7 @@ interface FightRow {
 export async function settleBetSlips(supabase: SupabaseClient): Promise<SettleBetSlipsSummary> {
   const now = new Date().toISOString();
 
-  const openSlips = await selectAllPages<SlipRow>(supabase, "bet_slips", "id, stake_php", (q) =>
+  const openSlips = await selectAllPages<SlipRow>(supabase, "bet_slips", "id, stake_php, author", (q) =>
     q.eq("status", "open"),
   );
   if (openSlips.length === 0) return { slipsSettled: 0, legsSettled: 0 };
@@ -157,6 +159,7 @@ export async function settleBetSlips(supabase: SupabaseClient): Promise<SettleBe
       kind: "slip_settlement",
       amount_php: toCentavos(rollup.payoutPhp - slip.stake_php),
       slip_id: slip.id,
+      author: slip.author,
       occurred_at: now,
     });
     if (ledgerError) throw ledgerError;

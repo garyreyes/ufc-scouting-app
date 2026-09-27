@@ -37,10 +37,12 @@ function LineRow({ label, line, secondary }: { label: string; line: AccuracyLine
 export function AccuracyBoard({
   me,
   intern,
+  internV1,
   chalk,
 }: {
   me: AccuracyLine;
   intern: InternAccuracyLine;
+  internV1: AccuracyLine;
   chalk: AccuracyLine;
 }) {
   const internSecondary =
@@ -54,6 +56,7 @@ export function AccuracyBoard({
       <p className={styles.subtitle}>Did I read the fights right?</p>
       <LineRow label="Me" line={me} />
       <LineRow label="Intern" line={intern} secondary={intern.total > 0 ? internSecondary : undefined} />
+      {internV1.total > 0 && <LineRow label="Intern v1 (retired)" line={internV1} />}
       <LineRow label="Chalk" line={chalk} />
     </section>
   );

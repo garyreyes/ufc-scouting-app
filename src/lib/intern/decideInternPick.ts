@@ -1,8 +1,8 @@
-import { applyProbabilityDelta } from "../scoring/applyProbabilityDelta";
 import { devigTwoWay } from "../scoring/devigTwoWay";
 import { eloAdjustment } from "../elo/eloAdjustment";
 import { ageAdjustment } from "./ageAdjustment";
 import { flagPenalty } from "./flagPenalty";
+import { applyInternDelta, INTERN_V1, type InternModelParams } from "./internModel";
 import { sizeAdjustment } from "./sizeAdjustment";
 import type { InternFighter, InternPickDecision, InternPickInput } from "./types";
 
@@ -75,7 +75,7 @@ function ageNoteFor(fighter1: InternFighter, fighter2: InternFighter, ageDelta: 
  * Normalising each side by the pair's total is what makes the anchor the
  * market's actual opinion rather than its opinion plus its markup.
  */
-export function decideInternPick(input: InternPickInput): InternPickDecision {
+export function decideInternPick(input: InternPickInput, model: InternModelParams = INTERN_V1): InternPickDecision {
   const { fighter1, fighter2, odds, flags } = input;
 
   const marketAnchored = odds !== null;
@@ -110,7 +110,7 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
   const ageDelta = ageAdjustment(fighter1.ageYears, fighter2.ageYears);
   const rawDelta = penalty2 - penalty1 + eloDelta + sizeDelta + ageDelta;
   const delta = Math.max(-MAX_TOTAL_ADJUSTMENT, Math.min(MAX_TOTAL_ADJUSTMENT, rawDelta));
-  const probability1 = applyProbabilityDelta(anchor1, delta);
+  const probability1 = applyInternDelta(anchor1, delta, model);
 
   // Ties break toward fighter1, the same deterministic convention
   // lib/scoring/determineFavorite.ts already uses for the chalk line.
@@ -135,13 +135,20 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
 
   const ageNote = ageNoteFor(fighter1, fighter2, ageDelta);
 
+  // v1's reasoning text is pinned by the characterization snapshot; only a
+  // shrunk model says how much of the signal it actually applied.
+  const weightNote =
+    model.signalWeight === 1
+      ? ""
+      : ` Signals applied at ${Math.round(model.signalWeight * 100)}% strength (${model.version}).`;
+
   const minRatedFightCount = Math.min(fighter1.ratedFightCount, fighter2.ratedFightCount);
 
   return {
     predictedFighterId: predicted.id,
     estimatedProbability,
     confidence: confidenceFor(estimatedProbability, minRatedFightCount),
-    reasoning: `${anchorNote} ${rumourNote} ${eloNote} ${sizeNote} ${ageNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
+    reasoning: `${anchorNote} ${rumourNote} ${eloNote} ${sizeNote} ${ageNote}${weightNote} Final: ${pct(estimatedProbability)} ${predicted.name}.`,
     marketAnchored,
     signals: {
       rumours: penalty2 - penalty1,
@@ -150,6 +157,8 @@ export function decideInternPick(input: InternPickInput): InternPickDecision {
       age: ageDelta,
       rawDelta,
       clampedDelta: delta,
+      modelVersion: model.version,
+      signalWeight: model.signalWeight,
     },
   };
 }

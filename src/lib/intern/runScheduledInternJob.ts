@@ -7,10 +7,14 @@ import { generateInternPicks } from "./generateInternPicks";
 // the odds, settlement, and rumour jobs.
 async function main() {
   const supabase = getSupabaseAdmin();
-  const summary = await runWithTracking(supabase, "intern_picks", () => generateInternPicks(supabase));
+  const dryRun = process.argv.includes("--dry-run");
+  // A dry run writes nothing -- not even its own job_runs row.
+  const summary = dryRun
+    ? await generateInternPicks(supabase, { dryRun })
+    : await runWithTracking(supabase, "intern_picks", () => generateInternPicks(supabase));
 
   console.log(
-    `Intern picks: ${summary.fightsConsidered} fights considered, ` +
+    `${dryRun ? "[dry-run] " : ""}Intern picks: ${summary.fightsConsidered} fights considered, ` +
       `${summary.picksWritten} written, ${summary.picksUnchanged} unchanged, ` +
       `${summary.unpricedPicks} unpriced (anchored at even odds), ` +
       `${summary.betsPlaced} bets placed, ` +

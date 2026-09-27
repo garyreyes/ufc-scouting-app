@@ -79,4 +79,18 @@ describe("buildDisputedOpponentResolution", () => {
       resolution: "merged_fighters",
     });
   });
+
+  // Phase S3: an unsettled pick on the replaced opponent is a prediction
+  // about a bout that no longer exists -- and check_pick_constraints()
+  // rejects every later write to it, settlement included (Hernandez v
+  // Dumas's stale Mickey Gall pick, 2026-09-28).
+  it("using the candidate names the fighter pair every surviving pick must be on", () => {
+    const result = buildDisputedOpponentResolution(conflict(), "candidate", NOW);
+    expect(result.keepPicksOnFighterIds).toEqual(["fighter-a", "fighter-c"]);
+  });
+
+  it("confirming the existing row or merging leaves picks alone", () => {
+    expect(buildDisputedOpponentResolution(conflict(), "existing", NOW).keepPicksOnFighterIds).toBeNull();
+    expect(buildDisputedOpponentResolution(conflict(), "merge", NOW).keepPicksOnFighterIds).toBeNull();
+  });
 });

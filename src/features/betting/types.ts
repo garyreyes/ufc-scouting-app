@@ -1,5 +1,14 @@
 // Mirrors bet_slips.archetype (0064_bankroll_and_slips.sql).
-export type SlipArchetype = "SAFE_PARLAY" | "STRAIGHT_DOG" | "LONGSHOT" | "METHOD_VALUE" | "LOCK" | "OTHER";
+export type SlipArchetype =
+  | "SAFE_PARLAY"
+  | "STRAIGHT_DOG"
+  | "LONGSHOT"
+  | "METHOD_VALUE"
+  | "LOCK"
+  | "OTHER"
+  // 0066 (Phase T): the owner's two method slip types, told apart.
+  | "METHOD_PARLAY"
+  | "METHOD_SINGLE";
 
 export type SlipStatus = "open" | "won" | "lost" | "void" | "cashed_out";
 

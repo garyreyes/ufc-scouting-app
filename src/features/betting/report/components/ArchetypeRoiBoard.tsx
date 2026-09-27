@@ -2,11 +2,13 @@ import type { RoiLine } from "@/lib/scoring/aggregateRoiLine";
 import type { ArchetypeRoiRow } from "../../reportApi";
 import styles from "./ReportBoard.module.css";
 
-const ARCHETYPE_LABELS: Record<ArchetypeRoiRow["archetype"], string> = {
+export const ARCHETYPE_LABELS: Record<ArchetypeRoiRow["archetype"], string> = {
   SAFE_PARLAY: "Safe parlay",
   STRAIGHT_DOG: "Straight dog",
   LONGSHOT: "Longshot",
   METHOD_VALUE: "Method value",
+  METHOD_PARLAY: "Method parlay",
+  METHOD_SINGLE: "Method single",
   LOCK: "Lock",
   OTHER: "Other",
 };
@@ -48,14 +50,24 @@ function ArchetypeRow({ label, line }: { label: string; line: RoiLine }) {
 // Every archetype renders, even at zero bets (matches UnitsBoard's own
 // rule) -- an archetype the owner hasn't used reads as "no bets", not as
 // a silently missing row.
-export function ArchetypeRoiBoard({ overall, byArchetype }: { overall: RoiLine; byArchetype: ArchetypeRoiRow[] }) {
+// `labels` lets /intern-slips show the owner's own names for its five slip
+// types; the journal report keeps the archetype names.
+export function ArchetypeRoiBoard({
+  overall,
+  byArchetype,
+  labels = ARCHETYPE_LABELS,
+}: {
+  overall: RoiLine;
+  byArchetype: ArchetypeRoiRow[];
+  labels?: Partial<Record<ArchetypeRoiRow["archetype"], string>>;
+}) {
   return (
     <section className={styles.board}>
       <h2 className={styles.title}>ROI by archetype</h2>
       <p className={styles.subtitle}>Which kind of bet actually earns?</p>
       <ArchetypeRow label="All" line={overall} />
       {byArchetype.map((row) => (
-        <ArchetypeRow key={row.archetype} label={ARCHETYPE_LABELS[row.archetype]} line={row.line} />
+        <ArchetypeRow key={row.archetype} label={labels[row.archetype] ?? ARCHETYPE_LABELS[row.archetype]} line={row.line} />
       ))}
     </section>
   );

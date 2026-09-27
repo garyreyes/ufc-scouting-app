@@ -3,6 +3,11 @@ import type { FightMethod } from "../scoring/fightMethod";
 export interface InternMethodDecision {
   method: FightMethod;
   note: string;
+  // Phase T2: how the FIGHT ends -- the same three scores the label is
+  // chosen from, which always sum to 1. Used as P(method | picked fighter
+  // wins) by the slate's method legs: an approximation that ignores how
+  // the method would differ if the other fighter won.
+  distribution: ThreeWaySplit;
 }
 
 // A fighter's career finish breakdown, straight off `fighters` --
@@ -132,7 +137,7 @@ function weightBucket(weightClass: string | null): WeightBucket {
   return "mid";
 }
 
-interface ThreeWaySplit {
+export interface ThreeWaySplit {
   dec: number;
   ko: number;
   sub: number;
@@ -231,7 +236,11 @@ function predictFromWeightClassOnly(lopsidedness: number, bucket: WeightBucket):
   const order: Array<Exclude<FightMethod, "FINISH">> = ["DECISION", "KO_TKO", "SUBMISSION"];
   const method = order.reduce((best, m) => (scores[m] > scores[best] ? m : best), order[0]);
 
-  return { method, note: describeWeightClassOnly(method, lopsidedness, bucket) };
+  return {
+    method,
+    note: describeWeightClassOnly(method, lopsidedness, bucket),
+    distribution: { dec: scores.DECISION, ko: scores.KO_TKO, sub: scores.SUBMISSION },
+  };
 }
 
 function predictFromRecords(
@@ -297,8 +306,10 @@ function predictFromRecords(
     SUBMISSION: finishPool * (1 - koShareOfFinish),
   };
 
+  const distribution = { dec: scores.DECISION, ko: scores.KO_TKO, sub: scores.SUBMISSION };
+
   if (scores.DECISION >= scores.KO_TKO && scores.DECISION >= scores.SUBMISSION) {
-    return { method: "DECISION", note: describeRecords("DECISION", picked, opponent) };
+    return { method: "DECISION", note: describeRecords("DECISION", picked, opponent), distribution };
   }
 
   const method: FightMethod =
@@ -308,7 +319,7 @@ function predictFromRecords(
         ? "SUBMISSION"
         : "FINISH";
 
-  return { method, note: describeRecords(method, picked, opponent) };
+  return { method, note: describeRecords(method, picked, opponent), distribution };
 }
 
 function clamp(value: number, min: number, max: number): number {

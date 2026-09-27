@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decideInternPick } from "./decideInternPick";
+import { INTERN_V2 } from "./internModel";
 import type { InternFlag, InternPickInput } from "./types";
 
 // Equal ratings and a deep sample for both by default -- existing tests
@@ -357,5 +358,32 @@ describe("decideInternPick", () => {
       );
       expect(decision.estimatedProbability).toBeCloseTo(0.68, 10);
     });
+  });
+});
+
+describe("decideInternPick — v2 (Phase S2)", () => {
+  // Anchor 0.625 (1.5 / 2.5 de-vigged). Elo 2000 vs 1500 is the full +0.15
+  // Elo cap. v1 applied all of it (0.775); v2 applies 35% of it.
+  it("applies only 35% of the signal delta on top of the market anchor", () => {
+    const eloHeavy = input({ fighter1: { ...fighter1, eloRating: 2000 } });
+    expect(decideInternPick(eloHeavy).estimatedProbability).toBeCloseTo(0.775, 10);
+    expect(decideInternPick(eloHeavy, INTERN_V2).estimatedProbability).toBeCloseTo(0.6775, 10);
+  });
+
+  it("keeps the market favourite when a signal pushes the other way but shrinkage can't cross 0.5", () => {
+    const decision = decideInternPick(input({ fighter2: { ...fighter2, eloRating: 2000 } }), INTERN_V2);
+    expect(decision.predictedFighterId).toBe("f1");
+    expect(decision.estimatedProbability).toBeCloseTo(0.5725, 10);
+  });
+
+  it("stamps modelVersion and signalWeight into signals, leaving clampedDelta as the unweighted sum", () => {
+    const decision = decideInternPick(input({ fighter1: { ...fighter1, eloRating: 2000 } }), INTERN_V2);
+    expect(decision.signals.modelVersion).toBe("v2");
+    expect(decision.signals.signalWeight).toBe(0.35);
+    expect(decision.signals.clampedDelta).toBeCloseTo(0.15, 10);
+  });
+
+  it("v1 remains the default so existing callers and the characterization snapshot are unchanged", () => {
+    expect(decideInternPick(input()).signals.modelVersion).toBe("v1");
   });
 });

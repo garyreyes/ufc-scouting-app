@@ -5,6 +5,7 @@ import { settleBetSlips } from "./settleBetSlips";
 interface SlipRow {
   id: string;
   stake_php: number;
+  author: "USER" | "INTERN";
   status: string;
   payout_php: number | null;
   settled_at: string | null;
@@ -117,7 +118,7 @@ function fakeSupabase(seed: { slips: SlipRow[]; legs: LegRow[]; fights: FightRow
 }
 
 function slip(n: number, overrides: Partial<SlipRow> = {}): SlipRow {
-  return { id: `slip-${n}`, stake_php: 100, status: "open", payout_php: null, settled_at: null, ...overrides };
+  return { id: `slip-${n}`, stake_php: 100, author: "USER", status: "open", payout_php: null, settled_at: null, ...overrides };
 }
 
 function leg(n: number, overrides: Partial<LegRow> = {}): LegRow {
@@ -211,5 +212,22 @@ describe("settleBetSlips", () => {
     const { client } = fakeSupabase({ slips: [], legs: [], fights: [] });
     const summary = await settleBetSlips(client);
     expect(summary).toEqual({ slipsSettled: 0, legsSettled: 0 });
+  });
+
+  // Phase T1: bankroll_ledger is split by author. Without this, the first
+  // INTERN slip to settle would move money in the owner's bankroll.
+  it("stamps each settlement row with its own slip's author", async () => {
+    const { client, ledgerInserts } = fakeSupabase({
+      slips: [slip(1, { author: "USER" }), slip(2, { author: "INTERN" })],
+      legs: [leg(1), leg(2, { selection_fighter_id: "loser" })],
+      fights: [settledFight(1), settledFight(2)],
+    });
+
+    await settleBetSlips(client);
+
+    expect(ledgerInserts).toEqual([
+      expect.objectContaining({ slip_id: "slip-1", author: "USER", amount_php: 100 }),
+      expect.objectContaining({ slip_id: "slip-2", author: "INTERN", amount_php: -100 }),
+    ]);
   });
 });

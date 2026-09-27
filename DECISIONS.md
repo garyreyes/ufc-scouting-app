@@ -1051,3 +1051,62 @@ rules exist to prevent.
 **Consequence.** The head-to-head population stays small and precise rather
 than broad and approximate — a handful of real fights, not every fight the
 owner ever had *any* money on.
+
+---
+
+## 2026-09-28 — Phase S: recalibrating INTERN overrides Phase Q's "don't touch `decideInternBet`"
+
+**Decision.** Change INTERN's probability model (shrink toward market) and
+bet rule (probability-edge + EV gate, price cap, quarter-Kelly stakes) now,
+live from UFC 332, and split the scoreboard record into **v1** (the four
+settled cards) and **v2** by `picks.signals->>'modelVersion'`.
+
+**Why.** Phase Q's non-goal existed to keep INTERN's unit series continuous
+as a measured comparison. The measurement has now answered: over 49 fights
+INTERN v1 is worse than the plain market on accuracy (57% vs 63%) and Brier
+(0.237 vs 0.226), and its bets lost 34% of stake, almost all of it on
+underdogs priced ≥ 2.00 (1W–10L). A continuous series of a model known to
+be broken measures nothing useful. Splitting v1/v2 keeps both halves honest
+without rewriting settled history. Owner-confirmed via AskUserQuestion.
+
+**Alternatives considered.** Shadowing v2 for 2–3 cards before switching
+(proven but slower; the owner chose to switch now). Tuning λ to the 49
+fights (rejected — overfits a tiny sample; the backtest vetoes, it does not
+tune).
+
+**Consequence.** `decideInternBet.test.ts` and the underdog-floor bet tests
+change deliberately in S2; the pick floor itself is unchanged.
+
+---
+
+## 2026-09-28 — S3: fix stale picks at the source, not with an invisible I7 alert
+
+**Decision.** Instead of integrity invariant I7 ("no pick names a fighter
+outside its fight"), resolving a `disputed_opponent` with the candidate now
+deletes that fight's unsettled picks whose predicted or bet fighter left the
+bout, and `settlePicks` skips any such row rather than writing it.
+
+**Why.** `integrity_alerts` has no read path in the UI (0063 deferred it), so
+an I7 row would be seen by nobody. Meanwhile the real hazard was sharper than
+a display bug: `check_pick_constraints()` rejects every update to a pick whose
+predicted or bet fighter isn't in the fight — including settlement's own
+write — so the first such fight to settle (Hernandez v Dumas, stale Mickey
+Gall pick) would have thrown and aborted settlement for every pick after it.
+
+**Consequence.** The Intern re-picks the fight on its next run when the
+conflict resolves before the lock. The one existing stale pick (Gall) still
+needs a one-time owner-approved delete.
+
+---
+
+## 2026-09-28 — T3: method slips need a price; confident parlay gates on probability
+
+**Decision.** Method single price ≥ 1.50 and method-parlay legs ≥ 1.30;
+confident-parlay confidence gate lowered from 3 to 2.
+
+**Why.** Found by replaying the 2026-09-26 card through the assembler, not
+guessed: the top method leg was a 93% favourite "by finish" estimated at
+1.18 — a near-lock, not the "Van by decision" kind of bet the owner meant —
+and no confident parlay formed at all because prelim newcomers are capped at
+confidence 2 by their thin Elo history, even at 70%+. v2's probability is
+mostly the market's, so the 0.65 probability bar is the meaningful gate.

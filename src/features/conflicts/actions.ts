@@ -134,6 +134,22 @@ export async function resolveDisputedOpponentAction(
     if (fightsError) throw fightsError;
   }
 
+  if (resolution.keepPicksOnFighterIds) {
+    // Unsettled picks only -- a settled pick is history, never rewritten.
+    // Predicted OR bet fighter outside the new pairing: the pick trigger
+    // rejects either, so either makes the row unwritable. A null
+    // bet_fighter_id never matches `not.in`, so no-bet picks survive on the
+    // predicted-fighter test alone.
+    const [keep1, keep2] = resolution.keepPicksOnFighterIds;
+    const { error: picksError } = await admin
+      .from("picks")
+      .delete()
+      .eq("fight_id", conflict.fightId)
+      .is("settled_at", null)
+      .or(`predicted_fighter_id.not.in.(${keep1},${keep2}),bet_fighter_id.not.in.(${keep1},${keep2})`);
+    if (picksError) throw picksError;
+  }
+
   const { error: conflictError } = await admin
     .from("data_conflicts")
     .update(resolution.conflictUpdate)

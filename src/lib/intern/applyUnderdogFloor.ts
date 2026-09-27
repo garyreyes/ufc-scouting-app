@@ -16,7 +16,8 @@ export interface FloorInput {
 export interface FloorResult {
   fightId: string;
   pick: { predictedFighterId: string; estimatedProbability: number; confidence: number; overridden: boolean };
-  bet: { betFighterId: string | null; stakeUnits: number | null; overridden: boolean };
+  // Passed through untouched -- the bet floor was removed in Phase S2.
+  bet: { betFighterId: string | null; stakeUnits: number | null };
 }
 
 interface PricedCandidate {
@@ -54,9 +55,11 @@ function biggestUnderdog(candidates: PricedCandidate[]): PricedCandidate {
  * The card-level floor: after decideInternPick/decideInternBet have
  * already formed their honest, per-fight opinions, guarantee at least one
  * underdog pick in the main card and one in the prelims (real UFC cards
- * almost never sweep every favourite -- user-confirmed 2026-09-21), and
- * separately, at least one underdog BET per segment among the bets
- * INTERN already decided to place.
+ * almost never sweep every favourite -- user-confirmed 2026-09-21).
+ *
+ * Phase S2 removed the matching bet floor: it moved a stake sized from the
+ * favourite's edge onto the underdog with no edge check. Bets now pass
+ * through untouched; underdog value lives in the value-bet slips.
  *
  * Deliberately never touches decideInternPick/decideInternBet's own
  * output -- this is a distinct, visible override layer, applied here so
@@ -72,7 +75,7 @@ export function applyUnderdogFloor(fights: FloorInput[]): FloorResult[] {
       {
         fightId: f.fightId,
         pick: { ...f.pick, overridden: false },
-        bet: { ...f.bet, overridden: false },
+        bet: { ...f.bet },
       },
     ]),
   );
@@ -80,7 +83,6 @@ export function applyUnderdogFloor(fights: FloorInput[]): FloorResult[] {
   for (const segment of ["main", "prelims"] as const) {
     const segmentFights = fights.filter((f) => f.segment === segment);
     applyPickFloor(segmentFights, results);
-    applyBetFloor(segmentFights, results);
   }
 
   return fights.map((f) => results.get(f.fightId)!);
@@ -109,24 +111,5 @@ function applyPickFloor(segmentFights: FloorInput[], results: Map<string, FloorR
       overridden: true,
     },
     bet: results.get(flip.input.fightId)!.bet,
-  });
-}
-
-function applyBetFloor(segmentFights: FloorInput[], results: Map<string, FloorResult>): void {
-  const betCandidates = pricedCandidatesFor(segmentFights).filter((c) => c.input.bet.betFighterId !== null);
-  if (betCandidates.length === 0) return;
-
-  const hasUnderdogBet = betCandidates.some((c) => c.input.bet.betFighterId === c.underdogId);
-  if (hasUnderdogBet) return;
-
-  const flip = biggestUnderdog(betCandidates);
-  results.set(flip.input.fightId, {
-    fightId: flip.input.fightId,
-    pick: results.get(flip.input.fightId)!.pick,
-    bet: {
-      betFighterId: flip.underdogId,
-      stakeUnits: flip.input.bet.stakeUnits,
-      overridden: true,
-    },
   });
 }

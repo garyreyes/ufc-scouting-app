@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isOwner } from "@/lib/auth";
@@ -113,6 +114,9 @@ export default async function EventDetailPage({
         <>
           <CardRead perspective="you" fights={event.fights} picks={myPicks} />
           <CardRead perspective="intern" fights={event.fights} picks={internPicks} />
+          <p className={styles.gateNote}>
+            <Link href="/intern-slips">The Intern&apos;s bet slips for this card &rarr;</Link>
+          </p>
         </>
       )}
       {event.fights.length === 0 ? (

@@ -185,6 +185,49 @@ describe("settlePicks", () => {
   it("does nothing when there are no unsettled picks", async () => {
     const { client } = fakeSupabase({ picks: [], fights: [], odds: [] });
     const summary = await settlePicks(client);
-    expect(summary).toEqual({ picksSettled: 0, fightsProcessed: 0 });
+    expect(summary).toEqual({ picksSettled: 0, fightsProcessed: 0, stalePicksSkipped: 0 });
+  });
+
+  // Phase S3, found live 2026-09-28: Hernandez v Dumas holds an INTERN pick
+  // on Mickey Gall, the opponent before a disputed_opponent swap resolved
+  // after the lock. check_pick_constraints() rejects ANY update to that row
+  // (predicted fighter not in the fight) -- so writing it would throw and
+  // abort settlement for every pick behind it.
+  it("skips a pick whose predicted fighter is no longer in the fight, and still settles the rest", async () => {
+    const picks = [pick(1, { predicted_fighter_id: "swapped-out" }), pick(2)];
+    const fights = picks.map((p) => ({
+      id: p.fight_id,
+      fighter1_id: "winner",
+      fighter2_id: "loser",
+      winner_id: "winner",
+      settled_at: "2026-09-27T00:00:00Z",
+    }));
+
+    const { client, pickUpdates } = fakeSupabase({ picks, fights, odds: [] });
+    const summary = await settlePicks(client);
+
+    expect(summary.picksSettled).toBe(1);
+    expect(summary.stalePicksSkipped).toBe(1);
+    expect(pickUpdates.map((u) => u.id)).toEqual(["pick-2"]);
+  });
+
+  // Reviewer finding: the trigger rejects a stale bet_fighter_id exactly
+  // like a stale predicted_fighter_id -- a pick predicting the surviving
+  // fighter but BETTING the swapped-out one would still abort the run.
+  it("also skips a pick whose bet fighter is no longer in the fight", async () => {
+    const picks = [pick(1, { predicted_fighter_id: "winner", bet_fighter_id: "swapped-out", stake_units: 1 }), pick(2)];
+    const fights = picks.map((p) => ({
+      id: p.fight_id,
+      fighter1_id: "winner",
+      fighter2_id: "loser",
+      winner_id: "winner",
+      settled_at: "2026-09-27T00:00:00Z",
+    }));
+
+    const { client, pickUpdates } = fakeSupabase({ picks, fights, odds: [] });
+    const summary = await settlePicks(client);
+
+    expect(summary.stalePicksSkipped).toBe(1);
+    expect(pickUpdates.map((u) => u.id)).toEqual(["pick-2"]);
   });
 });

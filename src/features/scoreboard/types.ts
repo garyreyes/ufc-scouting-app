@@ -48,12 +48,14 @@ export interface PickTableRow {
 export interface ScoreboardData {
   units: {
     me: UnitsLine;
-    intern: UnitsLine;
+    intern: UnitsLine; // live model (v2 since Phase S)
+    internV1: UnitsLine; // retired 2026-09-28
     chalk: UnitsLine;
   };
   accuracy: {
     me: AccuracyLine;
     intern: InternAccuracyLine;
+    internV1: AccuracyLine;
     chalk: AccuracyLine;
   };
   // Distinct events with at least one settled fight -- the PRD's own
@@ -92,6 +94,7 @@ export interface ScoreboardData {
   brier: {
     me: BrierScoreResult;
     intern: BrierScoreResult;
+    internV1: BrierScoreResult;
   };
   // N9: null until at least one shadow-picks row has ever been scored --
   // never an all-zero object, which would render as "0% accuracy" rather

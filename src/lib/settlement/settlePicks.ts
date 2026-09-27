@@ -9,6 +9,10 @@ import { selectAllPagesByIds } from "../supabase/selectAllPagesByIds";
 export interface SettlePicksSummary {
   picksSettled: number;
   fightsProcessed: number;
+  // Picks naming a fighter no longer in their fight (an opponent swap that
+  // resolved after the lock). Left unsettled -- the pick trigger rejects
+  // any write to them -- and surfaced by integrity invariant I7 instead.
+  stalePicksSkipped: number;
 }
 
 /**
@@ -47,7 +51,7 @@ export async function settlePicks(supabase: SupabaseClient): Promise<SettlePicks
     q.is("settled_at", null),
   );
   if (unsettledPicks.length === 0) {
-    return { picksSettled: 0, fightsProcessed: 0 };
+    return { picksSettled: 0, fightsProcessed: 0, stalePicksSkipped: 0 };
   }
 
   const fightIds = [...new Set(unsettledPicks.map((p) => p.fight_id))];
@@ -61,9 +65,18 @@ export async function settlePicks(supabase: SupabaseClient): Promise<SettlePicks
 
   const settledFightById = new Map(fights.filter((f) => f.settled_at !== null).map((f) => [f.id, f]));
 
-  const picksToSettle = unsettledPicks.filter((p) => settledFightById.has(p.fight_id));
+  const onSettledFights = unsettledPicks.filter((p) => settledFightById.has(p.fight_id));
+  // check_pick_constraints() rejects any write to a row whose predicted OR
+  // bet fighter is outside the fight, so either one makes the pick stale.
+  const isStale = (p: { fight_id: string; predicted_fighter_id: string; bet_fighter_id: string | null }) => {
+    const fight = settledFightById.get(p.fight_id)!;
+    const outside = (id: string) => id !== fight.fighter1_id && id !== fight.fighter2_id;
+    return outside(p.predicted_fighter_id) || (p.bet_fighter_id !== null && outside(p.bet_fighter_id));
+  };
+  const stalePicksSkipped = onSettledFights.filter(isStale).length;
+  const picksToSettle = onSettledFights.filter((p) => !isStale(p));
   if (picksToSettle.length === 0) {
-    return { picksSettled: 0, fightsProcessed: 0 };
+    return { picksSettled: 0, fightsProcessed: 0, stalePicksSkipped };
   }
 
   const betFightIds = [
@@ -124,5 +137,5 @@ export async function settlePicks(supabase: SupabaseClient): Promise<SettlePicks
     if (updateError) throw updateError;
   }
 
-  return { picksSettled: picksToSettle.length, fightsProcessed: settledFightById.size };
+  return { picksSettled: picksToSettle.length, fightsProcessed: settledFightById.size, stalePicksSkipped };
 }

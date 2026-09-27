@@ -144,6 +144,9 @@ export async function cashOutSlipAction(slipId: string, payoutPhp: number): Prom
     kind: "slip_settlement",
     amount_php: toCentavos(payoutPhp - Number(slip.stake_php)),
     slip_id: slipId,
+    // Explicit rather than the column default -- 0066's trigger requires it to
+    // match the slip, which this action has already checked is USER.
+    author: "USER",
     occurred_at: now,
   });
   if (ledgerError) throw ledgerError;

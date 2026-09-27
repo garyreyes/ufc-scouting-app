@@ -38,10 +38,11 @@ export function CalibrationTable({
 }: {
   me: CalibrationBucket[];
   intern: CalibrationBucket[];
-  brier: { me: BrierScoreResult; intern: BrierScoreResult };
+  brier: { me: BrierScoreResult; intern: BrierScoreResult; internV1: BrierScoreResult };
 }) {
   const internByLabel = new Map(intern.map((b) => [b.label, b]));
-  const hasAnyData = me.some((b) => b.count > 0) || intern.some((b) => b.count > 0);
+  const hasAnyData =
+    me.some((b) => b.count > 0) || intern.some((b) => b.count > 0) || brier.internV1.n > 0;
 
   return (
     <section className={styles.section}>
@@ -52,6 +53,7 @@ export function CalibrationTable({
         <p className={styles.subtitle}>
           Brier score (lower is better, 0.25 = a coin flip) — Me: {formatBrier(brier.me)} · Intern:{" "}
           {formatBrier(brier.intern)}
+          {brier.internV1.n > 0 ? ` · Intern v1 (retired): ${formatBrier(brier.internV1)}` : ""}
         </p>
       )}
 

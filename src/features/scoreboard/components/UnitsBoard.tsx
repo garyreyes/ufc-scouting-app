@@ -33,13 +33,24 @@ function LineRow({ label, line }: { label: string; line: UnitsLine }) {
 // "a line that disappears when it has no data reads as a bug and hides
 // the control you most need") -- most relevant to "Intern" until Phase G
 // ships real intern picks.
-export function UnitsBoard({ me, intern, chalk }: { me: UnitsLine; intern: UnitsLine; chalk: UnitsLine }) {
+export function UnitsBoard({
+  me,
+  intern,
+  internV1,
+  chalk,
+}: {
+  me: UnitsLine;
+  intern: UnitsLine;
+  internV1: UnitsLine;
+  chalk: UnitsLine;
+}) {
   return (
     <section className={styles.board}>
       <h2 className={styles.title}>Units</h2>
       <p className={styles.subtitle}>Did I find mispriced fights?</p>
       <LineRow label="Me" line={me} />
       <LineRow label="Intern" line={intern} />
+      {internV1.betsPlaced > 0 && <LineRow label="Intern v1 (retired)" line={internV1} />}
       <LineRow label="Chalk" line={chalk} />
     </section>
   );
