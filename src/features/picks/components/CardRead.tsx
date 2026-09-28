@@ -1,4 +1,5 @@
 import { fightMethodLabel } from "@/lib/scoring/fightMethod";
+import { V2_MIN_EV } from "@/lib/intern/decideInternBetV2";
 import { buildCardReadRows, type CardReadPick } from "../cardRead";
 import styles from "./CardRead.module.css";
 
@@ -14,18 +15,20 @@ interface CardFight {
 // changes the words, never the columns.
 type Perspective = "you" | "intern";
 
-const COPY: Record<Perspective, { title: string; probHeader: string; footnote: string }> = {
+const COPY: Record<Perspective, { title: string; probHeader: string; footnote: string; betHighlightEdge: number }> = {
   you: {
     title: "Your card",
     probHeader: "You",
     footnote:
       "Market/You/Edge describe the bet fighter where there's a bet, otherwise the pick. Market % is de-vigged; \"You\" is the probability you entered. A bet is highlighted when your number beats the price by 5%+.",
+    betHighlightEdge: 0.05,
   },
   intern: {
     title: "Intern's read",
     probHeader: "Intern",
     footnote:
-      "Market/Intern/Edge describe the bet fighter where there's a bet, otherwise the pick. Market % is de-vigged. The intern bets only above a +5% edge.",
+      "Market/Intern/Edge describe the bet fighter where there's a bet, otherwise the pick. Market % is de-vigged. Since Phase S (v2) the intern bets only when it is 3+ points above the market AND the price pays +3% EV, never above 3.50.",
+    betHighlightEdge: V2_MIN_EV,
   },
 };
 
@@ -113,10 +116,10 @@ export function CardRead({
                 <td>{pct(row.pickerProb)}</td>
                 {/* The accent only fires on a fight there's ACTUALLY a bet
                     on. A pick made while the fight was unpriced can show a
-                    >5% edge here against fresh odds before a bet is placed
+                    threshold edge here against fresh odds before a bet is placed
                     -- highlighting that would read as "found an edge and
                     didn't act," a bug it isn't. */}
-                <td className={row.betName && row.edgePct !== null && row.edgePct >= 0.05 ? styles.edgeLive : ""}>
+                <td className={row.betName && row.edgePct !== null && row.edgePct >= copy.betHighlightEdge ? styles.edgeLive : ""}>
                   {edgeText(row.edgePct)}
                 </td>
               </tr>

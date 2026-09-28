@@ -19,6 +19,7 @@ import { selectLatestBeforeLock } from "@/lib/shadowPicks/selectLatestBeforeLock
 import type { ShadowPickScoringRow } from "@/lib/shadowPicks/selectLatestBeforeLock";
 import { scoreShadowLines } from "@/lib/shadowPicks/scoreShadowLines";
 import type { ShadowScoredFight } from "@/lib/shadowPicks/scoreShadowLines";
+import { modelVersionOf } from "@/lib/intern/internModel";
 import type { ScoreboardData, PickTableRow } from "./types";
 
 /**
@@ -65,7 +66,7 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
   const allPicks = await selectAllPages<SettledPickRow>(
     supabase,
     "picks",
-    "id, author, fight_id, predicted_fighter_id, estimated_probability, pick_correct, pnl_units, bet_fighter_id, stake_units, settled_at",
+    "id, author, fight_id, predicted_fighter_id, estimated_probability, pick_correct, pnl_units, bet_fighter_id, stake_units, settled_at, signals",
   );
   const settledPicks = allPicks.filter((p) => p.settled_at !== null);
 
@@ -121,6 +122,11 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
 
   const mePicks = settledPicks.filter((p) => p.author === "USER");
   const internPicks = settledPicks.filter((p) => p.author === "INTERN");
+  // Phase S3: the headline "Intern" line is the live model (v2); v1 -- the
+  // original full-strength-signal model, retired 2026-09-28 -- stays visible
+  // as its own line rather than being blended into the new record.
+  const internV2Picks = internPicks.filter((p) => modelVersionOf(p.signals) === "v2");
+  const internV1Picks = internPicks.filter((p) => modelVersionOf(p.signals) === "v1");
 
   // Number(): stake_units and pnl_units are numeric columns, which
   // PostgREST serialises as STRINGS to preserve precision. Cast `as
@@ -132,7 +138,8 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
     pnlUnits: Number(p.pnl_units),
   });
   const meUnitsBets = mePicks.filter((p) => p.pnl_units !== null).map(toBetResult);
-  const internUnitsBets = internPicks.filter((p) => p.pnl_units !== null).map(toBetResult);
+  const internUnitsBets = internV2Picks.filter((p) => p.pnl_units !== null).map(toBetResult);
+  const internV1UnitsBets = internV1Picks.filter((p) => p.pnl_units !== null).map(toBetResult);
 
   // Head-to-head: the intern's accuracy restricted to fights the owner
   // ALSO picked -- the PRD's "headline" comparison, since the intern's
@@ -142,7 +149,7 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
   // contains fights I actually picked, so it's already a fair
   // comparison point once the intern exists.
   const meFightIds = new Set(mePicks.map((p) => p.fight_id));
-  const internHeadToHeadPickCorrect = internPicks
+  const internHeadToHeadPickCorrect = internV2Picks
     .filter((p) => meFightIds.has(p.fight_id))
     .map((p) => p.pick_correct);
 
@@ -164,14 +171,16 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
     units: {
       me: aggregateUnitsLine(meUnitsBets),
       intern: aggregateUnitsLine(internUnitsBets),
+      internV1: aggregateUnitsLine(internV1UnitsBets),
       chalk: aggregateUnitsLine(chalkBets),
     },
     accuracy: {
       me: aggregateAccuracyLine(mePicks.map((p) => p.pick_correct)),
       intern: {
-        ...aggregateAccuracyLine(internPicks.map((p) => p.pick_correct)),
+        ...aggregateAccuracyLine(internV2Picks.map((p) => p.pick_correct)),
         headToHead: aggregateAccuracyLine(internHeadToHeadPickCorrect),
       },
+      internV1: aggregateAccuracyLine(internV1Picks.map((p) => p.pick_correct)),
       chalk: aggregateAccuracyLine(chalkPickCorrect),
     },
     settledCardCount,
@@ -184,11 +193,12 @@ export async function getScoreboardData(supabase: SupabaseClient): Promise<Score
     // its estimates can answer on its own.
     calibration: {
       me: computeCalibrationBuckets(mePicks.map(toCalibrationEntry)),
-      intern: computeCalibrationBuckets(internPicks.map(toCalibrationEntry)),
+      intern: computeCalibrationBuckets(internV2Picks.map(toCalibrationEntry)),
     },
     brier: {
       me: computeBrierScore(mePicks.map(toCalibrationEntry)),
-      intern: computeBrierScore(internPicks.map(toCalibrationEntry)),
+      intern: computeBrierScore(internV2Picks.map(toCalibrationEntry)),
+      internV1: computeBrierScore(internV1Picks.map(toCalibrationEntry)),
     },
     shadowComparison,
   };
@@ -340,6 +350,9 @@ export interface SettledPickRow {
   stake_units: number | null;
   pnl_units: number | null;
   settled_at: string | null;
+  // jsonb; only read for signals.modelVersion (Phase S3). Optional so the
+  // pick-history helpers that build this shape by hand need not supply it.
+  signals?: unknown;
 }
 
 interface OddsSnapshotRow {

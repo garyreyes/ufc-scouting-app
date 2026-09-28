@@ -19,6 +19,11 @@ export interface DisputedOpponentResolution {
   // an update-in-place of the single kept row, not a swap between two.
   fightsUpdate: Record<string, unknown> | null;
   conflictUpdate: { resolved_at: string; resolution: string };
+  // Phase S3: when the kept fight now has a different pairing, any unsettled
+  // pick naming a fighter outside it is a prediction about a bout that no
+  // longer exists -- the caller deletes those so the Intern can re-pick
+  // before the lock. null = the pairing did not change.
+  keepPicksOnFighterIds: [string, string] | null;
 }
 
 /**
@@ -41,6 +46,7 @@ export function buildDisputedOpponentResolution(
     return {
       fightsUpdate: null,
       conflictUpdate: { resolved_at: resolvedAt, resolution: "confirmed_existing" },
+      keepPicksOnFighterIds: null,
     };
   }
 
@@ -48,6 +54,7 @@ export function buildDisputedOpponentResolution(
     return {
       fightsUpdate: null,
       conflictUpdate: { resolved_at: resolvedAt, resolution: "merged_fighters" },
+      keepPicksOnFighterIds: null,
     };
   }
 
@@ -64,5 +71,6 @@ export function buildDisputedOpponentResolution(
   return {
     fightsUpdate,
     conflictUpdate: { resolved_at: resolvedAt, resolution: "used_candidate" },
+    keepPicksOnFighterIds: [candidate_fighter1_id, candidate_fighter2_id],
   };
 }

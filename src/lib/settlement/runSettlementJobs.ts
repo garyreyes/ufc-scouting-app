@@ -42,7 +42,10 @@ async function main() {
     `Fight settlement: ${fights.settled} settled, ${fights.conflicts} disputed (queued), ` +
       `${fights.stillWaiting} still waiting, ${fights.resultDisputesResolved} prior disputes auto-resolved.`,
   );
-  console.log(`Pick settlement: ${picks.picksSettled} picks settled across ${picks.fightsProcessed} fights.`);
+  console.log(
+    `Pick settlement: ${picks.picksSettled} picks settled across ${picks.fightsProcessed} fights` +
+      (picks.stalePicksSkipped > 0 ? `, ${picks.stalePicksSkipped} stale (fighter no longer in the fight) skipped.` : "."),
+  );
   console.log(`Bet slip settlement: ${betSlips.slipsSettled} slips settled, ${betSlips.legsSettled} legs decided.`);
   console.log(
     `Elo recompute: ${elo.fightsProcessed} settled fights processed, ${elo.snapshotsWritten} rating snapshots written.`,

@@ -1,4 +1,6 @@
 import { determineFavorite } from "../scoring/determineFavorite";
+import { devigTwoWay } from "../scoring/devigTwoWay";
+import { probabilityForFighter } from "../scoring/probabilityForFighter";
 
 export interface FloorInput {
   fightId: string;
@@ -16,13 +18,16 @@ export interface FloorInput {
 export interface FloorResult {
   fightId: string;
   pick: { predictedFighterId: string; estimatedProbability: number; confidence: number; overridden: boolean };
-  bet: { betFighterId: string | null; stakeUnits: number | null; overridden: boolean };
+  // Passed through untouched -- the bet floor was removed in Phase S2.
+  bet: { betFighterId: string | null; stakeUnits: number | null };
 }
 
 interface PricedCandidate {
   input: FloorInput;
   underdogId: string;
-  underdogPrice: number;
+  // The Intern's own probability for the underdog minus the de-vigged
+  // market's, in probability points.
+  underdogEdge: number;
 }
 
 function pricedCandidatesFor(fights: FloorInput[]): PricedCandidate[] {
@@ -34,18 +39,24 @@ function pricedCandidatesFor(fights: FloorInput[]): PricedCandidate[] {
       fighter2_price: f.odds.fighter2Price,
     });
     const underdogId = favorite.favoriteId === f.fighter1Id ? f.fighter2Id : f.fighter1Id;
-    const underdogPrice = underdogId === f.fighter1Id ? f.odds.fighter1Price : f.odds.fighter2Price;
-    candidates.push({ input: f, underdogId, underdogPrice });
+    const market = devigTwoWay(f.odds.fighter1Price, f.odds.fighter2Price);
+    const marketDog = underdogId === f.fighter1Id ? market.prob1 : market.prob2;
+    const modelDog = probabilityForFighter(underdogId, f.pick.predictedFighterId, f.pick.estimatedProbability);
+    candidates.push({ input: f, underdogId, underdogEdge: modelDog - marketDog });
   }
   return candidates;
 }
 
-// Highest underdog price wins; ties break toward the lower fightId,
-// matching decideInternPick.ts's own deterministic tie-break convention.
-function biggestUnderdog(candidates: PricedCandidate[]): PricedCandidate {
+// Owner-decided 2026-09-28: the underdog the Intern rates furthest above
+// the market wins -- probability points, not EV, since EV scales with the
+// price and would drift straight back to the biggest longshot. It used to
+// be the biggest price, which is usually the dog the Intern rates WORST.
+// Ties break toward the lower fightId, matching decideInternPick.ts's own
+// deterministic tie-break convention.
+function mostEdgeUnderdog(candidates: PricedCandidate[]): PricedCandidate {
   return candidates.reduce((best, c) => {
-    if (c.underdogPrice > best.underdogPrice) return c;
-    if (c.underdogPrice === best.underdogPrice && c.input.fightId < best.input.fightId) return c;
+    if (c.underdogEdge > best.underdogEdge) return c;
+    if (c.underdogEdge === best.underdogEdge && c.input.fightId < best.input.fightId) return c;
     return best;
   });
 }
@@ -54,9 +65,11 @@ function biggestUnderdog(candidates: PricedCandidate[]): PricedCandidate {
  * The card-level floor: after decideInternPick/decideInternBet have
  * already formed their honest, per-fight opinions, guarantee at least one
  * underdog pick in the main card and one in the prelims (real UFC cards
- * almost never sweep every favourite -- user-confirmed 2026-09-21), and
- * separately, at least one underdog BET per segment among the bets
- * INTERN already decided to place.
+ * almost never sweep every favourite -- user-confirmed 2026-09-21).
+ *
+ * Phase S2 removed the matching bet floor: it moved a stake sized from the
+ * favourite's edge onto the underdog with no edge check. Bets now pass
+ * through untouched; underdog value lives in the value-bet slips.
  *
  * Deliberately never touches decideInternPick/decideInternBet's own
  * output -- this is a distinct, visible override layer, applied here so
@@ -72,7 +85,7 @@ export function applyUnderdogFloor(fights: FloorInput[]): FloorResult[] {
       {
         fightId: f.fightId,
         pick: { ...f.pick, overridden: false },
-        bet: { ...f.bet, overridden: false },
+        bet: { ...f.bet },
       },
     ]),
   );
@@ -80,7 +93,6 @@ export function applyUnderdogFloor(fights: FloorInput[]): FloorResult[] {
   for (const segment of ["main", "prelims"] as const) {
     const segmentFights = fights.filter((f) => f.segment === segment);
     applyPickFloor(segmentFights, results);
-    applyBetFloor(segmentFights, results);
   }
 
   return fights.map((f) => results.get(f.fightId)!);
@@ -93,7 +105,7 @@ function applyPickFloor(segmentFights: FloorInput[], results: Map<string, FloorR
   const hasUnderdogPick = candidates.some((c) => c.input.pick.predictedFighterId === c.underdogId);
   if (hasUnderdogPick) return;
 
-  const flip = biggestUnderdog(candidates);
+  const flip = mostEdgeUnderdog(candidates);
   const flippedProbability = 1 - flip.input.pick.estimatedProbability;
   results.set(flip.input.fightId, {
     fightId: flip.input.fightId,
@@ -109,24 +121,5 @@ function applyPickFloor(segmentFights: FloorInput[], results: Map<string, FloorR
       overridden: true,
     },
     bet: results.get(flip.input.fightId)!.bet,
-  });
-}
-
-function applyBetFloor(segmentFights: FloorInput[], results: Map<string, FloorResult>): void {
-  const betCandidates = pricedCandidatesFor(segmentFights).filter((c) => c.input.bet.betFighterId !== null);
-  if (betCandidates.length === 0) return;
-
-  const hasUnderdogBet = betCandidates.some((c) => c.input.bet.betFighterId === c.underdogId);
-  if (hasUnderdogBet) return;
-
-  const flip = biggestUnderdog(betCandidates);
-  results.set(flip.input.fightId, {
-    fightId: flip.input.fightId,
-    pick: results.get(flip.input.fightId)!.pick,
-    bet: {
-      betFighterId: flip.underdogId,
-      stakeUnits: flip.input.bet.stakeUnits,
-      overridden: true,
-    },
   });
 }

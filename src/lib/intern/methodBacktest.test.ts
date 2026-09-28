@@ -155,4 +155,30 @@ describe("buildBacktestCase + summarizeBacktest", () => {
     // both-sides population the new rule is measured over.
     expect(summary.oldRuleAccuracyBothSides).toBeCloseTo(0.5);
   });
+
+  // Phase T2: the slate prices method legs off predictInternMethod's
+  // distribution, so it has to mean what it says -- mean predicted P per
+  // method vs how often that method actually happened.
+  it("reports method calibration: mean predicted share vs actual frequency over both-sides cases", () => {
+    const summary = summarizeBacktest([
+      { actual: "DECISION", oldRule: "DECISION", newRule: "DECISION", bothSidesAvailable: true, newDistribution: { dec: 0.6, ko: 0.3, sub: 0.1 } },
+      { actual: "KO_TKO", oldRule: "DECISION", newRule: "DECISION", bothSidesAvailable: true, newDistribution: { dec: 0.4, ko: 0.4, sub: 0.2 } },
+      // Fallback-only: excluded, same population rule as every other both-sides metric.
+      { actual: "SUBMISSION", oldRule: "DECISION", newRule: "DECISION", bothSidesAvailable: false, newDistribution: { dec: 0.5, ko: 0.3, sub: 0.2 } },
+    ]);
+    expect(summary.methodCalibration).toEqual([
+      { method: "DECISION", meanPredicted: expect.closeTo(0.5, 10), actualRate: 0.5 },
+      { method: "KO_TKO", meanPredicted: expect.closeTo(0.35, 10), actualRate: 0.5 },
+      { method: "SUBMISSION", meanPredicted: expect.closeTo(0.15, 10), actualRate: 0 },
+    ]);
+  });
+
+  it("buildBacktestCase carries the new rule's distribution", () => {
+    const timeline = buildCareerTimeline([
+      { eventDate: "2024-01-01", opponentSherdogId: 5, result: "win", method: "KO (Punch)" },
+    ]);
+    const c = buildBacktestCase(timeline[0], "Middleweight", null);
+    // BACKTEST_PROBABILITY 0.6 -> lopsidedness 0.2 -> 0.5 - 0.2 x 0.35 = 0.43.
+    expect(c.newDistribution?.dec).toBeCloseTo(0.43, 10);
+  });
 });

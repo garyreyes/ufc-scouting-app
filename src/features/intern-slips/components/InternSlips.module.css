@@ -1,0 +1,203 @@
+.intro {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: -12px 0 20px;
+}
+
+.bankroll {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 28px;
+}
+
+.balance {
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.balanceDetail {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.section {
+  margin-bottom: 32px;
+}
+
+.sectionMeta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: -6px 0 14px;
+}
+
+.empty {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 16px 0;
+}
+
+.slips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.cardHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.type {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.money {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.legs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+}
+
+.leg {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.83rem;
+}
+
+.legPrice {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag {
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.result_won {
+  color: var(--accent);
+}
+
+.result_lost,
+.result_void {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.foot {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.overrideButton,
+.saveButton,
+.cancelButton {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.overrideButton:hover,
+.saveButton:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.overrideRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.overrideInput {
+  width: 70px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.8rem;
+}
+
+.error {
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.boards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.pastCard {
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+
+.pastCard summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  list-style: none;
+}
+
+.pastCard summary::-webkit-details-marker {
+  display: none;
+}
+
+.pastBody {
+  padding-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .boards {
+    grid-template-columns: 1fr;
+  }
+
+  .slips {
+    grid-template-columns: 1fr;
+  }
+}

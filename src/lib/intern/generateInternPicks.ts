@@ -5,10 +5,11 @@ import { fetchLatestEloRatings } from "../elo/fetchLatestEloRatings";
 import { fetchFlagsForFights } from "../rumours/fetchFlagsForFights";
 import { applyUnderdogFloor } from "./applyUnderdogFloor";
 import type { FloorInput } from "./applyUnderdogFloor";
-import { decideInternBet } from "./decideInternBet";
+import { decideInternBetV2 } from "./decideInternBetV2";
 import { decideInternPick } from "./decideInternPick";
+import { CURRENT_INTERN_MODEL } from "./internModel";
 import { finishSplitFrom, predictInternMethod } from "./predictInternMethod";
-import type { InternMethodDecision } from "./predictInternMethod";
+import type { InternMethodDecision, ThreeWaySplit } from "./predictInternMethod";
 import { segmentCard } from "./segmentCard";
 import type { InternFlag, InternPickSignals } from "./types";
 import { ageOnDate } from "../../shared/utils/ageOnDate";
@@ -111,7 +112,10 @@ export function isLockedError(err: unknown): boolean {
  * floor never touches decideInternPick/decideInternBet's own output --
  * see applyUnderdogFloor.ts's docstring and DECISIONS.md (2026-09-21).
  */
-export async function generateInternPicks(supabase: SupabaseClient): Promise<InternPicksSummary> {
+export async function generateInternPicks(
+  supabase: SupabaseClient,
+  options: { dryRun?: boolean } = {},
+): Promise<InternPicksSummary> {
   const summary: InternPicksSummary = {
     fightsConsidered: 0,
     picksWritten: 0,
@@ -174,7 +178,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   const considered: {
     fight: EmbeddedFight;
     decision: ReturnType<typeof decideInternPick>;
-    bet: ReturnType<typeof decideInternBet>;
+    bet: ReturnType<typeof decideInternBetV2>;
     odds: { fighter1Price: number; fighter2Price: number } | null;
   }[] = [];
 
@@ -215,7 +219,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
       },
       odds,
       flags: flagsByFightId.get(fight.id) ?? [],
-    });
+    }, CURRENT_INTERN_MODEL);
 
     if (!decision.marketAnchored) summary.unpricedPicks++;
 
@@ -226,7 +230,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     // pick -- the floor never invents a bet INTERN wouldn't otherwise
     // place (user-confirmed 2026-09-21), so this must reflect the
     // intern's real edge read, not a forced pick.
-    const bet = decideInternBet(
+    const bet = decideInternBetV2(
       fight.fighter1.id,
       fight.fighter2.id,
       decision.predictedFighterId,
@@ -239,8 +243,8 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
   }
 
   // Card-sweep floor (DECISIONS.md 2026-09-21): guarantee at least one
-  // underdog pick, and separately one underdog bet among bets already
-  // placed, per segment (main card / prelims).
+  // underdog pick per segment (main card / prelims). Bets are never
+  // redirected any more (Phase S2) -- see applyUnderdogFloor.ts.
   const segmented = segmentCard(considered.map((c) => ({ fightId: c.fight.id, boutOrder: c.fight.bout_order })));
   const segmentByFightId = new Map(segmented.map((s) => [s.fightId, s.segment]));
 
@@ -285,13 +289,28 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
     if (final.pick.overridden) {
       reasoning += " Card-sweep rule: forced underdog pick -- this segment would otherwise sweep favourites.";
     }
-    if (final.bet.overridden) {
-      reasoning += " Card-sweep rule: redirected an existing bet onto the underdog for the same reason.";
-    }
 
     const existing = existingByFightId.get(fight.id);
-    if (existing && isUnchanged(existing, final, method, decision.signals, reasoning)) {
+    // Phase T4: the method distribution rides along in signals so the slate
+    // job can price method legs from picks alone.
+    const signals: InternPickSignals = { ...decision.signals, methodDistribution: method.distribution };
+    if (existing && isUnchanged(existing, final, method, signals, reasoning)) {
       summary.picksUnchanged++;
+      continue;
+    }
+
+    if (options.dryRun) {
+      const pickName = pickedFighter.name;
+      const betName =
+        final.bet.betFighterId === null
+          ? "no bet"
+          : `bet ${final.bet.betFighterId === fight.fighter1.id ? fight.fighter1.name : fight.fighter2.name} ${final.bet.stakeUnits}u`;
+      console.log(
+        `[dry-run] ${fight.fighter1.name} v ${fight.fighter2.name}: ${pickName} ` +
+          `${(final.pick.estimatedProbability * 100).toFixed(1)}% conf ${final.pick.confidence}, ${method.method}, ${betName}`,
+      );
+      summary.picksWritten++;
+      if (final.bet.betFighterId !== null) summary.betsPlaced++;
       continue;
     }
 
@@ -308,7 +327,7 @@ export async function generateInternPicks(supabase: SupabaseClient): Promise<Int
           predicted_method: method.method,
           bet_fighter_id: final.bet.betFighterId,
           stake_units: final.bet.stakeUnits,
-          signals: decision.signals,
+          signals,
         },
         { onConflict: "fight_id,author" },
       );
@@ -373,7 +392,12 @@ function signalsEqual(a: InternPickSignals, b: InternPickSignals): boolean {
     Math.abs(a.size - b.size) < 1e-9 &&
     Math.abs(a.age - b.age) < 1e-9 &&
     Math.abs(a.rawDelta - b.rawDelta) < 1e-9 &&
-    Math.abs(a.clampedDelta - b.clampedDelta) < 1e-9
+    Math.abs(a.clampedDelta - b.clampedDelta) < 1e-9 &&
+    // A v1-era row (no modelVersion) must read as changed so the first v2
+    // run restamps it before the lock.
+    a.modelVersion === b.modelVersion &&
+    a.signalWeight === b.signalWeight &&
+    distributionsEqual(a.methodDistribution, b.methodDistribution)
   );
 }
 
@@ -456,4 +480,9 @@ async function fetchExistingInternPicks(
       },
     ]),
   );
+}
+
+function distributionsEqual(a: ThreeWaySplit | undefined, b: ThreeWaySplit | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return Math.abs(a.dec - b.dec) < 1e-9 && Math.abs(a.ko - b.ko) < 1e-9 && Math.abs(a.sub - b.sub) < 1e-9;
 }

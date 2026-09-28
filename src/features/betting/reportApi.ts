@@ -75,12 +75,20 @@ export interface LedgerRow {
   amount_php: number | string;
 }
 
-/** The whole bankroll_ledger, oldest first -- buildBankrollCurve.ts sums it. */
-export async function getBankrollLedger(supabase: SupabaseClient): Promise<LedgerRow[]> {
+/**
+ * One author's bankroll_ledger, oldest first -- buildBankrollCurve.ts sums
+ * it. Split by author since 0066: the owner's and the Intern's money never
+ * share a balance.
+ */
+export async function getBankrollLedger(
+  supabase: SupabaseClient,
+  author: "USER" | "INTERN" = "USER",
+): Promise<LedgerRow[]> {
   return selectAllPages<{ id: string; occurred_at: string; amount_php: number | string }>(
     supabase,
     "bankroll_ledger",
     "id, occurred_at, amount_php",
+    (q) => q.eq("author", author),
   ).then((rows) =>
     // selectAllPages orders by id (its cursor), not occurred_at --
     // buildBankrollCurve.ts requires occurred_at order, so it's applied
@@ -151,6 +159,8 @@ export const ALL_ARCHETYPES: SlipArchetype[] = [
   "STRAIGHT_DOG",
   "LONGSHOT",
   "METHOD_VALUE",
+  "METHOD_PARLAY",
+  "METHOD_SINGLE",
   "LOCK",
   "OTHER",
 ];

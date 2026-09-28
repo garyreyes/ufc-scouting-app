@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/fighters", label: "Fighters", icon: "\u{1F94A}" },
   { href: "/scoreboard", label: "Scoreboard", icon: "\u{1F4CA}" },
   { href: "/betting", label: "Betting Journal", icon: "\u{1F4B0}" },
+  { href: "/intern-slips", label: "Intern Slips", icon: "\u{1F9FE}" },
 ] as const;
 
 export function Sidebar({ collapsed }: { collapsed: boolean }) {

@@ -11,7 +11,16 @@ import type {
 } from "../types";
 import styles from "./SlipForm.module.css";
 
-const ARCHETYPES: SlipArchetype[] = ["SAFE_PARLAY", "STRAIGHT_DOG", "LONGSHOT", "METHOD_VALUE", "LOCK", "OTHER"];
+const ARCHETYPES: SlipArchetype[] = [
+  "SAFE_PARLAY",
+  "STRAIGHT_DOG",
+  "LONGSHOT",
+  "METHOD_VALUE",
+  "METHOD_PARLAY",
+  "METHOD_SINGLE",
+  "LOCK",
+  "OTHER",
+];
 const MARKETS: LegMarket[] = ["MONEYLINE", "DOUBLE_CHANCE", "METHOD_FIGHTER", "METHOD_FIGHT", "OTHER"];
 // 0064's own CHECK constraint (bet_legs: `market in ('METHOD_FIGHT',
 // 'OTHER') or selection_fighter_id is not null`) means an external leg

@@ -55,6 +55,9 @@ export async function getOpenSlips(supabase: SupabaseClient): Promise<OpenSlip[]
         "selection_fighter:selection_fighter_id(name))",
     )
     .eq("status", "open")
+    // The owner's journal only -- INTERN slips (Phase T) live on /intern-slips
+    // and carry no cash-out or delete path the owner could use anyway.
+    .eq("author", "USER")
     .order("placed_at", { ascending: false });
   if (error) throw error;
 

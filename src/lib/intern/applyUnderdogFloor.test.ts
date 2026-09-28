@@ -29,17 +29,25 @@ describe("applyUnderdogFloor", () => {
     expect(result.every((f) => !f.pick.overridden)).toBe(true);
   });
 
-  it("flips exactly one pick in an all-favourite main card, choosing the biggest underdog price", () => {
+  // Owner-decided 2026-09-28: flip the underdog the Intern rates furthest
+  // ABOVE the market (probability points vs de-vigged odds), not the
+  // biggest price -- the biggest price is usually the dog it rates worst,
+  // which cost pick accuracy for nothing.
+  it("flips exactly one pick in an all-favourite main card, choosing the underdog with the most edge", () => {
     const fights = [
-      fight({ fightId: "f0", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 2.5 } }),
-      fight({ fightId: "f1", segment: "main", odds: { fighter1Price: 1.2, fighter2Price: 4.5 } }), // biggest dog price
-      fight({ fightId: "f2", segment: "main", odds: { fighter1Price: 1.8, fighter2Price: 2.0 } }),
+      // Market dog 0.375; Intern dog 0.40 -> +2.5 pts. The one to flip.
+      fight({ fightId: "f0", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 2.5 }, pick: { predictedFighterId: "f0-fav", estimatedProbability: 0.6, confidence: 3 } }),
+      // Biggest price, but market dog 0.2105 vs Intern 0.15 -> -6.1 pts.
+      fight({ fightId: "f1", segment: "main", odds: { fighter1Price: 1.2, fighter2Price: 4.5 }, pick: { predictedFighterId: "f1-fav", estimatedProbability: 0.85, confidence: 5 } }),
+      // Market dog 0.4737 vs Intern 0.45 -> -2.4 pts.
+      fight({ fightId: "f2", segment: "main", odds: { fighter1Price: 1.8, fighter2Price: 2.0 }, pick: { predictedFighterId: "f2-fav", estimatedProbability: 0.55, confidence: 2 } }),
     ];
     const result = applyUnderdogFloor(fights);
     const flipped = result.filter((f) => f.pick.overridden);
     expect(flipped).toHaveLength(1);
-    expect(flipped[0].fightId).toBe("f1");
-    expect(flipped[0].pick.predictedFighterId).toBe("f1-dog");
+    expect(flipped[0].fightId).toBe("f0");
+    expect(flipped[0].pick.predictedFighterId).toBe("f0-dog");
+    expect(flipped[0].pick.estimatedProbability).toBeCloseTo(0.4, 10);
   });
 
   it("records the underdog's own model probability on a forced pick, which may be below 0.5", () => {
@@ -75,7 +83,7 @@ describe("applyUnderdogFloor", () => {
     expect(flippedIds).toEqual(["m0", "p0"]);
   });
 
-  it("breaks a tie in underdog price deterministically by fightId", () => {
+  it("breaks a tie in underdog edge deterministically by fightId", () => {
     const fights = [
       fight({ fightId: "f-b", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 3.0 } }),
       fight({ fightId: "f-a", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 3.0 } }),
@@ -86,83 +94,29 @@ describe("applyUnderdogFloor", () => {
     expect(flipped[0].fightId).toBe("f-a");
   });
 
-  describe("bet floor", () => {
-    it("never forces a bet into existence when INTERN placed no bets in the segment", () => {
-      const fights = [
-        fight({ fightId: "f0", segment: "main" }),
-        fight({ fightId: "f1", segment: "main", odds: { fighter1Price: 1.2, fighter2Price: 4.5 } }),
-      ];
-      const result = applyUnderdogFloor(fights);
-      expect(result.every((f) => f.bet.betFighterId === null && !f.bet.overridden)).toBe(true);
-    });
-
-    it("leaves bets alone when one already backs the underdog", () => {
-      const fights = [
-        fight({
-          fightId: "f0",
-          segment: "main",
-          bet: { betFighterId: "f0-fav", stakeUnits: 1.5 },
-        }),
-        fight({
-          fightId: "f1",
-          segment: "main",
-          odds: { fighter1Price: 1.2, fighter2Price: 4.5 },
-          bet: { betFighterId: "f1-dog", stakeUnits: 1 },
-        }),
-      ];
-      const result = applyUnderdogFloor(fights);
-      expect(result.every((f) => !f.bet.overridden)).toBe(true);
-    });
-
-    it("redirects the existing bet with the biggest underdog price onto the underdog, keeping the same stake", () => {
-      const fights = [
-        fight({
-          fightId: "f0",
-          segment: "main",
-          odds: { fighter1Price: 1.5, fighter2Price: 2.5 },
-          bet: { betFighterId: "f0-fav", stakeUnits: 1.5 },
-        }),
-        fight({
-          fightId: "f1",
-          segment: "main",
-          odds: { fighter1Price: 1.2, fighter2Price: 4.5 },
-          bet: { betFighterId: "f1-fav", stakeUnits: 2 },
-        }),
-        // No bet on this fight at all -- must never become a flip candidate.
-        fight({ fightId: "f2", segment: "main", odds: { fighter1Price: 1.1, fighter2Price: 8.0 } }),
-      ];
-      const result = applyUnderdogFloor(fights);
-      const flippedBet = result.find((f) => f.bet.overridden);
-      expect(flippedBet?.fightId).toBe("f1");
-      expect(flippedBet?.bet.betFighterId).toBe("f1-dog");
-      expect(flippedBet?.bet.stakeUnits).toBe(2);
-      expect(result.find((f) => f.fightId === "f2")?.bet.overridden).toBe(false);
-    });
-
-    it("is independent of the pick floor -- can flip a different fight's bet than the fight whose pick was flipped", () => {
-      const fights = [
-        // Biggest dog price overall -- pick floor flips this one.
-        fight({
-          fightId: "f0",
-          segment: "main",
-          odds: { fighter1Price: 1.1, fighter2Price: 9.0 },
-          bet: { betFighterId: null, stakeUnits: null },
-        }),
-        // Only fight with a real bet, on the favourite -- bet floor must flip THIS one.
-        fight({
-          fightId: "f1",
-          segment: "main",
-          odds: { fighter1Price: 1.5, fighter2Price: 2.5 },
-          bet: { betFighterId: "f1-fav", stakeUnits: 1 },
-        }),
-      ];
-      const result = applyUnderdogFloor(fights);
-      expect(result.find((f) => f.fightId === "f0")?.pick.overridden).toBe(true);
-      expect(result.find((f) => f.fightId === "f0")?.bet.overridden).toBe(false);
-      expect(result.find((f) => f.fightId === "f1")?.pick.overridden).toBe(false);
-      expect(result.find((f) => f.fightId === "f1")?.bet.overridden).toBe(true);
-      expect(result.find((f) => f.fightId === "f1")?.bet.betFighterId).toBe("f1-dog");
-    });
+  // Phase S2: the bet floor moved a stake sized for the favourite onto the
+  // underdog with no edge check at all. Removed -- underdog value now
+  // lives in the value-bet slips, and a bet only exists if its own gate fired.
+  it("never redirects a bet, even when a segment's only bet is on the favourite", () => {
+    const fights = [
+      fight({
+        fightId: "f0",
+        segment: "main",
+        odds: { fighter1Price: 1.5, fighter2Price: 2.5 },
+        bet: { betFighterId: "f0-fav", stakeUnits: 1.5 },
+      }),
+      fight({
+        fightId: "f1",
+        segment: "main",
+        odds: { fighter1Price: 1.2, fighter2Price: 4.5 },
+        bet: { betFighterId: "f1-fav", stakeUnits: 2 },
+      }),
+    ];
+    const result = applyUnderdogFloor(fights);
+    expect(result.map((f) => f.bet)).toEqual([
+      { betFighterId: "f0-fav", stakeUnits: 1.5 },
+      { betFighterId: "f1-fav", stakeUnits: 2 },
+    ]);
   });
 
   it("is a no-op on an empty card", () => {

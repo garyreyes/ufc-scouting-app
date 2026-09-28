@@ -1,3 +1,4 @@
+import type { ThreeWaySplit } from "./predictInternMethod";
 import type { RumourCategory } from "../rumours/types";
 
 export interface InternFighter {
@@ -63,6 +64,13 @@ export interface InternPickSignals {
   age: number;
   rawDelta: number;
   clampedDelta: number;
+  // Phase S: absent on every pick written before v2 existed -- a missing
+  // value means v1. signalWeight is the fraction of clampedDelta applied.
+  modelVersion?: "v1" | "v2";
+  signalWeight?: number;
+  // Phase T4: predictInternMethod's distribution for the FINAL pick, read by
+  // the slate job to price method legs.
+  methodDistribution?: ThreeWaySplit;
 }
 
 export interface InternPickDecision {

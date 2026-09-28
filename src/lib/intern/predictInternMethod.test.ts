@@ -201,4 +201,43 @@ describe("predictInternMethod -- real finish-split signal (both sides present)",
     const result = predictInternMethod(0.5452, "Heavyweight", despaigne, tuivasa);
     expect(result.note.toLowerCase()).toContain("ko");
   });
+
+  // Phase T2: the three scores this rule already compares always sum to 1,
+  // so they ARE a distribution over how the fight ends -- exposed for the
+  // slate's method legs rather than recomputed somewhere else.
+  describe("distribution", () => {
+    it("fallback path, even fight, middleweight: the pure base rates split by KO share 0.62", () => {
+      const { distribution } = predictInternMethod(0.5, "Middleweight");
+      expect(distribution.dec).toBeCloseTo(0.5, 10);
+      expect(distribution.ko).toBeCloseTo(0.31, 10);
+      expect(distribution.sub).toBeCloseTo(0.19, 10);
+    });
+
+    it("fallback path, 70% heavyweight favourite: 0.14 moves from decision into a 0.85-KO finish pool", () => {
+      const { distribution } = predictInternMethod(0.7, "Heavyweight");
+      expect(distribution.dec).toBeCloseTo(0.36, 10);
+      expect(distribution.ko).toBeCloseTo(0.544, 10);
+      expect(distribution.sub).toBeCloseTo(0.096, 10);
+    });
+
+    it("records path, Despaigne v Tuivasa at 54.52%: hand-computed from the shrunk splits", () => {
+      // finishPool = 0.5 + 0.0904 x 0.35 + 0.129941 = 0.661581
+      // koShareOfFinish = 0.35 x 0.85 + 0.65 x (0.94 + 0.64) / 2 = 0.811
+      const { distribution } = predictInternMethod(0.5452, "Heavyweight", despaigne, tuivasa);
+      expect(distribution.dec).toBeCloseTo(0.338419, 5);
+      expect(distribution.ko).toBeCloseTo(0.536542, 5);
+      expect(distribution.sub).toBeCloseTo(0.125039, 5);
+    });
+
+    it("always sums to 1", () => {
+      for (const p of [0.5, 0.62, 0.8, 0.97]) {
+        for (const wc of ["Heavyweight", "Lightweight", "Flyweight"]) {
+          for (const [a, b] of [[null, null], [despaigne, tuivasa], [jourdain, tuivasa]] as const) {
+            const { distribution: d } = predictInternMethod(p, wc, a, b);
+            expect(d.dec + d.ko + d.sub).toBeCloseTo(1, 10);
+          }
+        }
+      }
+    });
+  });
 });

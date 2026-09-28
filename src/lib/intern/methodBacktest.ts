@@ -1,5 +1,5 @@
 import { predictInternMethod } from "./predictInternMethod";
-import type { FinishSplit } from "./predictInternMethod";
+import type { FinishSplit, ThreeWaySplit } from "./predictInternMethod";
 import type { FightMethod } from "../scoring/fightMethod";
 
 // L5: replays real Sherdog history to check whether the finish-record
@@ -123,6 +123,8 @@ export interface BacktestCase {
   oldRule: FightMethod;
   newRule: FightMethod;
   bothSidesAvailable: boolean;
+  // Phase T2: the new rule's full distribution, for calibration.
+  newDistribution?: ThreeWaySplit;
 }
 
 // Held constant across every historical case: real market odds don't
@@ -151,6 +153,7 @@ export function buildBacktestCase(
     oldRule: oldRule.method,
     newRule: newRule.method,
     bothSidesAvailable: opponentSplit !== null,
+    newDistribution: newRule.distribution,
   };
 }
 
@@ -172,6 +175,8 @@ export interface MethodBacktestSummary {
   newRuleExactCalls: number;
   finishCallRate: number;
   finishHitRate: number; // among FINISH calls, fraction where actual was KO_TKO or SUBMISSION
+  // Phase T2: both-sides cases with a distribution only.
+  methodCalibration: { method: DecidableMethod; meanPredicted: number; actualRate: number }[];
 }
 
 export function summarizeBacktest(cases: BacktestCase[]): MethodBacktestSummary {
@@ -201,5 +206,23 @@ export function summarizeBacktest(cases: BacktestCase[]): MethodBacktestSummary 
     newRuleExactCalls: exactCalls.length,
     finishCallRate: rate(finishCalls.length, bothSides.length),
     finishHitRate: rate(finishHits.length, finishCalls.length),
+    methodCalibration: methodCalibration(bothSides),
   };
+}
+
+const DISTRIBUTION_KEY: Record<DecidableMethod, keyof ThreeWaySplit> = {
+  DECISION: "dec",
+  KO_TKO: "ko",
+  SUBMISSION: "sub",
+};
+
+function methodCalibration(cases: BacktestCase[]): MethodBacktestSummary["methodCalibration"] {
+  const withDistribution = cases.filter((c) => c.newDistribution !== undefined);
+  const n = withDistribution.length;
+  return (["DECISION", "KO_TKO", "SUBMISSION"] as const).map((method) => {
+    const key = DISTRIBUTION_KEY[method];
+    const predicted = withDistribution.reduce((sum, c) => sum + c.newDistribution![key], 0);
+    const hits = withDistribution.filter((c) => c.actual === method).length;
+    return { method, meanPredicted: n === 0 ? 0 : predicted / n, actualRate: n === 0 ? 0 : hits / n };
+  });
 }

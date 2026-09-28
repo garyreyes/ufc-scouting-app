@@ -12,6 +12,13 @@ on:
     - cron: "30 */2 * * *"
   workflow_dispatch: {}
 
+# The slate step deletes and re-inserts the card's open INTERN slips; two
+# overlapping runs must never interleave that swap (reviewer finding). Same
+# guard settle.yml/integrity.yml/sync.yml already use.
+concurrency:
+  group: intern
+  cancel-in-progress: false
+
 jobs:
   intern:
     runs-on: ubuntu-latest
@@ -31,6 +38,16 @@ jobs:
       # Recorded in job_runs as "intern_picks".
       - name: Generate intern picks
         run: npx tsx src/lib/intern/runScheduledInternJob.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # Phase T4: rebuilds the nearest card's INTERN slate (value singles,
+      # parlays, method legs) from the picks just written, against the
+      # Intern's own ₱10,000 paper bankroll. Frozen once the T-6h pick
+      # lock passes. Recorded in job_runs as "intern_slate".
+      - name: Generate intern slate
+        run: npx tsx src/lib/intern/slate/runScheduledInternSlateJob.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -5352,3 +5352,60 @@ follow `getScoreboardData`'s already-live-verified trust model exactly
 (session-aware client, `is_owner()`-gated tables, public-read
 `fights`/`fighters`), but worth a live smoke test once real settled
 slips and Intern picks overlap in production.
+
+## Phase S + T — recalibrated Intern (v2) and the Intern's own slate (2026-09-28)
+
+**Why.** Four settled cards showed INTERN v1 was worse than simply backing
+the market favourite: 28/49 vs 31/49 picks, Brier 0.237 vs 0.226, and bets at
+−34% ROI (underdogs ≥ 2.00 went 1W–10L). The owner also wanted the Intern to
+bet the way a real bettor does — a slate of slips per card on its own
+₱10,000 bankroll, on a separate tab.
+
+**Phase S (recalibration).**
+- `internModel.ts`: v2 applies 35% of the signal delta on top of the
+  de-vigged market, clamped [0.03, 0.97]; picks carry
+  `signals.modelVersion`.
+- `decideInternBetV2.ts`: bet only with ≥ 3 pts over market AND ≥ 3% EV,
+  price ≤ 3.50, confidence ≥ 2; quarter-Kelly stake on 100u, [0.25, 2]u.
+- Underdog bet-floor redirect removed (pick floor kept).
+- `npm run intern:backtest` (read-only): v2 matches the market's pick
+  accuracy on the 49 fights; the new bet rule alone takes v1's probabilities
+  from −34% to −3.4% ROI.
+- Scoreboard: "Intern" = v2, "Intern v1 (retired)" alongside.
+- Stale picks after an opponent swap: deleted on conflict resolution,
+  skipped by settlement (previously would have aborted the whole run).
+- `generateInternPicks --dry-run`.
+
+**Phase T (slate).**
+- Migration `0066` (applied + verified): ledger split by author with a
+  matching trigger, INTERN ₱10,000 opening deposit, `METHOD_PARLAY` /
+  `METHOD_SINGLE`, `generation_key`, `price_source`, `model_probability`.
+- Settlement stamps each ledger row with its slip's author; the owner's
+  journal list and bankroll read `author='USER'` only.
+- `predictInternMethod` exposes its method distribution; stored per pick.
+- `assembleInternSlate`: value singles, confident parlay, longshot
+  moneylines, method parlay, method single — ~10% of the current balance
+  per card, unfilled types unspent.
+- `generateInternSlate` job in `intern.yml`, rebuilt until T-6h then frozen;
+  owner-entered method prices carry over.
+- `/intern-slips` page with bankroll, this card's slate, per-type ROI,
+  bankroll curve and past cards; owner can replace an estimated method
+  price with the book's price before the lock.
+
+**Verified.** 1,320 tests, `tsc --noEmit`, `eslint`, `next build` all clean.
+Backtest, slate dry run and the stale-pick delete filter checked live
+against production (read-only). `reviewer` pass on Phase S found one real bug
+(stale bet fighter), fixed with a regression test. The Phase T pass found no
+money-math bugs but two slate-writer issues, both fixed: the delete-then-insert
+swap is now insert-then-swap (a mid-write failure leaves the old slate intact),
+and the unchanged-check sorts legs (DB embed order is not guaranteed). Also
+added a `concurrency` group to `intern.yml` and an explicit `author` on the
+cash-out ledger insert.
+
+- Underdog pick floor now flips the underdog with the most edge over the
+  market instead of the biggest price (owner-decided).
+- One-time: deleted the stale INTERN pick on Mickey Gall (Hernandez v Dumas)
+  from production, owner-approved; re-check found 0 stale picks remaining.
+
+**Not yet verified.** `/intern-slips` rendered with a real owner session;
+the first real slate (lands once UFC 332 is priced, ~T-12h).

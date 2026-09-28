@@ -67,7 +67,7 @@ export default async function ScoreboardPage() {
   // should show the moment it has one rather than waiting on the owner.
   // The pending summary still renders here so the page says what's
   // riding even when nothing has scored.
-  if (data.accuracy.me.total === 0 && data.accuracy.intern.total === 0) {
+  if (data.accuracy.me.total === 0 && data.accuracy.intern.total === 0 && data.accuracy.internV1.total === 0) {
     return (
       <div>
         <h1>Scoreboard</h1>
@@ -103,8 +103,18 @@ export default async function ScoreboardPage() {
       )}
 
       <div className={styles.boards}>
-        <UnitsBoard me={data.units.me} intern={data.units.intern} chalk={data.units.chalk} />
-        <AccuracyBoard me={data.accuracy.me} intern={data.accuracy.intern} chalk={data.accuracy.chalk} />
+        <UnitsBoard
+          me={data.units.me}
+          intern={data.units.intern}
+          internV1={data.units.internV1}
+          chalk={data.units.chalk}
+        />
+        <AccuracyBoard
+          me={data.accuracy.me}
+          intern={data.accuracy.intern}
+          internV1={data.accuracy.internV1}
+          chalk={data.accuracy.chalk}
+        />
       </div>
 
       <CalibrationTable me={data.calibration.me} intern={data.calibration.intern} brier={data.brier} />
