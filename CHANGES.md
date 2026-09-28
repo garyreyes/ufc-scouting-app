@@ -5402,5 +5402,10 @@ and the unchanged-check sorts legs (DB embed order is not guaranteed). Also
 added a `concurrency` group to `intern.yml` and an explicit `author` on the
 cash-out ledger insert.
 
+- Underdog pick floor now flips the underdog with the most edge over the
+  market instead of the biggest price (owner-decided).
+- One-time: deleted the stale INTERN pick on Mickey Gall (Hernandez v Dumas)
+  from production, owner-approved; re-check found 0 stale picks remaining.
+
 **Not yet verified.** `/intern-slips` rendered with a real owner session;
 the first real slate (lands once UFC 332 is priced, ~T-12h).

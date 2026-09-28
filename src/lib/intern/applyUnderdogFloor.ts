@@ -1,4 +1,6 @@
 import { determineFavorite } from "../scoring/determineFavorite";
+import { devigTwoWay } from "../scoring/devigTwoWay";
+import { probabilityForFighter } from "../scoring/probabilityForFighter";
 
 export interface FloorInput {
   fightId: string;
@@ -23,7 +25,9 @@ export interface FloorResult {
 interface PricedCandidate {
   input: FloorInput;
   underdogId: string;
-  underdogPrice: number;
+  // The Intern's own probability for the underdog minus the de-vigged
+  // market's, in probability points.
+  underdogEdge: number;
 }
 
 function pricedCandidatesFor(fights: FloorInput[]): PricedCandidate[] {
@@ -35,18 +39,24 @@ function pricedCandidatesFor(fights: FloorInput[]): PricedCandidate[] {
       fighter2_price: f.odds.fighter2Price,
     });
     const underdogId = favorite.favoriteId === f.fighter1Id ? f.fighter2Id : f.fighter1Id;
-    const underdogPrice = underdogId === f.fighter1Id ? f.odds.fighter1Price : f.odds.fighter2Price;
-    candidates.push({ input: f, underdogId, underdogPrice });
+    const market = devigTwoWay(f.odds.fighter1Price, f.odds.fighter2Price);
+    const marketDog = underdogId === f.fighter1Id ? market.prob1 : market.prob2;
+    const modelDog = probabilityForFighter(underdogId, f.pick.predictedFighterId, f.pick.estimatedProbability);
+    candidates.push({ input: f, underdogId, underdogEdge: modelDog - marketDog });
   }
   return candidates;
 }
 
-// Highest underdog price wins; ties break toward the lower fightId,
-// matching decideInternPick.ts's own deterministic tie-break convention.
-function biggestUnderdog(candidates: PricedCandidate[]): PricedCandidate {
+// Owner-decided 2026-09-28: the underdog the Intern rates furthest above
+// the market wins -- probability points, not EV, since EV scales with the
+// price and would drift straight back to the biggest longshot. It used to
+// be the biggest price, which is usually the dog the Intern rates WORST.
+// Ties break toward the lower fightId, matching decideInternPick.ts's own
+// deterministic tie-break convention.
+function mostEdgeUnderdog(candidates: PricedCandidate[]): PricedCandidate {
   return candidates.reduce((best, c) => {
-    if (c.underdogPrice > best.underdogPrice) return c;
-    if (c.underdogPrice === best.underdogPrice && c.input.fightId < best.input.fightId) return c;
+    if (c.underdogEdge > best.underdogEdge) return c;
+    if (c.underdogEdge === best.underdogEdge && c.input.fightId < best.input.fightId) return c;
     return best;
   });
 }
@@ -95,7 +105,7 @@ function applyPickFloor(segmentFights: FloorInput[], results: Map<string, FloorR
   const hasUnderdogPick = candidates.some((c) => c.input.pick.predictedFighterId === c.underdogId);
   if (hasUnderdogPick) return;
 
-  const flip = biggestUnderdog(candidates);
+  const flip = mostEdgeUnderdog(candidates);
   const flippedProbability = 1 - flip.input.pick.estimatedProbability;
   results.set(flip.input.fightId, {
     fightId: flip.input.fightId,

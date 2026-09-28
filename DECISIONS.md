@@ -1110,3 +1110,18 @@ guessed: the top method leg was a 93% favourite "by finish" estimated at
 and no confident parlay formed at all because prelim newcomers are capped at
 confidence 2 by their thin Elo history, even at 70%+. v2's probability is
 mostly the market's, so the 0.65 probability bar is the meaningful gate.
+
+---
+
+## 2026-09-28 — the underdog pick floor flips the most-edge underdog, not the biggest price
+
+**Decision.** When a card segment would otherwise sweep favourites, the
+forced underdog pick goes to the underdog the Intern rates furthest above the
+de-vigged market (its probability minus the market's), not the one with the
+biggest price. Owner-decided.
+
+**Why.** The biggest price is almost always the underdog the Intern rates
+*worst* relative to the market, so the floor spent its one forced pick on the
+least likely upset -- pure pick-accuracy cost now that the scoreboard is
+about accuracy. Probability points rather than EV, because EV scales with the
+price and would drift straight back to the longshot.

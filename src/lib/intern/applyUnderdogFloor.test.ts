@@ -29,17 +29,25 @@ describe("applyUnderdogFloor", () => {
     expect(result.every((f) => !f.pick.overridden)).toBe(true);
   });
 
-  it("flips exactly one pick in an all-favourite main card, choosing the biggest underdog price", () => {
+  // Owner-decided 2026-09-28: flip the underdog the Intern rates furthest
+  // ABOVE the market (probability points vs de-vigged odds), not the
+  // biggest price -- the biggest price is usually the dog it rates worst,
+  // which cost pick accuracy for nothing.
+  it("flips exactly one pick in an all-favourite main card, choosing the underdog with the most edge", () => {
     const fights = [
-      fight({ fightId: "f0", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 2.5 } }),
-      fight({ fightId: "f1", segment: "main", odds: { fighter1Price: 1.2, fighter2Price: 4.5 } }), // biggest dog price
-      fight({ fightId: "f2", segment: "main", odds: { fighter1Price: 1.8, fighter2Price: 2.0 } }),
+      // Market dog 0.375; Intern dog 0.40 -> +2.5 pts. The one to flip.
+      fight({ fightId: "f0", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 2.5 }, pick: { predictedFighterId: "f0-fav", estimatedProbability: 0.6, confidence: 3 } }),
+      // Biggest price, but market dog 0.2105 vs Intern 0.15 -> -6.1 pts.
+      fight({ fightId: "f1", segment: "main", odds: { fighter1Price: 1.2, fighter2Price: 4.5 }, pick: { predictedFighterId: "f1-fav", estimatedProbability: 0.85, confidence: 5 } }),
+      // Market dog 0.4737 vs Intern 0.45 -> -2.4 pts.
+      fight({ fightId: "f2", segment: "main", odds: { fighter1Price: 1.8, fighter2Price: 2.0 }, pick: { predictedFighterId: "f2-fav", estimatedProbability: 0.55, confidence: 2 } }),
     ];
     const result = applyUnderdogFloor(fights);
     const flipped = result.filter((f) => f.pick.overridden);
     expect(flipped).toHaveLength(1);
-    expect(flipped[0].fightId).toBe("f1");
-    expect(flipped[0].pick.predictedFighterId).toBe("f1-dog");
+    expect(flipped[0].fightId).toBe("f0");
+    expect(flipped[0].pick.predictedFighterId).toBe("f0-dog");
+    expect(flipped[0].pick.estimatedProbability).toBeCloseTo(0.4, 10);
   });
 
   it("records the underdog's own model probability on a forced pick, which may be below 0.5", () => {
@@ -75,7 +83,7 @@ describe("applyUnderdogFloor", () => {
     expect(flippedIds).toEqual(["m0", "p0"]);
   });
 
-  it("breaks a tie in underdog price deterministically by fightId", () => {
+  it("breaks a tie in underdog edge deterministically by fightId", () => {
     const fights = [
       fight({ fightId: "f-b", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 3.0 } }),
       fight({ fightId: "f-a", segment: "main", odds: { fighter1Price: 1.5, fighter2Price: 3.0 } }),
